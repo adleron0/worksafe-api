@@ -1,0 +1,12 @@
+model DOM_Ranks {
+  id          Int       @id @default(autoincrement())
+  name        String
+  color       String?
+  companyId   Int
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now()) @updatedAt
+  inactiveAt  DateTime?
+
+  customers   Customer[]
+}

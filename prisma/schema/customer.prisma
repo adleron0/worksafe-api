@@ -1,0 +1,32 @@
+model Customer {
+  id          Int       @id @default(autoincrement())
+  name        String
+  searchName  String?       @db.VarChar(255)
+  corporateName String
+  active      Boolean      @default(true)
+  companyId   Int
+  company     Company   @relation(fields: [companyId], references: [id])
+  cnpj        String
+  imageUrl    String?
+  description String?
+  rankId      Int
+  rank        DOM_Ranks @relation(fields: [rankId], references: [id])
+  phone       String
+  email       String
+  stateId     Int
+  state       DOM_States @relation(fields: [stateId], references: [id])
+  cityId      Int
+  city        DOM_Cities @relation(fields: [cityId], references: [id])
+  neighborhood String?
+  street      String?
+  number      String?
+  complement  String?
+  zipcode     String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now()) @updatedAt
+  inactiveAt  DateTime?
+
+  @@unique([cnpj, companyId]) // Garante que o email seja único dentro da mesma empresa
+
+  contacts    Customer_Contacts[]
+}

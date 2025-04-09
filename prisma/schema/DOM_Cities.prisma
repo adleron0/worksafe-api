@@ -1,0 +1,11 @@
+model DOM_Cities {
+  id          Int       @id @default(autoincrement())
+  name        String
+  stateId     Int
+  state       DOM_States @relation(fields: [stateId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now()) @updatedAt
+  inactiveAt  DateTime?
+
+  customers   Customer[]
+}

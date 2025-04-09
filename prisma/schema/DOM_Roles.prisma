@@ -1,0 +1,10 @@
+model DOM_Roles {
+  id          Int       @id @default(autoincrement())
+  name        String
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now()) @updatedAt
+  inactiveAt  DateTime?
+
+  contacts    Customer_Contacts[]
+}

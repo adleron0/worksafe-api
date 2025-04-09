@@ -1,0 +1,19 @@
+// Tabela de cadastros de Áreas/Zonas
+model Area {
+  id          Int       @id @default(autoincrement())
+  companyId   Int
+  company     Company   @relation(fields: [companyId], references: [id])
+  name        String    
+  imageUrl    String?
+  description String?
+
+  subarea     SubArea[] // Relacionamento com a tabela SubArea
+  confinedSpaces Confinus_ConfinedSpace[] // Relacionamento com a tabela ConfinusConfinedSpace
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now()) @updatedAt
+  inactiveAt  DateTime?
+
+  @@unique([name, companyId])
+  @@index([id, companyId])
+}

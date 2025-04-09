@@ -1,0 +1,14 @@
+// Tabela RolePermission (Relacionamento entre Roles e Permissions)
+model RolePermission {
+  id            Int       @id @default(autoincrement())
+  roleId        Int
+  permissionId  Int
+  role          Role      @relation(fields: [roleId], references: [id])
+  permission    Permission @relation(fields: [permissionId], references: [id])
+
+  @@unique([roleId, permissionId])  // Garante que a permissão seja única por role
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @default(now()) @updatedAt
+  inactiveAt    DateTime?
+}

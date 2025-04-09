@@ -1,0 +1,12 @@
+// Tabela Permission
+model Permission {
+  id          Int               @id @default(autoincrement())
+  name        String            @unique
+  description String?
+  group       String?
+  
+  rolePermissions RolePermission[]  // Relacionamento com RolePermission
+  userPermissions UserPermission[]  // Relacionamento com UserPermission
+
+  createdAt   DateTime          @default(now())
+}

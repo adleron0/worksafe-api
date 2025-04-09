@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "System_Logs" ALTER COLUMN "column" DROP NOT NULL,
+ALTER COLUMN "oldValue" DROP NOT NULL;

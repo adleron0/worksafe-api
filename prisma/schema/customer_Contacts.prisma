@@ -1,0 +1,13 @@
+model Customer_Contacts {
+  id          Int       @id @default(autoincrement())
+  customerId  Int
+  roleId      Int
+  role        DOM_Roles @relation(fields: [roleId], references: [id])
+  customer    Customer  @relation(fields: [customerId], references: [id])
+  name        String
+  email       String
+  phone       String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now()) @updatedAt
+  inactiveAt  DateTime?
+}

@@ -1,0 +1,14 @@
+// Tabela UserPermission (Relacionamento entre Users e Permissions)
+model UserPermission {
+  id            Int       @id @default(autoincrement())
+  userId        Int
+  permissionId  Int
+  user          User      @relation(fields: [userId], references: [id])
+  permission    Permission @relation(fields: [permissionId], references: [id])
+
+  @@unique([userId, permissionId])  // Garante que a permissão seja única por usuário
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @default(now()) @updatedAt
+  inactiveAt    DateTime?
+}

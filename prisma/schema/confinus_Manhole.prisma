@@ -1,0 +1,17 @@
+model Confinus_Manhole {
+  id          Int       @id @default(autoincrement())
+  confinedSpaceId Int
+  confinedSpace Confinus_ConfinedSpace @relation(fields: [confinedSpaceId], references: [id])
+  compnyId    Int
+  compny      Company   @relation(fields: [compnyId], references: [id])
+  imageUrl    String?
+  positioning String? // top, leftSide, bottom
+  dimensions  String? // 500x500
+  shape       String? // circle, square
+
+  accessEquipments AccessEquipment[] // Relacionamento com AccessEquipment
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now()) @updatedAt
+  inactiveAt  DateTime?
+}

@@ -1,0 +1,102 @@
+import {
+  CanActivate,
+  ExecutionContext,
+  Injectable,
+  UnauthorizedException,
+  ForbiddenException,
+} from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { Request } from 'express';
+import { Reflector } from '@nestjs/core';
+import { IS_PUBLIC_KEY } from './decorators/public.decorator';
+import { PERMISSIONS_KEY } from './decorators/permissions.decorator';
+import { decryptPayload } from 'src/utils/crypto';
+import { ROLES_KEY } from './decorators/roles.decorator';
+
+const accessTokenSecret = process.env.JWT_ACCESS_SECRET;
+
+@Injectable()
+export class AuthGuard implements CanActivate {
+  constructor(
+    private jwtService: JwtService,
+    private reflector: Reflector,
+  ) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    // Verifica se a rota é pública
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isPublic) {
+      return true;
+    }
+
+    const request = context.switchToHttp().getRequest<Request>();
+    const token = this.extractTokenFromHeader(request);
+    if (!token) {
+      throw new UnauthorizedException('Token não encontrado');
+    }
+
+    let payload: any;
+    try {
+      payload = await this.jwtService.verifyAsync(token, {
+        secret: accessTokenSecret,
+      });
+      payload = decryptPayload(payload.data);
+      request['user'] = payload;
+    } catch {
+      throw new UnauthorizedException('Token inválido');
+    }
+
+    // Verifica as permissões
+    const requiredPermissions = this.reflector.getAllAndOverride<string[]>(
+      PERMISSIONS_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+
+    if (requiredPermissions) {
+      const userPermissions = payload.permissions || [];
+      const hasPermission = requiredPermissions.every((permission) =>
+        userPermissions.includes(permission),
+      );
+
+      if (!hasPermission) {
+        throw new ForbiddenException('Acesso negado: Permissões insuficientes');
+      }
+    }
+
+    // Verifica as roles exigidas
+    const requiredRoles = this.reflector.getAllAndOverride<string[]>(
+      ROLES_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+
+    if (requiredRoles) {
+      const userRole = payload.role;
+      const hasRole = requiredRoles.includes(userRole);
+
+      if (!hasRole) {
+        throw new ForbiddenException(
+          'Acesso negado: Apenas Admins podem acessar',
+        );
+      }
+    }
+
+    // Opcional: passa o companyId do payload para o request
+    request['companyId'] = payload.companyId;
+
+    // Opcional: passa o role do payload para o request
+    request['role'] = payload.role;
+
+    return true;
+  }
+
+  private extractTokenFromHeader(request: Request): string | undefined {
+    const authHeader = request.headers.authorization;
+    if (!authHeader) return undefined;
+
+    const [type, token] = authHeader.split(' ');
+    return type === 'Bearer' ? token : undefined;
+  }
+}

@@ -1,0 +1,11 @@
+model DOM_States {
+  id          Int       @id @default(autoincrement())
+  uf          String
+  name        String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now()) @updatedAt
+  inactiveAt  DateTime?
+
+  citys       DOM_Cities[]
+  customers   Customer[]
+}

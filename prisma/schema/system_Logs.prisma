@@ -1,0 +1,15 @@
+model System_Logs {
+  id          Int       @id @default(autoincrement())
+  companyId   Int
+  company     Company   @relation(fields: [companyId], references: [id])
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id])
+  action      String
+  entity      String
+  entityId    Int
+  column      String?
+  oldValue    String?
+  newValue    String
+  ipAddress    String?
+  createdAt   DateTime  @default(now())
+}

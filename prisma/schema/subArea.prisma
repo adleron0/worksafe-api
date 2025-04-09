@@ -1,0 +1,16 @@
+// Tabela de sessão de área
+model SubArea {
+  id          Int       @id @default(autoincrement())
+  areaId      Int
+  area        Area   @relation(fields: [areaId], references: [id])
+  name        String
+
+  confinedSpaces Confinus_ConfinedSpace[] // Relacionamento com a tabela ConfinusConfinedSpace
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now()) @updatedAt
+  inactiveAt  DateTime?
+
+  @@unique([name, areaId])
+  @@index([id, areaId])
+}

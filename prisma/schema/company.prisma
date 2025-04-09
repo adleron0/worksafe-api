@@ -1,0 +1,32 @@
+// Tabela Company
+model Company {
+  id                 Int       @id @default(autoincrement())
+  active             Boolean   @default(true)  // Novo campo booleano para status de ativo/inativo
+  comercial_name     String
+  corporate_name     String
+  cnpj               String    @unique
+  region             String
+  state              String
+  representative_email String
+  segment            String
+
+  users              User[]    // Relacionamento com a tabela User
+  Area               Area[]    // Relacionamento com a tabela Area
+  products           CompanyProduct[] // Relacionamento com a tabela Product
+  severity           Confinus_DOM_SeverityDefinition[] // Relacionamento com a tabela Severity
+  equipaments        DOM_Equipaments[] // Relacionamento com a tabela Equipaments
+  accessEquipments   AccessEquipment[] // Relacionamento com a tabela AccessEquipments
+  confinusDomCategories Confinus_DOM_Categories[] // Relacionamento com a tabela ConfinusDOMCategories
+  confinusDomClassifiedZone Confinus_DOM_ClassifiedZone[] // Relacionamento com a tabela ConfinusDOMClassifiedZone
+  confinusDomConstructionMaterial DOM_ConstructionMaterial[] // Relacionamento com a tabela ConfinusDOMConstructionMaterial
+  confinusConfinedSpace Confinus_ConfinedSpace[] // Relacionamento com a tabela ConfinusConfinedSpace
+  confinusManhole Confinus_Manhole[] // Relacionamento com a tabela ConfinusManhole
+  confinusAuxiliaryImages Confinus_AuxiliaryImages[] // Relacionamento com a tabela ConfinusAuxiliaryImages
+  systemLogs System_Logs[] // Relacionamento com a tabela System_Logs
+  customers Customer[] // Relacionamento com a tabela Customer
+
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @default(now()) @updatedAt
+  inactiveAt         DateTime?
+
+}

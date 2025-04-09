@@ -1,0 +1,14 @@
+// Tabela Session
+model Session {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  expires       DateTime
+  sessionToken  String
+  user          User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, sessionToken])
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
+  inactiveAt    DateTime?
+}

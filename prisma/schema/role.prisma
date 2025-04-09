@@ -1,0 +1,12 @@
+// Tabela Role
+model Role {
+  id       Int       @id @default(autoincrement())
+  name     String    @unique
+
+  users    User[]
+  permissions RolePermission[]  // Relacionamento com RolePermission
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+}

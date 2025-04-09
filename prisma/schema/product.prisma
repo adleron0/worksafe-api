@@ -1,0 +1,12 @@
+// Tabela Product
+model Product {
+  id            Int       @id @default(autoincrement())
+  name          String
+  groupPermission     String?
+
+  companies     CompanyProduct[]  // Relacionamento com CompanyProduct
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @default(now()) @updatedAt
+  inactiveAt    DateTime?
+}
