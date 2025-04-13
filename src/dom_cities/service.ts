@@ -89,9 +89,9 @@ export class DomCitiesService {
       }
 
       // Aplicando os filtros adicionais corretamente
-      // params.where = {
-      //   companyId: Number(filters.companyId),
-      // };
+      params.where = {
+        // companyId: Number(filters.companyId),
+      };
 
       if (filters.name) {
         params.where.name = {
@@ -104,7 +104,7 @@ export class DomCitiesService {
         params.where.cpf = { equals: filters.cpf, mode: 'insensitive' };
       }
       if (filters.active) params.where.active = filters.active === 'true';
-      if (filters.roleId) params.where.roleId = Number(filters.roleId);
+      if (filters.stateId) params.where.stateId = Number(filters.stateId);
 
       if (filters?.createdAt?.length === 1) {
         params.where.createdAt = new Date(filters.createdAt[0]);
@@ -137,6 +137,7 @@ export class DomCitiesService {
       // Retornando a lista de usuários e a contagem total
       return result;
     } catch (error) {
+      console.log(error);
       throw new BadRequestException(error);
     }
   }
