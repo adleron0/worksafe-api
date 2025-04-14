@@ -65,10 +65,16 @@ export class CustomerController extends GenericController<
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async create(
     @Req() request: Request,
-    @Body() UpdateDto: UpdateDto,
+    @Body() CreateDto: CreateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
-    return super.create(request, UpdateDto, file);
+    const search = {
+      cnpj_companyId: {
+        cnpj: CreateDto.cnpj,
+        companyId: Number(CreateDto.companyId),
+      },
+    }
+    return super.create(request, CreateDto, file, search);
   }
 
   // Rota intermediária para validação de permissão

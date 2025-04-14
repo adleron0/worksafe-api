@@ -32,12 +32,17 @@ type logParams = {
 };
 
 export interface ICrudService<T> {
-  get(entity: entity, options?: any): Promise<{ total: number; rows: any[] }>;
+  get(
+    entity: entity, 
+    options?: any,
+    noCompany?: boolean,
+  ): Promise<{ total: number; rows: any[] }>;
   create(
     data: any,
     logParams: logParams,
     entity: entity,
     file?: Express.MulterS3.File,
+    searchVerify?: any,
   ): Promise<T>;
   update(
     id: number,
@@ -75,6 +80,7 @@ export class GenericController<
   async get(
     @Req() request: Request,
     @Query() query: any,
+    noCompany = false,
   ): Promise<{ total: number; rows: TEntity[] }> {
     const { sub: userId, companyId } = request.user;
     const { startedAt, endedAt, show, self } = query;
@@ -112,7 +118,7 @@ export class GenericController<
       filters.userId = userId;
     }
 
-    return this.service.get(filters, this.entity);
+    return this.service.get(filters, this.entity, noCompany);
   }
 
   @Post()
@@ -120,6 +126,7 @@ export class GenericController<
     @Req() request: Request,
     @Body() dto: TCreateDto,
     @UploadedFile() file?: Express.MulterS3.File,
+    searchVerify?: any,
   ): Promise<TEntity> {
     const { sub: userId, companyId } = request.user;
     const logParams = {
@@ -137,7 +144,8 @@ export class GenericController<
         return;
       dto[key] = ifNumberParseNumber(dto[key]);
     });
-    return this.service.create(dto, logParams, this.entity, file);
+    const search = searchVerify || {};
+    return this.service.create(dto, logParams, this.entity, file, search);
   }
 
   @Put(':id')

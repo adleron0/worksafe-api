@@ -18,6 +18,7 @@ export class AuthService {
   ) {}
 
   async login(user: any, response: any) {
+    console.log("🚀 ~ AuthService ~ login ~ user:", user)
     const { email, password, cnpj } = user;
     const result = await this.usersService.findOneUser(email, cnpj);
 
