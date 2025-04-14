@@ -263,10 +263,7 @@ export class UserService {
     }
   }
 
-  async findOneUser(
-    email: string,
-    cnpj: string,
-  ): Promise<IEntity | null> {
+  async findOneUser(email: string, cnpj: string): Promise<IEntity | null> {
     const user = await this.prisma.user.findFirst({
       where: {
         email: email,
