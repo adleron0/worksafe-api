@@ -8,6 +8,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { UploadService } from '../upload/upload.service';
 // utils specific imports
 import { normalizeTerm } from 'src/utils/normalizeTerm';
+import { ifNumberParseNumber } from 'src/utils/ifNumberParseNumber';
 
 type logParams = {
   userId: string;
@@ -22,11 +23,7 @@ type entity = {
 };
 
 @Injectable()
-export class GenericService<
-  TCreateDto,
-  TUpdateDto,
-  TEntity,
-> {
+export class GenericService<TCreateDto, TUpdateDto, TEntity> {
   constructor(
     private prisma: PrismaService,
     private uploadService: UploadService,
@@ -96,7 +93,7 @@ export class GenericService<
 
       // Filtros adicionais
       for (const filter of Object.keys(filters)) {
-        params.where[filter] = filters[filter];
+        params.where[filter] = ifNumberParseNumber(filters[filter]);
       }
 
       // Deleta Específicos
@@ -109,7 +106,7 @@ export class GenericService<
       delete params.where.self;
       delete params.where.show;
       delete params.where.createdAt;
-      Object.keys(params.where).forEach(key => {
+      Object.keys(params.where).forEach((key) => {
         if (key.startsWith('order-')) {
           delete params.where[key];
         }
@@ -155,11 +152,7 @@ export class GenericService<
 
       let result;
       if (filters.all) {
-        result = await this.prisma.select(
-          entity.model,
-          params,
-          orderBy,
-        );
+        result = await this.prisma.select(entity.model, params, orderBy);
       } else {
         result = await this.prisma.selectPaging(
           entity.model,

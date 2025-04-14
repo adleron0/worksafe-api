@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { GenericService } from 'src/generic/generic.service';
 // entity template imports
 import { IEntity } from './interfaces/interface';

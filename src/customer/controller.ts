@@ -73,7 +73,7 @@ export class CustomerController extends GenericController<
         cnpj: CreateDto.cnpj,
         companyId: Number(CreateDto.companyId),
       },
-    }
+    };
     return super.create(request, CreateDto, file, search);
   }
 

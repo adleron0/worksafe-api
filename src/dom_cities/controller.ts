@@ -55,7 +55,7 @@ export class DomCitiesController extends GenericController<
   // @UserPermission(`list_${entity.permission}`) // Permissão para rota genérica
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
-    return super.get(request, query);
+    return super.get(request, query, true);
   }
 
   // Rota intermediária para validação de permissão
@@ -65,10 +65,10 @@ export class DomCitiesController extends GenericController<
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async create(
     @Req() request: Request,
-    @Body() UpdateDto: UpdateDto,
+    @Body() CreateDto: CreateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
-    return super.create(request, UpdateDto, file);
+    return super.create(request, CreateDto, file);
   }
 
   // Rota intermediária para validação de permissão
