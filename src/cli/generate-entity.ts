@@ -25,9 +25,42 @@ if (!entityNameArg) {
   process.exit(1);
 }
 
+function toPascalCase(entityName) {
+  if (entityName.includes('_')) {
+    // Se houver underscore, divide a string em partes, capitaliza cada uma e junta sem separadores
+    return entityName
+      .split('_')
+      .map(
+        (word: string) =>
+          word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
+      )
+      .join('');
+  } else {
+    // Se não houver underscore, apenas transforma a primeira letra em maiúscula
+    return entityName.charAt(0).toUpperCase() + entityName.slice(1);
+  }
+}
+
+function capitalizeFirstLetterEachWork(entityName) {
+  if (entityName.includes('_')) {
+    // Se houver underscore, divide a string em partes, capitaliza cada uma e junta sem separadores
+    return entityName
+      .split('_')
+      .map(
+        (word: string) =>
+          word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
+      )
+      .join('_');
+  } else {
+    // Se não houver underscore, apenas transforma a primeira letra em maiúscula
+    return entityName.charAt(0).toUpperCase() + entityName.slice(1);
+  }
+}
+
 // Format entity name
 const entityName = entityNameArg.toLowerCase();
-const entityNamePascal = entityName.charAt(0).toUpperCase() + entityName.slice(1);
+const entityNamePascal = toPascalCase(entityName);
+const entityNameCapitalized = capitalizeFirstLetterEachWork(entityName);
 const entityNamePlural = entityName + 's'; // Simple pluralization, might need to be more sophisticated
 
 // Create directory structure
@@ -266,7 +299,7 @@ updateDtoContent += `}
 
 // Generate interface.ts
 const interfaceContent = `import {
-  ${entityNamePascal} as Prisma,
+  ${entityNameCapitalized} as Prisma,
 } from '@prisma/client';
 
 // Extender a interface do Prisma
