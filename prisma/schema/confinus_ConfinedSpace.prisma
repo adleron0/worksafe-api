@@ -6,10 +6,10 @@ model Confinus_ConfinedSpace {
   area        Area   @relation(fields: [areaId], references: [id])
   subAreaId   Int?
   subArea     SubArea?   @relation(fields: [subAreaId], references: [id])
-  tag         String?
-  mainCoverPhotoUrl String?
+  tag         String?     @db.VarChar(100)
+  mainCoverPhotoUrl String?   @db.VarChar(255)
   equipamentSerialNumber Int?
-  equipmentDescription String?
+  equipmentDescription String?  @db.VarChar(255)
   environment String? // ambiante intern ou externo
   cetegoryId  Int
   cetegory    Confinus_DOM_Categories @relation(fields: [cetegoryId], references: [id])
@@ -22,11 +22,11 @@ model Confinus_ConfinedSpace {
   length      Decimal
   diameter    Decimal
   volume      Decimal
-  storedMaterial String?
-  physicalState String?
+  storedMaterial String?   @db.VarChar(255)
+  physicalState String?    @db.VarChar(255)
   classifiedZoneId Int
   classifiedZone Confinus_DOM_ClassifiedZone @relation(fields: [classifiedZoneId], references: [id])
-  flammableAgent String?
+  flammableAgent String?   @db.VarChar(255)
   registeredByUserId     Int
   registeredByUser       User     @relation("RegisteredByUser", fields: [registeredByUserId], references: [id])
   approvedByUserId       Int

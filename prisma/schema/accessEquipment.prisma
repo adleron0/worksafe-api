@@ -8,7 +8,7 @@ model AccessEquipment {
   manHole     Confinus_Manhole @relation(fields: [manHoleId], references: [id])
   confinedSpaceId Int
   confinedSpace Confinus_ConfinedSpace @relation(fields: [confinedSpaceId], references: [id])
-  name        String
+  name        String     @db.VarChar(255)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @default(now()) @updatedAt
   inactiveAt  DateTime?

@@ -1,13 +1,13 @@
 model User {
   id          Int          @id @default(autoincrement())
-  name        String
+  name        String        @db.VarChar(255)
   searchName  String?       @db.VarChar(255)
   active      Boolean      @default(true)
-  email       String
-  password    String
-  imageUrl    String?
-  phone       String
-  cpf         String
+  email       String      @db.VarChar(255)
+  password    String      @db.VarChar(255)
+  imageUrl    String?      @db.VarChar(255)
+  phone       String      @db.VarChar(255)
+  cpf         String      @db.VarChar(20)
   companyId   Int?
   company     Company?     @relation(fields: [companyId], references: [id])
   roleId      Int?

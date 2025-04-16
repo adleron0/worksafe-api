@@ -4,12 +4,12 @@ model System_Logs {
   company     Company   @relation(fields: [companyId], references: [id])
   userId      Int
   user        User      @relation(fields: [userId], references: [id])
-  action      String
-  entity      String
+  action      String    @db.VarChar(255)
+  entity      String    @db.VarChar(255)
   entityId    Int
-  column      String?
+  column      String?   @db.VarChar(255)
   oldValue    String?
   newValue    String
-  ipAddress    String?
+  ipAddress    String?    @db.VarChar(255)
   createdAt   DateTime  @default(now())
 }

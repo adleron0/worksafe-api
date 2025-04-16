@@ -45,6 +45,23 @@ async function seedProducts() {
 }
 
 // --------------------------------------------------------------------------------
+async function seedRanks() {
+  const productsData = [
+    { name: 'Bronze', color: null, companyId: 1 },
+    { name: 'Prata', color: null, companyId: 1 },
+    { name: 'Ouro', color: null, companyId: 1 },
+  ];
+
+  for (const product of productsData) {
+    await prisma.dOM_Ranks.create({
+      data: product,
+    });
+  }
+
+  console.log('Seed da tabela Ranks executado com sucesso!');
+}
+
+// --------------------------------------------------------------------------------
 async function seedCompanyProducts() {
   // Busca todos os produtos cadastrados
   const products = await prisma.product.findMany();
@@ -231,6 +248,7 @@ async function seedRolePermissions() {
 async function main() {
   await seedCompanies();
   await seedProducts();
+  await seedRanks();
   await seedCompanyProducts();
   await seedRoles();
   await seedUsers();

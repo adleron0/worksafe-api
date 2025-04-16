@@ -3,7 +3,7 @@ model SubArea {
   id          Int       @id @default(autoincrement())
   areaId      Int
   area        Area   @relation(fields: [areaId], references: [id])
-  name        String
+  name        String    @db.VarChar(255)
 
   confinedSpaces Confinus_ConfinedSpace[] // Relacionamento com a tabela ConfinusConfinedSpace
 

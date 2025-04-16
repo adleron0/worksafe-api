@@ -1,7 +1,7 @@
 model DOM_Ranks {
   id          Int       @id @default(autoincrement())
-  name        String
-  color       String?
+  name        String    @db.VarChar(255)
+  color       String?   @db.VarChar(255)
   companyId   Int
 
   createdAt   DateTime  @default(now())

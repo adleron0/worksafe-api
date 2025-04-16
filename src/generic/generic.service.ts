@@ -38,12 +38,12 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
   ): Promise<TEntity> {
     try {
       // Sempre ajuste a busca do verify do create, ela é personalizada por entidade
-      const verifyUserCompany = await this.prisma.select(entity.model, {
+      const verifyUserCompany = await this.prisma.selectFirst(entity.model, {
         where: {
           ...searchVerify,
         },
       });
-      if (verifyUserCompany.length) {
+      if (verifyUserCompany) {
         throw new BadRequestException(`${entity.name} já cadastrado`);
       }
 

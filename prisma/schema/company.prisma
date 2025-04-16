@@ -2,13 +2,13 @@
 model Company {
   id                 Int       @id @default(autoincrement())
   active             Boolean   @default(true)  // Novo campo booleano para status de ativo/inativo
-  comercial_name     String
-  corporate_name     String
-  cnpj               String    @unique
-  region             String
-  state              String
-  representative_email String
-  segment            String
+  comercial_name     String    @db.VarChar(255) 
+  corporate_name     String    @db.VarChar(255)
+  cnpj               String    @db.VarChar(14) @unique
+  region             String    @db.VarChar(255)
+  state              String    @db.VarChar(255)
+  representative_email String    @db.VarChar(255)
+  segment            String    @db.VarChar(255)
 
   users              User[]    // Relacionamento com a tabela User
   Area               Area[]    // Relacionamento com a tabela Area

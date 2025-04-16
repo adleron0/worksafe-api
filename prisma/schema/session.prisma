@@ -3,7 +3,7 @@ model Session {
   id            Int      @id @default(autoincrement())
   userId        Int
   expires       DateTime
-  sessionToken  String
+  sessionToken  String    @db.VarChar(255)
   user          User     @relation(fields: [userId], references: [id])
 
   @@unique([userId, sessionToken])

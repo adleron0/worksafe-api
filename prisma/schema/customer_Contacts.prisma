@@ -6,9 +6,9 @@ model Customer_Contacts {
   company     Company   @relation(fields: [companyId], references: [id])
   role        DOM_Roles @relation(fields: [roleId], references: [id])
   customer    Customer  @relation(fields: [customerId], references: [id])
-  name        String
-  email       String
-  phone       String
+  name        String    @db.VarChar(255)
+  email       String    @db.VarChar(255)
+  phone       String    @db.VarChar(255)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @default(now()) @updatedAt
   inactiveAt  DateTime?

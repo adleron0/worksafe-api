@@ -2,8 +2,8 @@
 model Permission {
   id          Int               @id @default(autoincrement())
   name        String            @unique
-  description String?
-  group       String?
+  description String?           @db.VarChar(255)
+  group       String?           @db.VarChar(255)
   
   rolePermissions RolePermission[]  // Relacionamento com RolePermission
   userPermissions UserPermission[]  // Relacionamento com UserPermission

@@ -14,6 +14,7 @@ export class PrismaService
 {
   private methods = {
     findUnique: 'findUnique',
+    findFirst: 'findFirst',
     findMany: 'findMany',
     create: 'create',
     createMany: 'createMany',
@@ -55,6 +56,21 @@ export class PrismaService
    */
   async selectOne<Model extends keyof PrismaClient>(model: Model, params: any) {
     return this[model][this.methods.findUnique]({
+      ...params,
+    });
+  }
+
+  /**
+   * selectFirst: Retorna o primeiro objeto com os dados do banco
+   * @param model Model do prisma
+   * @param params Parametros para a consulta
+   * @returns Objeto com os dados do banco
+   */
+  async selectFirst<Model extends keyof PrismaClient>(
+    model: Model,
+    params: any,
+  ) {
+    return this[model][this.methods.findFirst]({
       ...params,
     });
   }

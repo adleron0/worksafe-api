@@ -4,10 +4,10 @@ model Confinus_Manhole {
   confinedSpace Confinus_ConfinedSpace @relation(fields: [confinedSpaceId], references: [id])
   compnyId    Int
   compny      Company   @relation(fields: [compnyId], references: [id])
-  imageUrl    String?
-  positioning String? // top, leftSide, bottom
-  dimensions  String? // 500x500
-  shape       String? // circle, square
+  imageUrl    String?   @db.VarChar(255)
+  positioning String?   @db.VarChar(255)
+  dimensions  String?   @db.VarChar(255)
+  shape       String?   @db.VarChar(255)
 
   accessEquipments AccessEquipment[] // Relacionamento com AccessEquipment
 

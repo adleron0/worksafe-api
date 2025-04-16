@@ -4,8 +4,8 @@ model Confinus_AuxiliaryImages {
   compny    Company   @relation(fields: [compnyId], references: [id])
   confinedSpaceId Int
   confinedSpace Confinus_ConfinedSpace @relation(fields: [confinedSpaceId], references: [id])
-  imageUrl  String?
-  description String?
+  imageUrl  String?   @db.VarChar(255)
+  description String?   @db.VarChar(255)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @default(now()) @updatedAt
   inactiveAt  DateTime?
