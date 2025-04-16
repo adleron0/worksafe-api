@@ -67,9 +67,9 @@ export class PrismaService
    * @returns Array com os dados do banco
    */
   async select<Model extends keyof PrismaClient>(
-    model: Model, 
-    params: any, 
-    orderBy = [{ id: 'desc' }]
+    model: Model,
+    params: any,
+    orderBy = [{ id: 'desc' }],
   ) {
     const result = await this[model][this.methods.findMany]({
       orderBy,

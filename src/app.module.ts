@@ -14,6 +14,7 @@ import { DomRanksModule } from './dom_ranks/module';
 import { DomCitiesModule } from './dom_cities/module';
 import { DomStatesModule } from './dom_states/module';
 import { CustomerContactsModule } from './customer_contacts/module';
+import { DomRolesModule } from './dom_roles/module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { CustomerContactsModule } from './customer_contacts/module';
     DomCitiesModule,
     DomStatesModule,
     CustomerContactsModule,
+    DomRolesModule,
   ],
   controllers: [],
   providers: [

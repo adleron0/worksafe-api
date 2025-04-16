@@ -15,13 +15,13 @@ import {
   applyDecorators,
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import e, { Request } from 'express';
+import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 // Import entity template
 import { CreateDto } from './dto/create.dto';
 import { UpdateDto } from './dto/update.dto';
 import { IEntity } from './interfaces/interface';
-import { CustomerContactsService as Service } from './service';
+import { DomRolesService as Service } from './service';
 // Import utils specifics
 import { FileInterceptor } from '@nestjs/platform-express';
 import { getMulterOptions } from '../upload/upload.middleware';
@@ -34,14 +34,14 @@ function UserPermission(permission: string) {
 }
 
 const entity = {
-  model: 'customer_Contacts' as keyof PrismaClient,
-  name: 'CustomerContacts',
-  route: 'customer-contacts',
-  permission: 'clientes',
+  model: 'dOM_Roles' as keyof PrismaClient,
+  name: 'DomRoles',
+  route: 'roles',
+  permission: 'domRoles',
 };
 
 @Controller(entity.route)
-export class CustomerContactsController extends GenericController<
+export class DomRolesController extends GenericController<
   CreateDto,
   UpdateDto,
   IEntity,
@@ -52,7 +52,7 @@ export class CustomerContactsController extends GenericController<
   }
 
   // Rota intermediária para validação de permissão
-  @UserPermission(`list_${entity.permission}`) // Permissão para rota genérica
+  // @UserPermission(`list_${entity.permission}`) // Permissão para rota genérica
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
     return super.get(request, query, true);
@@ -62,7 +62,7 @@ export class CustomerContactsController extends GenericController<
   @UserPermission(`create_${entity.permission}`) // Permissão para rota genérica
   @Post()
   @UseInterceptors(
-    FileInterceptor('image', getMulterOptions('customer_contacts-image')),
+    FileInterceptor('image', getMulterOptions('dom_roles-image')),
   )
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async create(
@@ -70,9 +70,7 @@ export class CustomerContactsController extends GenericController<
     @Body() CreateDto: CreateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
-    const search = {
-      email: CreateDto.email,
-    }; // Customize search parameters if needed
+    const search = {}; // Customize search parameters if needed
     return super.create(request, CreateDto, file, search);
   }
 
@@ -80,7 +78,7 @@ export class CustomerContactsController extends GenericController<
   @UserPermission(`update_${entity.permission}`) // Permissão para rota genérica
   @Put(':id')
   @UseInterceptors(
-    FileInterceptor('image', getMulterOptions('customer_contacts-image')),
+    FileInterceptor('image', getMulterOptions('dom_roles-image')),
   )
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async update(
