@@ -1,5 +1,4 @@
 import { PrismaClient } from '@prisma/client';
-import { permission } from 'process';
 const prisma = new PrismaClient();
 
 // --------------------------------------------------------------------------------
@@ -46,19 +45,36 @@ async function seedProducts() {
 
 // --------------------------------------------------------------------------------
 async function seedRanks() {
-  const productsData = [
+  const ranksData = [
     { name: 'Bronze', color: null, companyId: 1 },
     { name: 'Prata', color: null, companyId: 1 },
     { name: 'Ouro', color: null, companyId: 1 },
   ];
 
-  for (const product of productsData) {
+  for (const rank of ranksData) {
     await prisma.dOM_Ranks.create({
-      data: product,
+      data: rank,
     });
   }
 
-  console.log('Seed da tabela Ranks executado com sucesso!');
+  console.log('Seed da tabela DOM Ranks executado com sucesso!');
+}
+
+// --------------------------------------------------------------------------------
+async function seedDomRoles() {
+  const rolesData = [
+    { name: 'Gerencia' },
+    { name: 'Segurança do Trabalho' },
+    { name: 'Financeiro' },
+  ];
+
+  for (const roles of rolesData) {
+    await prisma.dOM_Roles.create({
+      data: roles,
+    });
+  }
+
+  console.log('Seed da tabela DOM Roles executado com sucesso!');
 }
 
 // --------------------------------------------------------------------------------
@@ -249,6 +265,7 @@ async function main() {
   await seedCompanies();
   await seedProducts();
   await seedRanks();
+  await seedDomRoles();
   await seedCompanyProducts();
   await seedRoles();
   await seedUsers();

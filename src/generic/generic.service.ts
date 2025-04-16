@@ -100,6 +100,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       delete params.where.includesToShow;
       delete params.where.page;
       delete params.where.limit;
+      delete params.where.active;
       delete params.where.orderBy;
       delete params.where.all;
       delete params.where.companyId;
@@ -129,7 +130,13 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
           mode: 'insensitive',
         };
       }
-      if (filters.active) params.where.active = filters.active === 'true';
+      if (filters.active === 'true') {
+        // quero só os ativos → inactiveAt IS NULL
+        params.where.inactiveAt = null;
+      } else if (filters.active === 'false') {
+        // quero só os inativos → inactiveAt IS NOT NULL
+        params.where.inactiveAt = { not: null };
+      }
       if (filters?.createdAt?.length === 1) {
         params.where.createdAt = new Date(filters.createdAt[0]);
       } else if (filters?.createdAt?.length === 2) {
