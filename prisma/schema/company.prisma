@@ -24,6 +24,7 @@ model Company {
   confinusAuxiliaryImages Confinus_AuxiliaryImages[] // Relacionamento com a tabela ConfinusAuxiliaryImages
   systemLogs System_Logs[] // Relacionamento com a tabela System_Logs
   customers Customer[] // Relacionamento com a tabela Customer
+  customerContacts Customer_Contacts[] // Relacionamento com a tabela Customer_Contacts
 
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @default(now()) @updatedAt

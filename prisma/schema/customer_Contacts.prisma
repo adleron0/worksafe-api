@@ -1,7 +1,9 @@
 model Customer_Contacts {
   id          Int       @id @default(autoincrement())
+  companyId   Int
   customerId  Int
   roleId      Int
+  company     Company   @relation(fields: [companyId], references: [id])
   role        DOM_Roles @relation(fields: [roleId], references: [id])
   customer    Customer  @relation(fields: [customerId], references: [id])
   name        String
