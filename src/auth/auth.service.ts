@@ -18,7 +18,6 @@ export class AuthService {
   ) {}
 
   async login(user: any, response: any) {
-    console.log("🚀 ~ AuthService ~ login ~ user:", user)
     const { email, password, cnpj } = user;
     const result = await this.usersService.findOneUser(email, cnpj);
 
@@ -102,7 +101,7 @@ export class AuthService {
             domain: 'localhost',
           }
         : {
-            domain: 'safetystart.com.br',
+            domain: 'worksafebrasil.com.br',
           }),
     });
 
