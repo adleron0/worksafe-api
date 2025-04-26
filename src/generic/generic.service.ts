@@ -7,6 +7,7 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { UploadService } from '../upload/upload.service';
 // utils specific imports
+import { hash } from 'bcrypt';
 import { normalizeTerm } from 'src/utils/normalizeTerm';
 import { ifNumberParseNumber } from 'src/utils/ifNumberParseNumber';
 
@@ -25,7 +26,7 @@ type entity = {
 @Injectable()
 export class GenericService<TCreateDto, TUpdateDto, TEntity> {
   constructor(
-    private prisma: PrismaService,
+    protected prisma: PrismaService,
     private uploadService: UploadService,
   ) {}
 
@@ -38,18 +39,25 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
   ): Promise<TEntity> {
     try {
       // Sempre ajuste a busca do verify do create, ela é personalizada por entidade
-      const verifyUserCompany = await this.prisma.selectFirst(entity.model, {
+      const verify = await this.prisma.selectFirst(entity.model, {
         where: {
           ...searchVerify,
         },
       });
-      if (verifyUserCompany) {
+      if (verify) {
         throw new BadRequestException(`${entity.name} já cadastrado`);
       }
 
       // Se houver file, define a URL da imageUrl
       if (file) {
         dto['imageUrl'] = file.location;
+      }
+
+      // Se `dto.password` existir, criptografa-a
+      if (dto['password']) {
+        const saltRounds = 10;
+        const passwordHashed = await hash(dto['password'], saltRounds);
+        dto['password'] = passwordHashed;
       }
 
       const created = await this.prisma.insert(
@@ -88,12 +96,28 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
         }
       }
 
+      // Excluindo atributos
+      params.omit = {};
+
+      if (filters.omitAttributes) {
+        for (const attribute of filters.omitAttributes) {
+          params.omit[attribute] = true;
+        }
+      }
+
       // Aplicando os filtros adicionais corretamente
       params.where = {};
 
       // Filtros adicionais
       for (const filter of Object.keys(filters)) {
-        params.where[filter] = ifNumberParseNumber(filters[filter]);
+        if (filters[filter].length > 0 && filters[filter].includes(',')) {
+          const array = filters[filter]
+            .split(',')
+            .map((item) => ifNumberParseNumber(item));
+          params.where[filter] = { in: array };
+        } else {
+          params.where[filter] = ifNumberParseNumber(filters[filter]);
+        }
       }
 
       // Deleta Específicos
@@ -106,7 +130,10 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       delete params.where.companyId;
       delete params.where.self;
       delete params.where.show;
+      delete params.where.startedAt;
+      delete params.where.endedAt;
       delete params.where.createdAt;
+      delete params.where.omitAttributes;
       Object.keys(params.where).forEach((key) => {
         if (key.startsWith('order-')) {
           delete params.where[key];
@@ -173,6 +200,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       // Retornando a lista de usuários e a contagem total
       return result;
     } catch (error) {
+      console.log("🚀 ~ GenericService<TCreateDto, ~ error:", error)
       throw new BadRequestException(error);
     }
   }
@@ -207,6 +235,13 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       if (!dto['imageUrl'] && !file && verifyExist.imageUrl) {
         await this.uploadService.deleteImageFromS3(verifyExist.imageUrl);
         dto['imageUrl'] = null;
+      }
+
+      // Se houver uma nova senha, criptografa-a
+      if (dto['password']) {
+        const saltRounds = 10;
+        const passwordHashed = await hash(dto['password'], saltRounds);
+        dto['password'] = passwordHashed;
       }
 
       const updated = await this.prisma.update(

@@ -68,9 +68,10 @@ export class CustomerController extends GenericController<
     @Body() CreateDto: CreateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
+    const { companyId } = request.user;
     const search = {
       cnpj: CreateDto.cnpj,
-      companyId: Number(CreateDto.companyId),
+      companyId: Number(companyId),
     };
     return super.create(request, CreateDto, file, search);
   }

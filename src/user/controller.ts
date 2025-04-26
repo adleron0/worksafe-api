@@ -55,12 +55,14 @@ export class UserController extends GenericController<
   @UserPermission(`list_${entity.permission}`) // Permissão para rota genérica
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
+    query.omitAttributes = ['password'];
     return super.get(request, query);
   }
 
   @Get('self')
   async getSelf(@Req() request: Request, @Query() query: any) {
     query.self = 'true';
+    query.omitAttributes = ['password'];
     return super.get(request, query);
   }
 
@@ -71,10 +73,15 @@ export class UserController extends GenericController<
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async create(
     @Req() request: Request,
-    @Body() UpdateDto: UpdateDto,
+    @Body() CreateDto: CreateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
-    return super.create(request, UpdateDto, file);
+    const { companyId } = request.user;
+    const search = {
+      email: CreateDto.email,
+      companyId: Number(companyId),
+    };
+    return super.create(request, CreateDto, file, search);
   }
 
   @Put('self')

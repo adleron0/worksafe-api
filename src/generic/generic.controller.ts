@@ -33,7 +33,7 @@ type logParams = {
 
 export interface ICrudService<T> {
   get(
-    entity: entity, 
+    entity: entity,
     options?: any,
     noCompany?: boolean,
   ): Promise<{ total: number; rows: any[] }>;
@@ -115,7 +115,7 @@ export class GenericController<
 
     // Filtro para pesquisa de perfil
     if (self === 'true') {
-      filters.userId = userId;
+      filters.id = userId;
     }
 
     return this.service.get(filters, this.entity, noCompany);

@@ -34,11 +34,6 @@ export class CreateDto {
 
   @IsInt()
   @Type(() => Number)
-  @IsNotEmpty({ message: 'Company ID is required' })
-  companyId: number;
-
-  @IsInt()
-  @Type(() => Number)
   @IsNotEmpty({ message: 'Role ID is required' })
   roleId: number;
 

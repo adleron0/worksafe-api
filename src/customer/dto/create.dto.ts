@@ -17,11 +17,6 @@ export class CreateDto {
   @IsNotEmpty({ message: 'Corporate name is required' })
   corporateName: string;
 
-  @IsInt()
-  @Type(() => Number)
-  @IsNotEmpty({ message: 'Company ID is required' })
-  companyId: number;
-
   @IsString()
   @IsNotEmpty({ message: 'CNPJ is required' })
   cnpj: string;

@@ -1,7 +1,19 @@
-import { IsEmail, IsString, IsInt, IsOptional, IsUrl } from 'class-validator';
+import {
+  IsEmail,
+  IsString,
+  IsInt,
+  IsOptional,
+  IsUrl,
+  IsBoolean,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class UpdateDto {
+  @IsInt()
+  @Type(() => Number)
+  @IsOptional()
+  id: number;
+
   @IsString()
   @IsOptional()
   name: string;
@@ -9,6 +21,10 @@ export class UpdateDto {
   @IsString()
   @IsOptional()
   corporateName: string;
+
+  @IsBoolean()
+  @IsOptional()
+  active: boolean;
 
   @IsInt()
   @Type(() => Number)
@@ -62,6 +78,7 @@ export class UpdateDto {
   street: string;
 
   @IsInt()
+  @Type(() => Number)
   @IsOptional()
   number: number;
 
