@@ -70,7 +70,9 @@ export class ServicesController extends GenericController<
     @Body() CreateDto: CreateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
-    const search = {}; // Customize search parameters if needed
+    const search = {
+      name: CreateDto.name,
+    }; // Customize search parameters if needed
     return super.create(request, CreateDto, file, search);
   }
 
