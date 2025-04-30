@@ -15,6 +15,7 @@ import { DomCitiesModule } from './dom_cities/module';
 import { DomStatesModule } from './dom_states/module';
 import { CustomerContactsModule } from './customer_contacts/module';
 import { DomRolesModule } from './dom_roles/module';
+import { ServicesModule } from './services/module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { DomRolesModule } from './dom_roles/module';
     DomStatesModule,
     CustomerContactsModule,
     DomRolesModule,
+    ServicesModule,
   ],
   controllers: [],
   providers: [

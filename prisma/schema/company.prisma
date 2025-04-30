@@ -25,6 +25,7 @@ model Company {
   systemLogs System_Logs[] // Relacionamento com a tabela System_Logs
   customers Customer[] // Relacionamento com a tabela Customer
   customerContacts Customer_Contacts[] // Relacionamento com a tabela Customer_Contacts
+  services Site_Services[] // Relacionamento com a tabela Site_Services
 
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @default(now()) @updatedAt
