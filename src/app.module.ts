@@ -15,7 +15,7 @@ import { DomCitiesModule } from './dom_cities/module';
 import { DomStatesModule } from './dom_states/module';
 import { CustomerContactsModule } from './customer_contacts/module';
 import { DomRolesModule } from './dom_roles/module';
-import { ServicesModule } from './services/module';
+import { ServicesModule } from './site_services/module';
 
 @Module({
   imports: [

@@ -110,7 +110,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
 
       // Filtros adicionais
       for (const filter of Object.keys(filters)) {
-        if (filters[filter].length > 0 && filters[filter].includes(',')) {
+        if (filters[filter]?.length > 0 && filters[filter].includes(',')) {
           const array = filters[filter]
             .split(',')
             .map((item) => ifNumberParseNumber(item));

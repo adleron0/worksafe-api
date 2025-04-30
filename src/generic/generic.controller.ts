@@ -82,7 +82,12 @@ export class GenericController<
     @Query() query: any,
     noCompany = false,
   ): Promise<{ total: number; rows: TEntity[] }> {
-    const { sub: userId, companyId } = request.user;
+    let userId = null;
+    let companyId = null;
+    if (request.user) {
+      userId = request.user.sub;
+      companyId = request.user.companyId;
+    }
     const { startedAt, endedAt, show, self } = query;
 
     // Parsea o parâmetro `show` para um array
