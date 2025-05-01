@@ -93,6 +93,7 @@ export class SiteProductsController extends GenericController<
   ) {
     if (!UpdateDto.price) UpdateDto.price = null;
     if (!UpdateDto.oldPrice) UpdateDto.oldPrice = null;
+    if (!UpdateDto.featured) UpdateDto.featured = false;
     return super.update(id, request, UpdateDto, file);
   }
 
