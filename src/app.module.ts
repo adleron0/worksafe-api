@@ -16,6 +16,7 @@ import { DomStatesModule } from './dom_states/module';
 import { CustomerContactsModule } from './customer_contacts/module';
 import { DomRolesModule } from './dom_roles/module';
 import { ServicesModule } from './site_services/module';
+import { SiteProductsModule } from './site_products/module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { ServicesModule } from './site_services/module';
     CustomerContactsModule,
     DomRolesModule,
     ServicesModule,
+    SiteProductsModule,
   ],
   controllers: [],
   providers: [

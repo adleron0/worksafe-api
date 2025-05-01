@@ -5,6 +5,11 @@ export class UpdateDto {
   @IsInt()
   @Type(() => Number)
   @IsOptional()
+  id: number;
+
+  @IsInt()
+  @Type(() => Number)
+  @IsOptional()
   companyId: number;
 
   @IsBoolean()

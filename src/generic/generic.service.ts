@@ -70,6 +70,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
 
       return created;
     } catch (error) {
+      console.log("🚀 ~ GenericService<TCreateDto, ~ error:", error)
       throw new BadRequestException(error);
     }
   }
