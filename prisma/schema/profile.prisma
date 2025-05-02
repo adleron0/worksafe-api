@@ -1,10 +1,11 @@
-// Tabela Role
-model Role {
+// Tabela Profile
+model Profile {
   id       Int       @id @default(autoincrement())
-  name     String    @unique
+  name     String    @db.VarChar(100) @unique
+  companyId Int?
 
   users    User[]
-  permissions RolePermission[]  // Relacionamento com RolePermission
+  permissions ProfilePermission[]  // Relacionamento com ProfilePermission
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @default(now()) @updatedAt

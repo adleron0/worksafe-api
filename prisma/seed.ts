@@ -102,16 +102,20 @@ async function seedCompanyProducts() {
 }
 
 // --------------------------------------------------------------------------------
-async function seedRoles() {
-  const rolesData = [{ name: 'admin' }, { name: 'manager' }, { name: 'user' }];
+async function seedProfiles() {
+  const profilesData = [
+    { name: 'admin', companyId: 1 },
+    { name: 'manager', companyId: 1 },
+    { name: 'user', companyId: 1 },
+  ];
 
-  for (const role of rolesData) {
-    await prisma.role.create({
-      data: role,
+  for (const profile of profilesData) {
+    await prisma.profile.create({
+      data: profile,
     });
   }
 
-  console.log('Seed da tabela Role executado com sucesso!');
+  console.log('Seed da tabela Profile executado com sucesso!');
 }
 
 // --------------------------------------------------------------------------------
@@ -126,7 +130,7 @@ async function seedUsers() {
       phone: '81996764688',
       cpf: '11622612426',
       companyId: 1,
-      roleId: 1,
+      profileId: 1,
     },
   ];
 
@@ -219,6 +223,12 @@ async function seedPermissions() {
       permissionsData.push({ name: permissionName, description, group });
     }
   }
+  //permissao personalizada para password
+  permissionsData.push({
+    name: 'update_user_password',
+    description: 'Alterar senha de usuário',
+    group: 'user',
+  });
 
   // Inserção das permissões no banco de dados
   for (const permission of permissionsData) {
@@ -231,7 +241,7 @@ async function seedPermissions() {
 }
 
 // --------------------------------------------------------------------------------
-async function seedRolePermissions() {
+async function seedProfilePermissions() {
   // Busca todas as permissões cujo nome termina com '_user'
   const userPermissions = await prisma.permission.findMany({
     where: {
@@ -247,30 +257,43 @@ async function seedRolePermissions() {
     );
   }
 
-  // Associa cada permissão encontrada à role com id 1
+  // Associa cada permissão encontrada à profile com id 1
   for (const permission of userPermissions) {
-    await prisma.rolePermission.create({
+    await prisma.profilePermission.create({
       data: {
-        roleId: 1, // Role para a qual será atribuída a permissão
+        profileId: 1, // Profile para a qual será atribuída a permissão
         permissionId: permission.id,
       },
     });
   }
 
-  console.log('Seed da tabela RolePermission executado com sucesso!');
+  console.log('Seed da tabela ProfilePermission executado com sucesso!');
 }
+
+// objeto de configuraçao para definir quais seeds vao rodar
+const seedConfig = {
+  companies: false,
+  products: false,
+  ranks: false,
+  domRoles: false,
+  companyProducts: false,
+  profiles: false,
+  users: false,
+  permissions: false,
+  profilePermissions: true,
+};
 
 // Executa as Seeds ----------------------------------------------------------------
 async function main() {
-  await seedCompanies();
-  await seedProducts();
-  await seedRanks();
-  await seedDomRoles();
-  await seedCompanyProducts();
-  await seedRoles();
-  await seedUsers();
-  await seedPermissions();
-  await seedRolePermissions();
+  if (seedConfig.companies) await seedCompanies();
+  if (seedConfig.products) await seedProducts();
+  if (seedConfig.ranks) await seedRanks();
+  if (seedConfig.domRoles) await seedDomRoles();
+  if (seedConfig.companyProducts) await seedCompanyProducts();
+  if (seedConfig.profiles) await seedProfiles();
+  if (seedConfig.users) await seedUsers();
+  if (seedConfig.permissions) await seedPermissions();
+  if (seedConfig.profilePermissions) await seedProfilePermissions();
 }
 
 main()

@@ -5,7 +5,7 @@ model Permission {
   description String?           @db.VarChar(255)
   group       String?           @db.VarChar(255)
   
-  rolePermissions RolePermission[]  // Relacionamento com RolePermission
+  profilePermissions ProfilePermission[]  // Relacionamento com ProfilePermission
   userPermissions UserPermission[]  // Relacionamento com UserPermission
 
   createdAt   DateTime          @default(now())

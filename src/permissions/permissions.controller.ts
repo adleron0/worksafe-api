@@ -1,6 +1,6 @@
 import { Controller, Get, Patch, Param, Req } from '@nestjs/common';
 import { PermissionsService } from './permissions.service';
-import { Roles } from 'src/auth/decorators/roles.decorator';
+import { Profiles } from 'src/auth/decorators/profiles.decorator';
 import { Request } from 'express';
 
 @Controller('permissions')
@@ -8,7 +8,7 @@ export class PermissionsController {
   constructor(private readonly service: PermissionsService) {}
 
   @Get('list')
-  @Roles('admin')
+  @Profiles('admin')
   async getAllPermissions(@Req() request: Request) {
     const companyId = request.companyId;
     const allPermissions = await this.service.getAllPermissions(companyId);
@@ -16,7 +16,7 @@ export class PermissionsController {
   }
 
   @Patch('active/:userId/:permissionId')
-  @Roles('admin')
+  @Profiles('admin')
   activeUserPermission(
     @Param('userId') userId: string,
     @Param('permissionId') permissionId: string,
@@ -36,7 +36,7 @@ export class PermissionsController {
   }
 
   @Patch('inactive/:userId/:permissionId')
-  @Roles('admin')
+  @Profiles('admin')
   inactiveUserPermission(
     @Param('userId') userId: string,
     @Param('permissionId') permissionId: string,

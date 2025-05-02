@@ -11,7 +11,7 @@ import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from './decorators/public.decorator';
 import { PERMISSIONS_KEY } from './decorators/permissions.decorator';
 import { decryptPayload } from 'src/utils/crypto';
-import { ROLES_KEY } from './decorators/roles.decorator';
+import { PROFILE_KEY } from './decorators/profiles.decorator';
 
 const accessTokenSecret = process.env.JWT_ACCESS_SECRET;
 
@@ -66,19 +66,19 @@ export class AuthGuard implements CanActivate {
       }
     }
 
-    // Verifica as roles exigidas
-    const requiredRoles = this.reflector.getAllAndOverride<string[]>(
-      ROLES_KEY,
+    // Verifica os perfis exigidos
+    const requiredProfiles = this.reflector.getAllAndOverride<string[]>(
+      PROFILE_KEY,
       [context.getHandler(), context.getClass()],
     );
 
-    if (requiredRoles) {
-      const userRole = payload.role;
-      const hasRole = requiredRoles.includes(userRole);
+    if (requiredProfiles) {
+      const userProfile = payload.profile;
+      const hasProfile = requiredProfiles.includes(userProfile);
 
-      if (!hasRole) {
+      if (!hasProfile) {
         throw new ForbiddenException(
-          'Acesso negado: Apenas Admins podem acessar',
+          `Acesso negado: Perfil ${userProfile} não autorizado`,
         );
       }
     }
@@ -86,8 +86,8 @@ export class AuthGuard implements CanActivate {
     // Opcional: passa o companyId do payload para o request
     request['companyId'] = payload.companyId;
 
-    // Opcional: passa o role do payload para o request
-    request['role'] = payload.role;
+    // Opcional: passa o profile do payload para o request
+    request['profile'] = payload.profile;
 
     return true;
   }

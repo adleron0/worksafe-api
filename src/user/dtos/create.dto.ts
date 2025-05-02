@@ -35,7 +35,7 @@ export class CreateDto {
   @IsInt()
   @Type(() => Number)
   @IsNotEmpty({ message: 'Role ID is required' })
-  roleId: number;
+  profileId: number;
 
   @IsUrl({}, { message: 'Invalid URL format for image' })
   @IsOptional() // Não é obrigatório
