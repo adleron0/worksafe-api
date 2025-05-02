@@ -1,9 +1,9 @@
 import {
   User as PrismaUser,
-  Role,
+  Profile,
   Permission,
   UserPermission,
-  RolePermission,
+  ProfilePermission,
   Company,
   CompanyProduct,
   Product,
@@ -11,14 +11,14 @@ import {
 
 // Extender a interface IEntity do Prisma
 export interface IEntity extends PrismaUser {
-  role?: RoleWithPermissions;
+  profile?: ProfileWithPermissions;
   permissions?: UserPermissionWithPermission[];
   company?: CompanyWithProducts;
 }
 
 // Tipos auxiliares
-type RoleWithPermissions = Role & {
-  permissions: (RolePermission & {
+type ProfileWithPermissions = Profile & {
+  permissions: (ProfilePermission & {
     permission: Permission;
   })[];
 };

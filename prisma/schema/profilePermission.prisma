@@ -1,0 +1,14 @@
+// Tabela ProfilePermission (Relacionamento entre Profiles e Permissions)
+model ProfilePermission {
+  id            Int       @id @default(autoincrement())
+  profileId     Int
+  permissionId  Int
+  profile          Profile      @relation(fields: [profileId], references: [id])
+  permission    Permission @relation(fields: [permissionId], references: [id])
+
+  @@unique([profileId, permissionId])  // Garante que a permissão seja única por Profile
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @default(now()) @updatedAt
+  inactiveAt    DateTime?
+}

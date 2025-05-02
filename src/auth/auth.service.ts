@@ -33,8 +33,8 @@ export class AuthService {
       throw new UnauthorizedException('Dados de acesso incorretos!');
     }
 
-    // Verificar se o usuário tem uma role associada
-    if (!result.role) {
+    // Verificar se o usuário tem uma profile associada
+    if (!result.profile) {
       throw new UnauthorizedException('Usuário sem permissão para acessar!');
     }
 
@@ -47,20 +47,20 @@ export class AuthService {
     const products = result.company.products;
     const productNames = products.map((p) => p.product.name);
 
-    // Obter a Role do usuário
-    const userRole = result.role;
+    // Obter a Profile do usuário
+    const userProfile = result.profile;
 
     // Obter as permissões individuais do usuário
     const userPermissions =
       result.permissions?.map((up) => up.permission.name) || [];
 
-    // Obter as permissões da Role
-    const rolePermissions =
-      userRole.permissions?.map((rp) => rp.permission.name) || [];
+    // Obter as permissões da Profile
+    const profilePermissions =
+      userProfile.permissions?.map((rp) => rp.permission.name) || [];
 
     // Combinar as permissões e remover duplicadas
     const allPermissions = [
-      ...new Set([...userPermissions, ...rolePermissions]),
+      ...new Set([...userPermissions, ...profilePermissions]),
     ];
 
     // Montar o payload do token
@@ -70,7 +70,7 @@ export class AuthService {
       sub: result.id,
       companyId: result.companyId,
       products: productNames,
-      role: userRole.name,
+      profile: userProfile.name,
       permissions: allPermissions,
     };
 
@@ -167,7 +167,7 @@ export class AuthService {
         include: {
           user: {
             include: {
-              role: {
+              profile: {
                 include: {
                   permissions: {
                     include: {
@@ -217,8 +217,8 @@ export class AuthService {
 
       const user = refreshTokenResult.user;
 
-      // Verificar se o usuário tem uma role associada
-      if (!user.role) {
+      // Verificar se o usuário tem uma profile associada
+      if (!user.profile) {
         throw new UnauthorizedException('Usuário sem permissão para acessar!');
       }
 
@@ -226,20 +226,20 @@ export class AuthService {
       const products = user.company.products;
       const productNames = products.map((p) => p.product.name);
 
-      // Obter a role do usuário
-      const userRole = user.role;
+      // Obter a Profile do usuário
+      const userProfile = user.profile;
 
       // Obter as permissões individuais do usuário
       const userPermissions =
         user.permissions?.map((up) => up.permission.name) || [];
 
-      // Obter as permissões da role
-      const rolePermissions =
-        userRole.permissions?.map((rp) => rp.permission.name) || [];
+      // Obter as permissões da profile
+      const profilePermissions =
+        userProfile.permissions?.map((rp) => rp.permission.name) || [];
 
       // Combinar as permissões e remover duplicadas
       const allPermissions = [
-        ...new Set([...userPermissions, ...rolePermissions]),
+        ...new Set([...userPermissions, ...profilePermissions]),
       ];
 
       // Montar o payload do token
@@ -249,7 +249,7 @@ export class AuthService {
         imageUrl: user.imageUrl,
         companyId: user.companyId,
         products: productNames,
-        role: userRole.name,
+        profile: userProfile.name,
         permissions: allPermissions,
       };
 

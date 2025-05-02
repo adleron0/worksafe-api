@@ -21,7 +21,7 @@ export class UserService extends GenericService<CreateDto, UpdateDto, IEntity> {
         },
       },
       include: {
-        role: {
+        profile: {
           include: {
             permissions: {
               where: {

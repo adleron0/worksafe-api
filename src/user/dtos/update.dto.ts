@@ -36,7 +36,7 @@ export class UpdateDto {
 
   @IsString()
   @IsOptional()
-  roleId: number;
+  profileId: number;
 
   @IsUrl({}, { message: 'Invalid URL format for image' })
   @IsOptional()
