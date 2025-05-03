@@ -70,7 +70,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
 
       return created;
     } catch (error) {
-      console.log("🚀 ~ GenericService<TCreateDto, ~ error:", error)
+      console.log('🚀 ~ GenericService<TCreateDto, ~ error:', error);
       throw new BadRequestException(error);
     }
   }
@@ -78,13 +78,11 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
   async get(
     filters: any,
     entity: entity,
+    paramsIncludes = {},
     noCompany = false,
   ): Promise<{ total: number; rows: TEntity[] }> {
     try {
       const params: any = {};
-
-      // Aplicando os includes
-      const paramsIncludes = {};
 
       params.include = {};
       if (filters.includesToShow.length) {
@@ -116,6 +114,10 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
             .split(',')
             .map((item) => ifNumberParseNumber(item));
           params.where[filter] = { in: array };
+        } else if (filter.includes('not-')) {
+          params.where[filter.split('-')[1]] = {
+            not: ifNumberParseNumber(filters[filter]),
+          };
         } else {
           params.where[filter] = ifNumberParseNumber(filters[filter]);
         }
@@ -137,6 +139,11 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       delete params.where.omitAttributes;
       Object.keys(params.where).forEach((key) => {
         if (key.startsWith('order-')) {
+          delete params.where[key];
+        }
+      });
+      Object.keys(params.where).forEach((key) => {
+        if (key.startsWith('not-')) {
           delete params.where[key];
         }
       });
@@ -201,7 +208,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       // Retornando a lista de usuários e a contagem total
       return result;
     } catch (error) {
-      console.log("🚀 ~ GenericService<TCreateDto, ~ error:", error)
+      console.log('🚀 ~ GenericService<TCreateDto, ~ error:', error);
       throw new BadRequestException(error);
     }
   }

@@ -351,6 +351,7 @@ export class PrismaService
         ...params,
       });
 
+      let result;
       if (soft) {
         const formDeteleteData = {};
         if (Object.keys(oldValues).includes('inactiveAt'))
@@ -362,7 +363,7 @@ export class PrismaService
         if (Object.keys(oldValues).includes('status'))
           formDeteleteData['status'] = false;
 
-        const result = await use[model][this.methods.update]({
+        result = await use[model][this.methods.update]({
           ...params,
           data: { ...formDeteleteData },
         });
@@ -381,7 +382,7 @@ export class PrismaService
           });
         }
       } else {
-        const result = await use[model][this.methods.delete]({
+        result = await use[model][this.methods.delete]({
           ...params,
         });
         if (result) {
@@ -399,7 +400,9 @@ export class PrismaService
           });
         }
       }
+      return result;
     } catch (error) {
+      console.log('🚀 ~ error:', error);
       throw new BadRequestException(error);
     }
   }

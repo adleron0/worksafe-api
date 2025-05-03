@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env ts-node
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -13,14 +13,15 @@ const fields = args
     const [name, type, required] = arg.replace('--field=', '').split(':');
     return { name, type, required: required === 'required' };
   });
+console.log('Parsed fields:', args);
 
 if (!entityNameArg) {
   console.error('Please provide an entity name');
   console.log(
-    'Usage: npx ts-node generate-entity.ts <entityName> [--has-image] [--field=name:type:required]',
+    'Usage: npm run gen:entity -- <entityName> [--has-image] [--field=name:type:required]',
   );
   console.log(
-    'Example: npx ts-node generate-entity.ts product --has-image --field=name:string:required --field=price:number:required',
+    'Example: npm run gen:entity -- product --has-image --field=name:string:required --field=price:number:required',
   );
   process.exit(1);
 }
@@ -153,7 +154,10 @@ export class ${entityNamePascal}Controller extends GenericController<
   @UserPermission(\`list_\${entity.permission}\`) // Permissão para rota genérica
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
-    return super.get(request, query);
+    const noCompany = false; // quando a rota não exige buscar companyId pelo token
+    // filtros e atributos de associações
+    const paramsIncludes = {};
+    return super.get(request, query, paramsIncludes, noCompany);
   }
 
   // Rota intermediária para validação de permissão
@@ -229,17 +233,70 @@ import {
 } from 'class-validator';
 
 export class CreateDto {
-  @IsInt()
-  @Type(() => Number)
-  @IsNotEmpty({ message: 'Company ID is required' })
-  companyId: number;
-
-  // Add your fields here
-  // Example:
-  // @IsString()
-  // @IsNotEmpty({ message: 'Name is required' })
-  // name: string;
+  
 `;
+
+// Add fields from command line arguments
+fields.forEach((field) => {
+  const decorators = [];
+
+  // Type decorator
+  switch (field.type) {
+    case 'string':
+      decorators.push('@IsString()');
+      break;
+    case 'number':
+    case 'int':
+      decorators.push('@IsInt()');
+      decorators.push('@Type(() => Number)');
+      break;
+    case 'float':
+      decorators.push('@IsNumber()');
+      decorators.push('@Type(() => Number)');
+      break;
+    case 'boolean':
+      decorators.push('@IsBoolean()');
+      decorators.push('@Type(() => Boolean)');
+      break;
+    case 'date':
+      decorators.push('@IsDate()');
+      decorators.push('@Type(() => Date)');
+      break;
+    case 'email':
+      decorators.push("@IsEmail({}, { message: 'Invalid email format' })");
+      break;
+    case 'url':
+      decorators.push("@IsUrl({}, { message: 'Invalid URL format' })");
+      break;
+    default:
+      decorators.push('@IsString()');
+  }
+
+  // Required/Optional decorator
+  if (field.required === true) {
+    decorators.push(`@IsNotEmpty({ message: '${field.name} is required' })`);
+  } else {
+    decorators.push('@IsOptional()');
+  }
+
+  // Add field to DTO
+  createDtoContent += `
+  ${decorators.join('\n  ')}
+  ${field.name}: ${
+    field.type === 'string' || field.type === 'email' || field.type === 'url'
+      ? 'string'
+      : field.type === 'number' ||
+          field.type === 'int' ||
+          field.type === 'float'
+        ? 'number'
+        : field.type === 'boolean'
+          ? 'boolean'
+          : field.type === 'date'
+            ? 'Date'
+            : 'string'
+  };
+`;
+});
 
 // Add image field if needed
 if (hasImage) {
@@ -270,17 +327,65 @@ import {
 } from 'class-validator';
 
 export class UpdateDto {
-  @IsInt()
-  @Type(() => Number)
-  @IsOptional()
-  companyId: number;
 
-  // Add your fields here
-  // Example:
-  // @IsString()
-  // @IsOptional()
-  // name: string;
 `;
+
+// Add fields from command line arguments
+fields.forEach((field) => {
+  const decorators = [];
+
+  // Type decorator
+  switch (field.type) {
+    case 'string':
+      decorators.push('@IsString()');
+      break;
+    case 'number':
+    case 'int':
+      decorators.push('@IsInt()');
+      decorators.push('@Type(() => Number)');
+      break;
+    case 'float':
+      decorators.push('@IsNumber()');
+      decorators.push('@Type(() => Number)');
+      break;
+    case 'boolean':
+      decorators.push('@IsBoolean()');
+      decorators.push('@Type(() => Boolean)');
+      break;
+    case 'date':
+      decorators.push('@IsDate()');
+      decorators.push('@Type(() => Date)');
+      break;
+    case 'email':
+      decorators.push("@IsEmail({}, { message: 'Invalid email format' })");
+      break;
+    case 'url':
+      decorators.push("@IsUrl({}, { message: 'Invalid URL format' })");
+      break;
+    default:
+      decorators.push('@IsString()');
+  }
+
+  decorators.push('@IsOptional()');
+
+  // Add field to DTO
+  updateDtoContent += `
+  ${decorators.join('\n  ')}
+  ${field.name}: ${
+    field.type === 'string' || field.type === 'email' || field.type === 'url'
+      ? 'string'
+      : field.type === 'number' ||
+          field.type === 'int' ||
+          field.type === 'float'
+        ? 'number'
+        : field.type === 'boolean'
+          ? 'boolean'
+          : field.type === 'date'
+            ? 'Date'
+            : 'string'
+  };
+`;
+});
 
 // Add image field if needed
 if (hasImage) {
@@ -298,9 +403,8 @@ updateDtoContent += `}
 `;
 
 // Generate interface.ts
-const interfaceContent = `import {
-  ${entityNameCapitalized} as Prisma,
-} from '@prisma/client';
+const interfaceContent = `/* eslint-disable */
+import { ${entityNameCapitalized} as Prisma } from '@prisma/client';
 
 // Extender a interface do Prisma
 export interface IEntity extends Prisma {

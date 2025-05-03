@@ -1,4 +1,7 @@
+/* eslint-disable */
 import { PrismaClient } from '@prisma/client';
+import { hash } from 'bcrypt';
+
 const prisma = new PrismaClient();
 
 // --------------------------------------------------------------------------------
@@ -104,8 +107,8 @@ async function seedCompanyProducts() {
 // --------------------------------------------------------------------------------
 async function seedProfiles() {
   const profilesData = [
+    { name: 'super', companyId: 1 },
     { name: 'admin', companyId: 1 },
-    { name: 'manager', companyId: 1 },
     { name: 'user', companyId: 1 },
   ];
 
@@ -120,11 +123,15 @@ async function seedProfiles() {
 
 // --------------------------------------------------------------------------------
 async function seedUsers() {
+  const unHashedPassword = 'senha@123';
+  const saltRounds = 10;
+  const passwordHashed = await hash(unHashedPassword, saltRounds);
+
   const usersData = [
     {
       name: 'Júlio Adler',
       email: 'julio@worksafebrasil.com.br',
-      password: '$2b$10$SuTOTad7G9mxNpgZxcFB4un..5ghSm4Tk3GX8WR.TIMa.km6b2AEy',
+      password: passwordHashed,
       imageUrl:
         'https://worksafe-brasil.s3.us-east-1.amazonaws.com/user-profile/1743635645163_J%C3%BAlio_Adler',
       phone: '81996764688',
@@ -159,46 +166,26 @@ async function seedPermissions() {
   const entities = [
     { permission: 'inventarios', name: 'inventarios', group: 'inventarios' },
     { permission: 'area_inventarios', name: 'area', group: 'inventarios' },
-    {
-      permission: 'subarea_inventarios',
-      name: 'subarea',
-      group: 'inventarios',
-    },
+    { permission: 'subarea_inventarios', name: 'subarea', group: 'inventarios' },
     { permission: 'treinamentos', name: 'treinamentos', group: 'treinamentos' },
     { permission: 'certificados', name: 'certificados', group: 'treinamentos' },
-    {
-      permission: 'treinamentos_orcamentos',
-      name: 'orcamentos',
-      group: 'comercial',
-    },
+    { permission: 'treinamentos_orcamentos', name: 'orcamentos', group: 'comercial' },
     { permission: 'servicos', name: 'servicos', group: 'servicos' },
-    {
-      permission: 'servicos_orcamentos',
-      name: 'orcamentos',
-      group: 'comercial',
-    },
-    {
-      permission: 'ordens_de_servico',
-      name: 'OS',
-      group: 'servicos',
-    },
+    { permission: 'servicos_orcamentos', name: 'orcamentos', group: 'comercial' },
+    { permission: 'ordens_de_servico', name: 'OS', group: 'servicos' },
     { permission: 'almox', name: 'almox', group: 'almox' },
     { permission: 'financeiro', name: 'financeiro', group: 'financeiro' },
     { permission: 'compras', name: 'compras', group: 'financeiro' },
-    {
-      permission: 'notas_fiscais',
-      name: 'notas fiscais',
-      group: 'financeiro',
-    },
+    { permission: 'notas_fiscais', name: 'notas fiscais', group: 'financeiro' },
     { permission: 'produtos', name: 'produtos', group: 'produtos' },
     { permission: 'comercial', name: 'comercial', group: 'comercial' },
-    {
-      permission: 'produtos_orcamentos',
-      name: 'orcamentos',
-      group: 'comercial',
-    },
+    { permission: 'produtos_orcamentos', name: 'orcamentos', group: 'comercial' },
     { permission: 'clientes', name: 'clientes', group: 'clientes' },
     { permission: 'user', name: 'user', group: 'user' },
+    { permission: 'site', name: 'site', group: 'site' },
+    { permission: 'servicos_site', name: 'servicos', group: 'site' },
+    { permission: 'loja_site', name: 'loja', group: 'site' },
+    { permission: 'profile', name: 'perfis', group: 'perfil' },
   ];
 
   const permissionsData = [];
@@ -223,7 +210,7 @@ async function seedPermissions() {
       permissionsData.push({ name: permissionName, description, group });
     }
   }
-  //permissao personalizada para password
+  // permissao personalizada para password
   permissionsData.push({
     name: 'update_user_password',
     description: 'Alterar senha de usuário',
@@ -232,42 +219,67 @@ async function seedPermissions() {
 
   // Inserção das permissões no banco de dados
   for (const permission of permissionsData) {
-    await prisma.permission.create({
-      data: permission,
+    const verifyExist = await prisma.permission.findUnique({
+      where: {
+        name: permission.name,
+      },
     });
+    if (!verifyExist) {
+      await prisma.permission.create({
+        data: permission,
+      });
+      console.info(`Permission ${permission.name} created successfully!`);
+    }
   }
 
   console.log('Seed da tabela Permission executado com sucesso!');
 }
 
 // --------------------------------------------------------------------------------
-async function seedProfilePermissions() {
-  // Busca todas as permissões cujo nome termina com '_user'
-  const userPermissions = await prisma.permission.findMany({
-    where: {
-      name: {
-        endsWith: '_user',
-      },
-    },
-  });
+async function seedSuperPermissions() {
+  // Busca todas as permissões
+  const permissions = await prisma.permission.findMany();
 
-  if (!userPermissions || userPermissions.length === 0) {
+  if (!permissions || permissions.length === 0) {
     throw new Error(
-      'Nenhuma permissão de usuário encontrada. Execute o seed de Permission primeiro.',
+      'Nenhuma permissão. Execute o seed de Permission primeiro.',
     );
   }
 
   // Associa cada permissão encontrada à profile com id 1
-  for (const permission of userPermissions) {
-    await prisma.profilePermission.create({
-      data: {
-        profileId: 1, // Profile para a qual será atribuída a permissão
-        permissionId: permission.id,
+  for (const permission of permissions) {
+    const verifyExist = await prisma.profilePermission.findUnique({
+      where: {
+        profileId_permissionId: {
+          profileId: 1,
+          permissionId: permission.id,
+        },
       },
     });
+    if (!verifyExist) {
+      await prisma.profilePermission.create({
+        data: {
+          profileId: 1, // Profile de Super recebe todas as permissões
+          permissionId: permission.id,
+        },
+      });
+    } else {
+      await prisma.profilePermission.update({
+        where: {
+          profileId_permissionId: {
+            profileId: 1,
+            permissionId: permission.id,
+          },
+        },
+        data: {
+          inactiveAt: null,
+        },
+      });
+    }
+    console.info(`ProfilePermission ${permission.name} created successfully for Super profile!`);
   }
 
-  console.log('Seed da tabela ProfilePermission executado com sucesso!');
+  console.log('Seed da tabela ProfilePermission para o perfil de Super executado com sucesso!');
 }
 
 // objeto de configuraçao para definir quais seeds vao rodar
@@ -279,12 +291,13 @@ const seedConfig = {
   companyProducts: false,
   profiles: false,
   users: false,
-  permissions: false,
-  profilePermissions: true,
+  permissions: true,
+  seedSuperPermissions: true,
 };
 
 // Executa as Seeds ----------------------------------------------------------------
 async function main() {
+  console.log('VAI RODAR AS SEEDS!')
   if (seedConfig.companies) await seedCompanies();
   if (seedConfig.products) await seedProducts();
   if (seedConfig.ranks) await seedRanks();
@@ -293,7 +306,7 @@ async function main() {
   if (seedConfig.profiles) await seedProfiles();
   if (seedConfig.users) await seedUsers();
   if (seedConfig.permissions) await seedPermissions();
-  if (seedConfig.profilePermissions) await seedProfilePermissions();
+  if (seedConfig.seedSuperPermissions) await seedSuperPermissions();
 }
 
 main()

@@ -38,7 +38,7 @@ const entity = {
   model: 'site_Services' as keyof PrismaClient,
   name: 'Serviços do Site',
   route: 'site-services',
-  permission: 'site',
+  permission: 'servicos_site',
 };
 
 @Controller(entity.route)
@@ -57,7 +57,7 @@ export class ServicesController extends GenericController<
   @Public()
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
-    return super.get(request, query, true);
+    return super.get(request, query, {}, true);
   }
 
   // Rota intermediária para validação de permissão
