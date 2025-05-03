@@ -56,7 +56,22 @@ export class UserController extends GenericController<
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
     query.omitAttributes = ['password'];
-    return super.get(request, query);
+    const paramsIncludes = {
+      profile: {
+        select: {
+          name: true,
+        },
+      },
+      permissions: {
+        include: {
+          permission: true,
+        },
+        where: {
+          inactiveAt: null,
+        },
+      },
+    };
+    return super.get(request, query, paramsIncludes, false);
   }
 
   @Get('self')

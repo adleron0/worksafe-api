@@ -35,6 +35,7 @@ export interface ICrudService<T> {
   get(
     entity: entity,
     options?: any,
+    paramsIncludes?: any,
     noCompany?: boolean,
   ): Promise<{ total: number; rows: any[] }>;
   create(
@@ -80,6 +81,7 @@ export class GenericController<
   async get(
     @Req() request: Request,
     @Query() query: any,
+    paramsIncludes = {},
     noCompany = false,
   ): Promise<{ total: number; rows: TEntity[] }> {
     let userId = null;
@@ -123,7 +125,7 @@ export class GenericController<
       filters.id = userId;
     }
 
-    return this.service.get(filters, this.entity, noCompany);
+    return this.service.get(filters, this.entity, paramsIncludes, noCompany);
   }
 
   @Post()

@@ -55,7 +55,7 @@ export class DomRolesController extends GenericController<
   // @UserPermission(`list_${entity.permission}`) // Permissão para rota genérica
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
-    return super.get(request, query, true);
+    return super.get(request, query, {}, true);
   }
 
   // Rota intermediária para validação de permissão

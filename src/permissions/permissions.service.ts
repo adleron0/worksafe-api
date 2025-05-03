@@ -1,12 +1,13 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { CreatePermissionDto } from './dto/create-permission.dto';
+import { CreateUserPermissionDto } from './dto/create-user-permission.dto';
+import { CreateProfilePermissionDto } from './dto/create-profile-permission.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 
 @Injectable()
 export class PermissionsService {
   constructor(private prisma: PrismaService) {}
 
-  async activeUserPermission(payload: CreatePermissionDto, logParams: any) {
+  async activeUserPermission(payload: CreateUserPermissionDto, logParams: any) {
     try {
       await this.prisma.upsert(
         'userPermission',
@@ -26,6 +27,38 @@ export class PermissionsService {
         logParams,
       );
     } catch (error) {
+      console.log(
+        '🚀 ~ PermissionsService ~ activeUserPermission ~ error:',
+        error,
+      );
+      throw new BadRequestException(error);
+    }
+  }
+
+  async activeProfilePermission(
+    payload: CreateProfilePermissionDto,
+    logParams: any,
+  ) {
+    try {
+      await this.prisma.upsert(
+        'profilePermission',
+        {
+          profileId: payload.profileId,
+          permissionId: payload.permissionId,
+          inactiveAt: null,
+        },
+        {
+          where: {
+            profileId_permissionId: {
+              profileId: payload.profileId,
+              permissionId: payload.permissionId,
+            },
+          },
+        },
+        logParams,
+      );
+    } catch (error) {
+      console.log('🚀 ~ PermissionsService ~ error:', error);
       throw new BadRequestException(error);
     }
   }
@@ -65,9 +98,13 @@ export class PermissionsService {
     return filterPermissions;
   }
 
-  async inactiveUserPermission(payload: CreatePermissionDto, logParams: any) {
+  async inactiveUserPermission(
+    payload: CreateUserPermissionDto,
+    logParams: any,
+  ) {
+    console.log('🚀 ~ PermissionsService ~ payload:', payload);
     try {
-      await this.prisma.erase(
+      const result = await this.prisma.erase(
         'userPermission',
         {
           where: {
@@ -79,7 +116,32 @@ export class PermissionsService {
         },
         logParams,
       );
+      console.log('🚀 ~ PermissionsService ~ result:', result);
     } catch (error) {
+      console.log('🚀 ~ PermissionsService ~ error:', error);
+      throw new BadRequestException(error);
+    }
+  }
+
+  async inactiveProfilePermission(
+    payload: CreateProfilePermissionDto,
+    logParams: any,
+  ) {
+    try {
+      await this.prisma.erase(
+        'profilePermission',
+        {
+          where: {
+            profileId_permissionId: {
+              profileId: payload.profileId,
+              permissionId: payload.permissionId,
+            },
+          },
+        },
+        logParams,
+      );
+    } catch (error) {
+      console.log('🚀 ~ PermissionsService ~ error:', error);
       throw new BadRequestException(error);
     }
   }
