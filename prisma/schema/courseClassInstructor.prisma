@@ -1,0 +1,13 @@
+model CourseClassInstructor {
+  id       Int       @id @default(autoincrement())
+  classId Int
+  instructorId Int
+  instructor   Instructor   @relation(fields: [instructorId], references: [id])
+  class   CourseClass  @relation(fields: [classId], references: [id])
+
+  @@unique([classId, instructorId])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+}

@@ -26,6 +26,7 @@ model CourseClass {
 
   certificates TraineeCourseCertificate[]
   exams CourseExam[]
+  instructors CourseClassInstructor[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @default(now()) @updatedAt
