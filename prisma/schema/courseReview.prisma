@@ -1,0 +1,17 @@
+// Tabela Course
+model CourseReview {
+  id       Int       @id @default(autoincrement())
+  traineeId Int?
+  trainee   Trainee?   @relation(fields: [traineeId], references: [id])
+  courseId Int?
+  course   Course?   @relation(fields: [courseId], references: [id])
+  courseReview Json
+  instructorReview Json
+  generalRating Int
+  opinionRating String?
+  autorizationExposeReview Boolean
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+}

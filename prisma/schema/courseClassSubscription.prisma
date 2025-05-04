@@ -1,0 +1,26 @@
+enum SubscribeStatus {
+  pending
+  confirmed
+  declined
+}
+
+model CourseClassSubscription {
+  id       Int       @id @default(autoincrement())
+  name     String    @db.VarChar(100)
+  cpf String    @db.VarChar(20)
+  email String    @db.VarChar(255)
+  phone String    @db.VarChar(255)
+  workedAt String    @db.VarChar(255)
+  occupation String    @db.VarChar(255)
+  companyId Int?
+  classId Int?
+  traineeId Int?
+  trainee Trainee? @relation(fields: [traineeId], references: [id])
+  subscribeStatus SubscribeStatus @default(pending)
+  confirmedAt DateTime?
+  declinedReason String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+}

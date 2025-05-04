@@ -1,0 +1,18 @@
+model Instructor {
+  id          Int       @id @default(autoincrement())
+  name        String    @db.VarChar(255)
+  companyId   Int
+  email       String    @db.VarChar(255)
+  cpf         String    @db.VarChar(20)
+  phone       String?    @db.VarChar(255)
+  imageUrl    String?   @db.VarChar(255)
+  active      Boolean   @default(true)
+  curriculum  String
+  highlight   String?
+  formation   String
+  formationCode String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now()) @updatedAt
+  inactiveAt  DateTime?
+}

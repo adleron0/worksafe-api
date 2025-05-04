@@ -5,8 +5,10 @@ import {
   IsOptional,
   IsUrl,
   IsBoolean,
+  Length,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsCnpj } from 'src/validators/is-cnpj.constraint';
 
 export class UpdateDto {
   @IsInt()
@@ -32,6 +34,8 @@ export class UpdateDto {
   companyId: number;
 
   @IsString()
+  @Length(14, 18) // 14 dígitos (sem máscara) até 18 (com '.' '/' '-')
+  @IsCnpj({ message: 'CNPJ inválido, verifique os dígitos' })
   @IsOptional()
   cnpj: string;
 

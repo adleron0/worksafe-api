@@ -1,0 +1,16 @@
+// Tabela Course
+model CourseExam {
+  id       Int       @id @default(autoincrement())
+  traineeId Int
+  trainee   Trainee   @relation(fields: [traineeId], references: [id])
+  courseId Int
+  course   Course   @relation(fields: [courseId], references: [id])
+  classId Int
+  class   CourseClass  @relation(fields: [classId], references: [id])
+  examResponses Json
+  result Boolean
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+}

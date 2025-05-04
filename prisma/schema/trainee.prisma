@@ -1,0 +1,17 @@
+model Trainee {
+  id       Int       @id @default(autoincrement())
+  name     String    @db.VarChar(100)
+  cpf      String    @db.VarChar(20)
+  customerId Int?
+  imageUrl String? @db.VarChar(255)
+  active Boolean @default(true)
+
+  certificate TraineeCourseCertificate[]
+  subscription CourseClassSubscription[]
+  review CourseReview[]
+  exam CourseExam[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+}
