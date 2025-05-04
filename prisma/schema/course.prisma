@@ -3,7 +3,7 @@ model Course {
   id       Int       @id @default(autoincrement())
   name     String    @db.VarChar(100)
   hoursDuration Int?
-  flag     String?    @db.VarChar(100)
+  flags     String?    @db.VarChar(255)
   companyId Int
   description String?
   gradeTheory String

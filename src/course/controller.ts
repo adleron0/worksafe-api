@@ -92,7 +92,6 @@ export class CourseController extends GenericController<
     if (!UpdateDto.weekly) UpdateDto.weekly = false;
     if (!UpdateDto.weekDays) UpdateDto.weekDays = null;
     if (!UpdateDto.faq) UpdateDto.faq = null;
-    if (!UpdateDto.exam) UpdateDto.exam = null;
     return super.update(id, request, UpdateDto, file);
   }
 

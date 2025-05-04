@@ -12,6 +12,20 @@ import {
 } from 'class-validator';
 
 export class UpdateDto {
+  @IsInt()
+  @Type(() => Number)
+  @IsOptional()
+  id: number;
+
+  @IsInt()
+  @Type(() => Number)
+  @IsOptional()
+  companyId: number;
+
+  @IsBoolean()
+  @IsOptional()
+  active: boolean;
+
   @IsString()
   @IsOptional()
   name: string;
@@ -23,7 +37,7 @@ export class UpdateDto {
 
   @IsString()
   @IsOptional()
-  flag: string;
+  flags: string;
 
   @IsString()
   @IsOptional()

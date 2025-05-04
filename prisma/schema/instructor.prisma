@@ -12,6 +12,8 @@ model Instructor {
   formation   String
   formationCode String?
 
+  classes CourseClassInstructor[]
+
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @default(now()) @updatedAt
   inactiveAt  DateTime?

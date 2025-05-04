@@ -24,7 +24,7 @@ export class CreateDto {
 
   @IsString()
   @IsOptional()
-  flag: string;
+  flags: string;
 
   @IsString()
   @IsOptional()
