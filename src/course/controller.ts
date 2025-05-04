@@ -89,6 +89,10 @@ export class CourseController extends GenericController<
     @Body() UpdateDto: UpdateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
+    if (!UpdateDto.weekly) UpdateDto.weekly = false;
+    if (!UpdateDto.weekDays) UpdateDto.weekDays = null;
+    if (!UpdateDto.faq) UpdateDto.faq = null;
+    if (!UpdateDto.exam) UpdateDto.exam = null;
     return super.update(id, request, UpdateDto, file);
   }
 
