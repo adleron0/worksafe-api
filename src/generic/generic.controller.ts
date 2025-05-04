@@ -142,6 +142,7 @@ export class GenericController<
     };
     dto['companyId'] = Number(companyId);
     Object.keys(dto).forEach((key) => {
+      // casos para ignorar e não transformar em numero
       if (
         key === 'password' ||
         key === 'cpf' ||
