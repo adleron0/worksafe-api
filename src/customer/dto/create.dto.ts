@@ -6,7 +6,9 @@ import {
   IsInt,
   IsOptional,
   IsUrl,
+  Length,
 } from 'class-validator';
+import { IsCnpj } from 'src/validators/is-cnpj.constraint';
 
 export class CreateDto {
   @IsString()
@@ -18,7 +20,8 @@ export class CreateDto {
   corporateName: string;
 
   @IsString()
-  @IsNotEmpty({ message: 'CNPJ is required' })
+  @Length(14, 18) // 14 dígitos (sem máscara) até 18 (com '.' '/' '-')
+  @IsCnpj({ message: 'CNPJ informado não é válido' })
   cnpj: string;
 
   @IsUrl({}, { message: 'Invalid URL format for image' })

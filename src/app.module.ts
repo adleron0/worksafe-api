@@ -18,6 +18,7 @@ import { DomRolesModule } from './dom_roles/module';
 import { ServicesModule } from './site_services/module';
 import { SiteProductsModule } from './site_loja/module';
 import { ProfileModule } from './profile/module';
+import { CourseModule } from './course/module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { ProfileModule } from './profile/module';
     ServicesModule,
     SiteProductsModule,
     ProfileModule,
+    CourseModule,
   ],
   controllers: [],
   providers: [

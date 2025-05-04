@@ -5,7 +5,9 @@ import {
   Matches,
   IsOptional,
   IsUrl,
+  Length,
 } from 'class-validator';
+import { IsCpf } from 'src/validators/is-cpf.constraint';
 
 export class UpdateDto {
   @IsString()
@@ -26,7 +28,8 @@ export class UpdateDto {
   phone: string;
 
   @IsString()
-  @Matches(/^\d{11}$/, { message: 'CPF must contain exactly 11 digits' })
+  @Length(11, 14) // opcional: obriga entre 11 e 14 caracteres (com ou sem pontuação)
+  @IsCpf({ message: 'CPF informado não é válido' })
   @IsOptional()
   cpf: string;
 

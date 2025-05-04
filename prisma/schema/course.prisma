@@ -1,0 +1,27 @@
+// Tabela Course
+model Course {
+  id       Int       @id @default(autoincrement())
+  name     String    @db.VarChar(100)
+  hoursDuration Int?
+  flag     String?    @db.VarChar(100)
+  companyId Int
+  description String?
+  gradeTheory String
+  gradePracticle String
+  imageUrl String? @db.VarChar(255)
+  active Boolean @default(true)
+  weekly       Boolean?   @default(false)
+  weekDays String? @db.VarChar(255)
+  faq Json?
+  exam Json?
+
+  certificates CouseCertificate[]
+  traineesCertificates TraineeCourseCertificate[]
+  reviews CourseReview[]
+  exams CourseExam[]
+  classes CourseClass[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+}

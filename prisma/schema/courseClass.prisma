@@ -1,0 +1,33 @@
+model CourseClass {
+  id       Int       @id @default(autoincrement())
+  name     String    @db.VarChar(100)
+  companyId Int?
+  courseId Int
+  course   Course   @relation(fields: [courseId], references: [id])
+  price         Decimal?   @db.Decimal(18, 2)
+  oldPrice      Decimal?   @db.Decimal(18, 2)
+  hoursDuration Int?
+  openClass     Boolean?   @default(false)
+  gifts String?
+  description String?
+  curriculum  String?
+  imageUrl String? @db.VarChar(255)
+  videoUrl String? @db.VarChar(255)
+  videoTitle String?
+  videoSubtitle String?
+  videoDescription String?
+  active Boolean @default(true)
+  faq Json?
+  initialDate DateTime?
+  finalDate DateTime?
+  landingPagesDates String?
+  allowExam Boolean
+  allowReview Boolean
+
+  certificates TraineeCourseCertificate[]
+  exams CourseExam[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+}

@@ -230,6 +230,7 @@ import {
   IsBoolean,
   IsNumber,
   IsDate,
+  IsJSON,
 } from 'class-validator';
 
 export class CreateDto {
@@ -268,6 +269,9 @@ fields.forEach((field) => {
     case 'url':
       decorators.push("@IsUrl({}, { message: 'Invalid URL format' })");
       break;
+    case 'json':
+      decorators.push('@IsJSON()');
+      break;
     default:
       decorators.push('@IsString()');
   }
@@ -293,7 +297,9 @@ fields.forEach((field) => {
           ? 'boolean'
           : field.type === 'date'
             ? 'Date'
-            : 'string'
+            : field.type === 'json'
+              ? 'JSON'
+              : 'string'
   };
 `;
 });
@@ -324,6 +330,7 @@ import {
   IsBoolean,
   IsNumber,
   IsDate,
+  IsJSON,
 } from 'class-validator';
 
 export class UpdateDto {
@@ -362,6 +369,9 @@ fields.forEach((field) => {
     case 'url':
       decorators.push("@IsUrl({}, { message: 'Invalid URL format' })");
       break;
+    case 'json':
+      decorators.push('@IsJSON()');
+      break;
     default:
       decorators.push('@IsString()');
   }
@@ -382,7 +392,9 @@ fields.forEach((field) => {
           ? 'boolean'
           : field.type === 'date'
             ? 'Date'
-            : 'string'
+            : field.type === 'json'
+              ? 'JSON'
+              : 'string'
   };
 `;
 });
