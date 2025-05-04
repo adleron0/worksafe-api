@@ -46,9 +46,9 @@ export class UpdateDto {
   @IsOptional()
   weekDays: string;
 
-  @IsJSON()
+  @IsString()
   @IsOptional()
-  faq: JSON;
+  faq: string;
 
   @IsJSON()
   @IsOptional()
