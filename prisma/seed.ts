@@ -187,6 +187,7 @@ async function seedPermissions() {
     { permission: 'loja_site', name: 'loja', group: 'site' },
     { permission: 'profile', name: 'perfis', group: 'perfil' },
     { permission: 'courses', name: 'cursos', group: 'cursos' },
+    { permission: 'instructors', name: 'instrutores', group: 'cursos' },
   ];
 
   const permissionsData = [];
@@ -264,6 +265,7 @@ async function seedSuperPermissions() {
           permissionId: permission.id,
         },
       });
+      console.info(`created: ProfilePermission ${permission.name} successfully for Super profile!`);
     } else {
       await prisma.profilePermission.update({
         where: {
@@ -276,8 +278,8 @@ async function seedSuperPermissions() {
           inactiveAt: null,
         },
       });
+      console.info(`updated: ProfilePermission ${permission.name} successfully for Super profile!`);
     }
-    console.info(`ProfilePermission ${permission.name} created successfully for Super profile!`);
   }
 
   console.log('Seed da tabela ProfilePermission para o perfil de Super executado com sucesso!');

@@ -19,6 +19,7 @@ import { ServicesModule } from './site_services/module';
 import { SiteProductsModule } from './site_loja/module';
 import { ProfileModule } from './profile/module';
 import { CourseModule } from './course/module';
+import { InstructorModule } from './instructor/module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { CourseModule } from './course/module';
     SiteProductsModule,
     ProfileModule,
     CourseModule,
+    InstructorModule,
   ],
   controllers: [],
   providers: [
