@@ -37,7 +37,7 @@ const entity = {
   model: 'instructor' as keyof PrismaClient,
   name: 'Instructor',
   route: 'instructors',
-  permission: 'instructors',
+  permission: 'instrutores',
 };
 
 @Controller(entity.route)
@@ -107,5 +107,26 @@ export class InstructorController extends GenericController<
   @Patch('inactive/:id')
   async inactivate(@Param('id') id: number, @Req() request: Request) {
     return super.inactivate(id, request);
+  }
+
+  // Rotas personalizadas
+  @UserPermission(`update_${entity.permission}`) // Permissão para rota genérica
+  @Put(':id/signature')
+  @UseInterceptors(
+    FileInterceptor('signature', getMulterOptions('instructor-signature')),
+  )
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
+  async signature(
+    @Param('id') id: number,
+    @Req() request: Request,
+    @Body() UpdateDto: UpdateDto,
+    @UploadedFile() file?: Express.MulterS3.File,
+  ) {
+    const { sub: userId, companyId } = request.user;
+    const logParams = {
+      userId,
+      companyId,
+    };
+    return this.service.signature(id, UpdateDto, logParams, entity, file);
   }
 }

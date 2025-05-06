@@ -64,4 +64,11 @@ export class UpdateDto {
 
   @IsOptional()
   image?: any; // Permitir que seja tratado como arquivo no Controller
+
+  @IsUrl({}, { message: 'Invalid URL format for signature' })
+  @IsOptional()
+  signatureUrl?: string | null;
+
+  @IsOptional()
+  signature?: any; // Permitir que seja tratado como arquivo no Controller
 }

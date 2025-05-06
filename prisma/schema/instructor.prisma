@@ -6,6 +6,7 @@ model Instructor {
   cpf         String    @db.VarChar(20)
   phone       String?    @db.VarChar(255)
   imageUrl    String?   @db.VarChar(255)
+  signatureUrl    String?   @db.VarChar(255)
   active      Boolean   @default(true)
   curriculum  String
   highlight   String?

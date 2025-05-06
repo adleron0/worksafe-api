@@ -27,7 +27,7 @@ type entity = {
 export class GenericService<TCreateDto, TUpdateDto, TEntity> {
   constructor(
     protected prisma: PrismaService,
-    private uploadService: UploadService,
+    protected uploadService: UploadService,
   ) {}
 
   async create(
