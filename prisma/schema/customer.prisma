@@ -29,4 +29,5 @@ model Customer {
   @@unique([cnpj, companyId]) // Garante que o email seja único dentro da mesma empresa
 
   contacts    Customer_Contacts[]
+  classes     CourseClass[]
 }

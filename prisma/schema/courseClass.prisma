@@ -2,6 +2,8 @@ model CourseClass {
   id       Int       @id @default(autoincrement())
   name     String    @db.VarChar(100)
   companyId Int?
+  customerId Int? 
+  customer   Customer?   @relation(fields: [customerId], references: [id])
   courseId Int
   course   Course   @relation(fields: [courseId], references: [id])
   price         Decimal?   @db.Decimal(18, 2)
