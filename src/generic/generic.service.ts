@@ -263,6 +263,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       );
       return updated;
     } catch (error) {
+      console.log('🚀 ~ GenericService<TCreateDto, ~ error:', error);
       throw new BadRequestException(error);
     }
   }
@@ -284,14 +285,20 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
 
     try {
       const data = {};
-      data['active'] = true;
-      data['inactiveAt'] = null;
       data['updatedAt'] = new Date();
 
+      if (verifyExist.hasOwnProperty('active')) data['active'] = true;
+      if (verifyExist.hasOwnProperty('inactiveAt')) data['inactiveAt'] = null;
+      if (verifyExist.hasOwnProperty('deletedAt')) data['deletedAt'] = null;
+      if (verifyExist.hasOwnProperty('status')) data['status'] = true;
+
       if (type === 'inactive') {
-        data['active'] = false;
-        data['inactiveAt'] = new Date();
-        data['updatedAt'] = new Date();
+        if (verifyExist.hasOwnProperty('active')) data['active'] = false;
+        if (verifyExist.hasOwnProperty('inactiveAt'))
+          data['inactiveAt'] = new Date();
+        if (verifyExist.hasOwnProperty('deletedAt'))
+          data['deletedAt'] = new Date();
+        if (verifyExist.hasOwnProperty('status')) data['status'] = false;
       }
 
       const user = await this.prisma.update(entity.model, data, logParams, {
@@ -302,6 +309,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
 
       return user;
     } catch (error) {
+      console.log('🚀 ~ GenericService<TCreateDto, ~ error:', error);
       throw new BadRequestException(error);
     }
   }
