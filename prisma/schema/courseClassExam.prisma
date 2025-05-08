@@ -1,5 +1,5 @@
 // Tabela Course
-model CourseExam {
+model CourseClassExam {
   id       Int       @id @default(autoincrement())
   traineeId Int
   trainee   Trainee   @relation(fields: [traineeId], references: [id])

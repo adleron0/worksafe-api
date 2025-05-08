@@ -18,7 +18,7 @@ model Course {
   certificates CouseCertificate[]
   traineesCertificates TraineeCourseCertificate[]
   reviews CourseReview[]
-  exams CourseExam[]
+  exams CourseClassExam[]
   classes CourseClass[]
 
   createdAt DateTime  @default(now())

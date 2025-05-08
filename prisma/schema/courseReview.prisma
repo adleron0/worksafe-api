@@ -5,6 +5,8 @@ model CourseReview {
   trainee   Trainee?   @relation(fields: [traineeId], references: [id])
   courseId Int?
   course   Course?   @relation(fields: [courseId], references: [id])
+  classId Int
+  class   CourseClass  @relation(fields: [classId], references: [id])
   courseReview Json
   instructorReview Json
   generalRating Int
