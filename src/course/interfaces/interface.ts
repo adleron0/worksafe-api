@@ -1,12 +1,12 @@
 /* eslint-disable */
-import { Course as Prisma, CouseCertificate, CourseExam, CourseReview, CourseClass, TraineeCourseCertificate } from '@prisma/client';
+import { Course as Prisma, CouseCertificate, CourseClassExam, CourseReview, CourseClass, TraineeCourseCertificate } from '@prisma/client';
 
 // Extender a interface do Prisma
 export interface IEntity extends Prisma {
   certificates: CouseCertificate[];
   traineesCertificates: TraineeCourseCertificate[];
   reviews: CourseReview[];
-  exams: CourseExam[];
+  exams: CourseClassExam[];
   classes: CourseClass[];
 }
 
@@ -14,5 +14,5 @@ export interface IEntity extends Prisma {
 export type Certificate = CouseCertificate;
 export type TraineeCertificate = TraineeCourseCertificate;
 export type Review = CourseReview;
-export type Exam = CourseExam;
+export type Exam = CourseClassExam;
 export type Class = CourseClass;
