@@ -10,7 +10,8 @@ async function bootstrap() {
     origin: ORIGIN_CORS,
     credentials: true,
   });
-  await app.listen(PORT);
-  console.log(`Application is running on Port ${PORT}`);
+  const server = await app.listen(PORT);
+  const { port: actualPort } = server.address();
+  console.log(`Application is running on Port ${actualPort}`);
 }
 bootstrap();

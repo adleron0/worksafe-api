@@ -8,6 +8,7 @@ import { encryptPayload } from 'src/utils/crypto';
 const accessTokenSecret = process.env.JWT_ACCESS_SECRET;
 const refreshTokenSecret = process.env.JWT_REFRESH_SECRET;
 const baseSetup = process.env.BASE_SETUP;
+const domain = process.env.PROD_DOMAIN;
 
 @Injectable()
 export class AuthService {
@@ -101,7 +102,7 @@ export class AuthService {
             domain: 'localhost',
           }
         : {
-            domain: 'worksafebrasil.com.br',
+            domain: domain,
           }),
     });
 
