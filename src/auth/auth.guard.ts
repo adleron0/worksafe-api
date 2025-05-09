@@ -12,6 +12,7 @@ import { IS_PUBLIC_KEY } from './decorators/public.decorator';
 import { PERMISSIONS_KEY } from './decorators/permissions.decorator';
 import { decryptPayload } from 'src/utils/crypto';
 import { PROFILE_KEY } from './decorators/profiles.decorator';
+import * as Zlib from 'zlib';
 
 const accessTokenSecret = process.env.JWT_ACCESS_SECRET;
 
@@ -56,9 +57,36 @@ export class AuthGuard implements CanActivate {
     );
 
     if (requiredPermissions) {
-      const userPermissions = payload.permissions || [];
+      const userPermissionsData = payload.permissions || [];
+      let userPermissionsArray;
+      // Check if permissions are compressed (string) or already an array
+      if (typeof userPermissionsData === 'string') {
+        try {
+          // Try to decompress and parse
+          const userPermissions = Zlib.inflateRawSync(
+            Buffer.from(userPermissionsData, 'base64'),
+            {
+              chunkSize: 1024 * 1024,
+            },
+          ).toString('utf8');
+          userPermissionsArray = JSON.parse(userPermissions);
+        } catch (error) {
+          console.error('Error decompressing permissions:', error);
+          throw new UnauthorizedException('Invalid permissions format');
+        }
+      } else if (Array.isArray(userPermissionsData)) {
+        // Permissions are already an array
+        userPermissionsArray = userPermissionsData;
+      } else {
+        console.error(
+          'Unexpected permissions format:',
+          typeof userPermissionsData,
+        );
+        throw new UnauthorizedException('Invalid permissions format');
+      }
+
       const hasPermission = requiredPermissions.every((permission) =>
-        userPermissions.includes(permission),
+        userPermissionsArray.includes(permission),
       );
 
       if (!hasPermission) {
