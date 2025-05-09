@@ -4,6 +4,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { UserService } from 'src/user/service';
 import { compare } from 'bcrypt';
 import { encryptPayload } from 'src/utils/crypto';
+import * as Zlib from 'zlib';
 
 const accessTokenSecret = process.env.JWT_ACCESS_SECRET;
 const refreshTokenSecret = process.env.JWT_REFRESH_SECRET;
@@ -64,6 +65,13 @@ export class AuthService {
       ...new Set([...userPermissions, ...profilePermissions]),
     ];
 
+    const compactPermissions = Zlib.deflateRawSync(
+      JSON.stringify(allPermissions),
+      {
+        level: 9,
+      },
+    ).toString('base64');
+
     // Montar o payload do token
     const payload = {
       username: result.name,
@@ -72,7 +80,7 @@ export class AuthService {
       companyId: result.companyId,
       products: productNames,
       profile: userProfile.name,
-      permissions: allPermissions,
+      permissions: compactPermissions,
     };
 
     // Gerar os tokens
@@ -243,6 +251,13 @@ export class AuthService {
         ...new Set([...userPermissions, ...profilePermissions]),
       ];
 
+      const compactPermissions = Zlib.deflateRawSync(
+        JSON.stringify(allPermissions),
+        {
+          level: 9,
+        },
+      ).toString('base64');
+
       // Montar o payload do token
       const payload = {
         username: user.name,
@@ -251,7 +266,7 @@ export class AuthService {
         companyId: user.companyId,
         products: productNames,
         profile: userProfile.name,
-        permissions: allPermissions,
+        permissions: compactPermissions,
       };
 
       // Gerar o novo accessToken
