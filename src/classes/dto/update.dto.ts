@@ -63,6 +63,7 @@ export class UpdateDto {
   
     @IsBoolean()
     @IsOptional()
+    @Type(() => Boolean)
     openClass?: boolean;
   
     @IsString()
@@ -95,6 +96,7 @@ export class UpdateDto {
   
     @IsBoolean()
     @IsOptional()
+    @Type(() => Boolean)
     active?: boolean;
   
     @IsJSON()
@@ -107,10 +109,12 @@ export class UpdateDto {
   
     @IsBoolean()
     @IsOptional()
+    @Type(() => Boolean)
     allowExam?: boolean;
   
     @IsBoolean()
     @IsOptional()
+    @Type(() => Boolean)
     allowReview?: boolean;
   
     @IsOptional()
