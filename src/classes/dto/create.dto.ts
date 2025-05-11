@@ -13,8 +13,6 @@ import {
 } from 'class-validator';
 
 export class CreateDto {
-  
-
   @IsString()
   @IsNotEmpty({ message: 'name is required' })
   name: string;
@@ -37,15 +35,15 @@ export class CreateDto {
   @Type(() => Number)
   courseId?: string;
 
-  @IsString()
   @IsDate()
   @IsOptional()
-  initialDate?: string;
+  @Type(() => Date)
+  initialDate?: Date;
 
-  @IsString()
   @IsDate()
   @IsOptional()
-  finalDate?: string;
+  @Type(() => Date)
+  finalDate?: Date;
 
   @IsNumber()
   @IsOptional()
@@ -119,5 +117,5 @@ export class CreateDto {
   allowReview?: boolean;
 
   @IsOptional()
-  image?: any; 
+  image?: any;
 }
