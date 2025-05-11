@@ -47,7 +47,7 @@ export class CreateDto {
   @IsOptional()
   weekDays: string;
 
-  @IsString()
+  @IsJSON()
   @IsOptional()
   faq: string;
 

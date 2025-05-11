@@ -18,6 +18,7 @@ export class UpdateDto {
 
   @IsNumber()
   @IsOptional()
+  @Type(() => Number)
   price?: number;
 
   @IsString()
@@ -70,7 +71,11 @@ export class UpdateDto {
 
   @IsString()
   @IsOptional()
-  curriculum?: string;
+  gradeTheory: string;
+
+  @IsString()
+  @IsOptional()
+  gradePracticle: string;
 
   @IsUrl({}, { message: 'Invalid URL format for image' })
   @IsOptional()
@@ -117,4 +122,14 @@ export class UpdateDto {
 
   @IsOptional()
   image?: any;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  minimumQuorum?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  maxSubscriptions?: number;
 }

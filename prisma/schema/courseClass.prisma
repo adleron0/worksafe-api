@@ -12,7 +12,8 @@ model CourseClass {
   openClass     Boolean?   @default(false)
   gifts String?
   description String?
-  curriculum  String?
+  gradeTheory  String?
+  gradePracticle String?
   imageUrl String? @db.VarChar(255)
   videoUrl String? @db.VarChar(255)
   videoTitle String?
@@ -25,6 +26,8 @@ model CourseClass {
   landingPagesDates String?
   allowExam Boolean
   allowReview Boolean
+  minimumQuorum Int?
+  maxSubscriptions Int?
 
   certificates TraineeCourseCertificate[]
   exams CourseClassExam[]

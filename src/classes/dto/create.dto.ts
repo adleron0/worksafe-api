@@ -19,6 +19,7 @@ export class CreateDto {
 
   @IsNumber()
   @IsOptional()
+  @Type(() => Number)
   price?: number;
 
   @IsString()
@@ -70,8 +71,12 @@ export class CreateDto {
   gifts?: string;
 
   @IsString()
-  @IsOptional()
-  curriculum?: string;
+  @IsNotEmpty({ message: 'gradeTheory is required' })
+  gradeTheory: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'gradePracticle is required' })
+  gradePracticle: string;
 
   @IsUrl({}, { message: 'Invalid URL format for image' })
   @IsOptional()
@@ -118,4 +123,14 @@ export class CreateDto {
 
   @IsOptional()
   image?: any;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  minimumQuorum?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  maxSubscriptions?: number;
 }

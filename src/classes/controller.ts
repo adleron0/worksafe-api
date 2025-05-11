@@ -27,6 +27,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { getMulterOptions } from '../upload/upload.middleware';
 // Import generic controller
 import { GenericController } from 'src/generic/generic.controller';
+import { Public } from 'src/auth/decorators/public.decorator';
 
 // Create a decorator factory for User controller permissions
 function UserPermission(permission: string) {
@@ -52,10 +53,11 @@ export class ClassesController extends GenericController<
   }
 
   // Rota intermediária para validação de permissão
-  @UserPermission(`list_${entity.permission}`) // Permissão para rota genérica
+  // @UserPermission(`list_${entity.permission}`) // Permissão para rota genérica
+  @Public()
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
-    const noCompany = false; // quando a rota não exige buscar companyId pelo token
+    const noCompany = true; // quando a rota não exige buscar companyId pelo token
     // filtros e atributos de associações
     const paramsIncludes = {};
     return super.get(request, query, paramsIncludes, noCompany);
