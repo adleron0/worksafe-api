@@ -91,6 +91,11 @@ export class ClassesController extends GenericController<
     @Body() UpdateDto: UpdateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
+    if (!UpdateDto.price) UpdateDto.price = null;
+    if (!UpdateDto.oldPrice) UpdateDto.oldPrice = null;
+    if (!UpdateDto.openClass) UpdateDto.openClass = false;
+    if (!UpdateDto.allowExam) UpdateDto.allowExam = false;
+    if (!UpdateDto.allowReview) UpdateDto.allowReview = false;
     return super.update(id, request, UpdateDto, file);
   }
 
