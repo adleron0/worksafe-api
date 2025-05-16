@@ -114,6 +114,20 @@ export class AuthService {
           }),
     });
 
+    // Salvar log de login
+    await this.prisma.system_Logs.create({
+      data: {
+        companyId: result.companyId,
+        userId: result.id,
+        action: 'login',
+        entity: 'user',
+        entityId: result.id,
+        column: null,
+        oldValue: null,
+        newValue: null,
+      },
+    });
+
     // Retornar apenas o accessToken na resposta
     return { accessToken };
   }
