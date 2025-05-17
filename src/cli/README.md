@@ -21,22 +21,22 @@ npm run gen:entity <nomeDaEntidade> [opcoes]
 
 Gerar uma entidade básica de produto:
 ```bash
-npm npm run gen:entity product
+npm run gen:entity product
 ```
 
 Gerar uma entidade de produto com suporte a imagem:
 ```bash
-npm npm run gen:entity -- product --has-image
+npm run gen:entity -- product --has-image
 ```
 
 Gerar uma entidade de produto com campos personalizados:
 ```bash
-npm npm run gen:entity -- product --field=name:string:required --field=price:number:required --field=description:string
+npm run gen:entity -- product --field=name:string:required --field=price:number:required --field=description:string
 ```
 
 Gerar uma entidade de produto com suporte a imagem e campos personalizados:
 ```bash
-npm npm run gen:entity -- product --has-image --field=name:string:required --field=price:number:required --field=description:string
+npm run gen:entity -- product --has-image --field=name:string:required --field=price:number:required --field=description:string
 ```
 
 ## Arquivos Gerados

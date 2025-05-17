@@ -12,6 +12,7 @@ model CourseReview {
   generalRating Int
   opinionRating String?
   autorizationExposeReview Boolean
+  companyId Int
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @default(now()) @updatedAt

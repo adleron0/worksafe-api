@@ -9,6 +9,7 @@ model CourseClassExam {
   class   CourseClass  @relation(fields: [classId], references: [id])
   examResponses Json
   result Boolean
+  companyId Int
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @default(now()) @updatedAt

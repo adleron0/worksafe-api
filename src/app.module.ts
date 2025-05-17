@@ -21,6 +21,7 @@ import { ProfileModule } from './profile/module';
 import { CourseModule } from './course/module';
 import { InstructorModule } from './instructor/module';
 import { ClassesModule } from './classes/module';
+import { CourseClassInstructorModule } from './course_class_instructor/module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { ClassesModule } from './classes/module';
     CourseModule,
     InstructorModule,
     ClassesModule,
+    CourseClassInstructorModule,
   ],
   controllers: [],
   providers: [

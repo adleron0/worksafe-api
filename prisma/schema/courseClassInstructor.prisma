@@ -4,6 +4,8 @@ model CourseClassInstructor {
   instructorId Int
   instructor   Instructor   @relation(fields: [instructorId], references: [id])
   class   CourseClass  @relation(fields: [classId], references: [id])
+  active Boolean @default(true)
+  companyId Int
 
   @@unique([classId, instructorId])
 
