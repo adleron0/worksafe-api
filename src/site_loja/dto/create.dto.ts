@@ -40,6 +40,7 @@ export class CreateDto {
 
   @IsString()
   @IsOptional()
+  @Type(() => Boolean)
   features: string;
 
   @IsBoolean()

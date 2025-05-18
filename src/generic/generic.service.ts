@@ -10,6 +10,7 @@ import { UploadService } from '../upload/upload.service';
 import { hash } from 'bcrypt';
 import { normalizeTerm } from 'src/utils/normalizeTerm';
 import { ifNumberParseNumber } from 'src/utils/ifNumberParseNumber';
+import { ifBooleanParseBoolean } from 'src/utils/isBooleanParseBoolean';
 
 type logParams = {
   userId: string;
@@ -120,6 +121,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
           };
         } else {
           params.where[filter] = ifNumberParseNumber(filters[filter]);
+          params.where[filter] = ifBooleanParseBoolean(filters[filter]);
         }
       }
 
