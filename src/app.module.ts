@@ -22,6 +22,7 @@ import { CourseModule } from './course/module';
 import { InstructorModule } from './instructor/module';
 import { ClassesModule } from './classes/module';
 import { CourseClassInstructorModule } from './course_class_instructor/module';
+import { SiteProductsimagesModule } from './site_productsimages/module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { CourseClassInstructorModule } from './course_class_instructor/module';
     InstructorModule,
     ClassesModule,
     CourseClassInstructorModule,
+    SiteProductsimagesModule,
   ],
   controllers: [],
   providers: [

@@ -1,17 +1,12 @@
 // Tabela Site_Products
-model Site_Products {
+model Site_ProductsImages {
   id            Int       @id @default(autoincrement())
+  productId     Int
+  product       Site_Products @relation(fields: [productId], references: [id], onDelete: Cascade)
   companyId     Int
   name          String    @db.VarChar(255)
-  featured      Boolean?   @default(false)  // Novo campo booleano para status de ativo/inativo
   imageUrl      String?   @db.VarChar(255)
-  price         Decimal?   @db.Decimal(18, 2)
-  oldPrice      Decimal?   @db.Decimal(18, 2)
-  description   String?    @db.VarChar(255)
-  features      String?   @db.VarChar(255)
   active        Boolean   @default(true)  // Novo campo booleano para status de ativo/inativo
-
-  images        Site_ProductsImages[]
 
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @default(now()) @updatedAt
