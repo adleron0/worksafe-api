@@ -21,13 +21,12 @@ import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { CreateDto } from './dto/create.dto';
 import { UpdateDto } from './dto/update.dto';
 import { IEntity } from './interfaces/interface';
-import { SiteProductsService as Service } from './service';
+import { SiteProductsimagesService as Service } from './service';
 // Import utils specifics
 import { FileInterceptor } from '@nestjs/platform-express';
 import { getMulterOptions } from '../upload/upload.middleware';
 // Import generic controller
 import { GenericController } from 'src/generic/generic.controller';
-import { Public } from 'src/auth/decorators/public.decorator';
 
 // Create a decorator factory for User controller permissions
 function UserPermission(permission: string) {
@@ -35,14 +34,14 @@ function UserPermission(permission: string) {
 }
 
 const entity = {
-  model: 'site_Products' as keyof PrismaClient,
-  name: 'Site Produtos',
-  route: 'site-products',
+  model: 'site_ProductsImages' as keyof PrismaClient,
+  name: 'imagens dos produtos',
+  route: 'site_productsimages',
   permission: 'loja_site',
 };
 
 @Controller(entity.route)
-export class SiteProductsController extends GenericController<
+export class SiteProductsimagesController extends GenericController<
   CreateDto,
   UpdateDto,
   IEntity,
@@ -53,28 +52,20 @@ export class SiteProductsController extends GenericController<
   }
 
   // Rota intermediária para validação de permissão
-  // @UserPermission(`list_${entity.permission}`) // Permissão para rota genérica
-  @Public()
+  @UserPermission(`list_${entity.permission}`) // Permissão para rota genérica
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
+    const noCompany = false; // quando a rota não exige buscar companyId pelo token
     // filtros e atributos de associações
-    const paramsIncludes = {
-      images: {
-        select: {
-          id: true,
-          imageUrl: true,
-          name: true,
-        }
-      }
-    };
-    return super.get(request, query, paramsIncludes, true);
+    const paramsIncludes = {};
+    return super.get(request, query, paramsIncludes, noCompany);
   }
 
   // Rota intermediária para validação de permissão
   @UserPermission(`create_${entity.permission}`) // Permissão para rota genérica
   @Post()
   @UseInterceptors(
-    FileInterceptor('image', getMulterOptions('site_products-image')),
+    FileInterceptor('image', getMulterOptions('site_productsimages-image')),
   )
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async create(
@@ -84,6 +75,8 @@ export class SiteProductsController extends GenericController<
   ) {
     const search = {
       name: CreateDto.name,
+      productId: CreateDto.productId,
+      companyId: request.user.companyId,
     }; // Customize search parameters if needed
     return super.create(request, CreateDto, file, search);
   }
@@ -92,7 +85,7 @@ export class SiteProductsController extends GenericController<
   @UserPermission(`update_${entity.permission}`) // Permissão para rota genérica
   @Put(':id')
   @UseInterceptors(
-    FileInterceptor('image', getMulterOptions('site_products-image')),
+    FileInterceptor('image', getMulterOptions('site_productsimages-image')),
   )
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async update(
@@ -101,9 +94,6 @@ export class SiteProductsController extends GenericController<
     @Body() UpdateDto: UpdateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
-    if (!UpdateDto.price) UpdateDto.price = null;
-    if (!UpdateDto.oldPrice) UpdateDto.oldPrice = null;
-    if (!UpdateDto.featured) UpdateDto.featured = false;
     return super.update(id, request, UpdateDto, file);
   }
 
