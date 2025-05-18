@@ -88,6 +88,8 @@ export class SiteProductsController extends GenericController<
     const search = {
       name: CreateDto.name,
     }; // Customize search parameters if needed
+    if (!CreateDto.price) CreateDto.price = 0;
+    if (!CreateDto.oldPrice) CreateDto.oldPrice = 0;
     return super.create(request, CreateDto, file, search);
   }
 
@@ -104,8 +106,8 @@ export class SiteProductsController extends GenericController<
     @Body() UpdateDto: UpdateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
-    if (!UpdateDto.price) UpdateDto.price = null;
-    if (!UpdateDto.oldPrice) UpdateDto.oldPrice = null;
+    if (!UpdateDto.price) UpdateDto.price = 0;
+    if (!UpdateDto.oldPrice) UpdateDto.oldPrice = 0;
     if (!UpdateDto.featured) UpdateDto.featured = false;
     return super.update(id, request, UpdateDto, file);
   }

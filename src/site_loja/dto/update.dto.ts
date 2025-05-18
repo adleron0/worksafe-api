@@ -51,7 +51,7 @@ export class UpdateDto {
 
   @IsString()
   @IsOptional()
-  @Type(() => Boolean)
+  @Type(() => String)
   features: string;
 
   @IsBoolean()

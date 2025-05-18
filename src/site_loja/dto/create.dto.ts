@@ -15,6 +15,7 @@ export class CreateDto {
 
   @IsBoolean()
   @IsOptional()
+  @Type(() => Boolean)
   featured: boolean;
 
   @IsUrl({}, { message: 'Invalid URL format for image' })
@@ -40,7 +41,6 @@ export class CreateDto {
 
   @IsString()
   @IsOptional()
-  @Type(() => Boolean)
   features: string;
 
   @IsBoolean()

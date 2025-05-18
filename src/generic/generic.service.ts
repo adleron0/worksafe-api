@@ -119,6 +119,16 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
           params.where[filter.split('-')[1]] = {
             not: ifNumberParseNumber(filters[filter]),
           };
+        } else if (filter.includes('min-')) {
+          params.where[filter.split('-')[1]] = {
+            ...params.where[filter.split('-')[1]],
+            gte: ifNumberParseNumber(filters[filter]),
+          };
+        } else if (filter.includes('max-')) {
+          params.where[filter.split('-')[1]] = {
+            ...params.where[filter.split('-')[1]],
+            lte: ifNumberParseNumber(filters[filter]),
+          };
         } else {
           params.where[filter] = ifNumberParseNumber(filters[filter]);
           params.where[filter] = ifBooleanParseBoolean(filters[filter]);
@@ -146,6 +156,16 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       });
       Object.keys(params.where).forEach((key) => {
         if (key.startsWith('not-')) {
+          delete params.where[key];
+        }
+      });
+      Object.keys(params.where).forEach((key) => {
+        if (key.startsWith('max-')) {
+          delete params.where[key];
+        }
+      });
+      Object.keys(params.where).forEach((key) => {
+        if (key.startsWith('min-')) {
           delete params.where[key];
         }
       });
