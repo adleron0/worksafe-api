@@ -57,7 +57,17 @@ export class SiteProductsController extends GenericController<
   @Public()
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
-    return super.get(request, query, {}, true);
+    // filtros e atributos de associações
+    const paramsIncludes = {
+      images: {
+        select: {
+          id: true,
+          imageUrl: true,
+          name: true,
+        }
+      }
+    };
+    return super.get(request, query, paramsIncludes, true);
   }
 
   // Rota intermediária para validação de permissão

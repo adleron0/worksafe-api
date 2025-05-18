@@ -24,7 +24,7 @@ export class CreateDto {
 
   @IsInt()
   @Type(() => Number)
-  @IsNotEmpty({ message: 'companyId is required' })
+  @IsOptional()
   companyId: number;
 
   @IsBoolean()
