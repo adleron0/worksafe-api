@@ -1,6 +1,9 @@
 export function ifBooleanParseBoolean(valor: any): any {
-  // Verifica se já é um número
+  // Verifica se já é um booleano
   if (typeof valor === 'boolean') return valor;
+
+  // Verifica se é um número
+  if (typeof valor === 'number') return valor;
 
   // Verifica se é verdadeiro
   if (valor === 'true') {

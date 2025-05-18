@@ -131,7 +131,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
           };
         } else {
           params.where[filter] = ifNumberParseNumber(filters[filter]);
-          params.where[filter] = ifBooleanParseBoolean(filters[filter]);
+          params.where[filter] = ifBooleanParseBoolean(params.where[filter]);
         }
       }
 
