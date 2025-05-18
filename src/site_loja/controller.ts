@@ -64,6 +64,9 @@ export class SiteProductsController extends GenericController<
           id: true,
           imageUrl: true,
           name: true,
+        },
+        where: {
+          active: true,
         }
       }
     };
