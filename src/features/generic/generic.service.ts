@@ -130,7 +130,13 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
             lte: ifNumberParseNumber(filters[filter]),
           };
         } else {
-          params.where[filter] = ifNumberParseNumber(filters[filter]);
+          // Casos para ignorar no ParseNumber
+          const ignore = ['password', 'cpf', 'cnpj', 'phone'];
+          if (!ignore.includes(filter)) {
+            params.where[filter] = ifNumberParseNumber(filters[filter]);
+          } else {
+            params.where[filter] = filters[filter];
+          }
           params.where[filter] = ifBooleanParseBoolean(params.where[filter]);
         }
       }

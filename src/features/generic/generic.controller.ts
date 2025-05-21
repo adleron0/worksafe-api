@@ -17,7 +17,6 @@ import { ApiOkResponse } from '@nestjs/swagger';
 import { PrismaClient } from '@prisma/client';
 import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
-import { ifNumberParseNumber } from 'src/utils/ifNumberParseNumber';
 
 type entity = {
   model: keyof PrismaClient;
@@ -141,17 +140,6 @@ export class GenericController<
       companyId,
     };
     dto['companyId'] = Number(companyId);
-    Object.keys(dto).forEach((key) => {
-      // casos para ignorar e não transformar em numero
-      if (
-        key === 'password' ||
-        key === 'cpf' ||
-        key === 'cnpj' ||
-        key === 'phone'
-      )
-        return;
-      dto[key] = ifNumberParseNumber(dto[key]);
-    });
     const search = searchVerify || {};
     return this.service.create(dto, logParams, this.entity, file, search);
   }
@@ -168,16 +156,6 @@ export class GenericController<
       userId,
       companyId,
     };
-    Object.keys(dto).forEach((key) => {
-      if (
-        key === 'password' ||
-        key === 'cpf' ||
-        key === 'cnpj' ||
-        key === 'phone'
-      )
-        return;
-      dto[key] = ifNumberParseNumber(dto[key]);
-    });
     const numberId = Number(id);
     return this.service.update(numberId, dto, logParams, this.entity, file);
   }

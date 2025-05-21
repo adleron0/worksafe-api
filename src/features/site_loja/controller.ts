@@ -67,8 +67,8 @@ export class SiteProductsController extends GenericController<
         },
         where: {
           active: true,
-        }
-      }
+        },
+      },
     };
     return super.get(request, query, paramsIncludes, true);
   }
