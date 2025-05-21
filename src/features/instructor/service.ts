@@ -8,7 +8,7 @@ import { GenericService } from 'src/features/generic/generic.service';
 import { IEntity } from './interfaces/interface';
 import { CreateDto } from './dto/create.dto';
 import { UpdateDto } from './dto/update.dto';
-import { PrismaService } from 'src/features/prisma/prisma.service';
+import { PrismaService } from 'src/prisma/prisma.service';
 import { PrismaClient } from '@prisma/client';
 import { UploadService } from '../upload/upload.service';
 

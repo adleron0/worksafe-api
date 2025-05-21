@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { GenericService } from 'src/features/generic/generic.service';
-import { PrismaService } from 'src/features/prisma/prisma.service';
+import { PrismaService } from 'src/prisma/prisma.service';
 // entity template imports
 import { IEntity } from './interfaces/interface';
 import { CreateDto } from './dtos/create.dto';

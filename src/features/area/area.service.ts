@@ -7,7 +7,7 @@ import { CreateAreaDto } from './dto/createArea.dto';
 import { UpdateAreaDto } from './dto/updateArea.dto';
 import { Area } from './interfaces/area.interface';
 import { SubArea } from './interfaces/subarea.interface';
-import { PrismaService } from 'src/features/prisma/prisma.service';
+import { PrismaService } from 'src/prisma/prisma.service';
 import { UploadService } from 'src/features/upload/upload.service';
 import { CreateSubAreaDto } from './dto/createSubAreaDto';
 
