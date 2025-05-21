@@ -1,7 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { PrismaService } from 'src/prisma/prisma.service';
-import { UserService } from 'src/user/service';
+import { PrismaService } from 'src/features/prisma/prisma.service';
+import { UserService } from 'src/features/user/service';
 import { compare } from 'bcrypt';
 import { encryptPayload } from 'src/utils/crypto';
 import * as Zlib from 'zlib';

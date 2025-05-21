@@ -6,6 +6,8 @@ model Trainee {
   imageUrl String? @db.VarChar(255)
   active Boolean @default(true)
 
+  @@unique([cpf, customerId])
+
   certificate TraineeCourseCertificate[]
   subscription CourseClassSubscription[]
   review CourseReview[]

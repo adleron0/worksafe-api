@@ -65,7 +65,7 @@ const entityNameCapitalized = capitalizeFirstLetterEachWork(entityName);
 const entityNamePlural = entityName + 's'; // Simple pluralization, might need to be more sophisticated
 
 // Create directory structure
-const entityDir = path.join(process.cwd(), 'src', entityName);
+const entityDir = path.join(process.cwd(), 'src', 'features', entityName);
 const dtoDir = path.join(entityDir, 'dto');
 const interfacesDir = path.join(entityDir, 'interfaces');
 
@@ -438,16 +438,20 @@ fs.writeFileSync(path.join(interfacesDir, 'interface.ts'), interfaceContent);
 
 console.log(`Entity ${entityNamePascal} generated successfully!`);
 console.log(`Files created:`);
-console.log(`- src/${entityName}/service.ts`);
-console.log(`- src/${entityName}/controller.ts`);
-console.log(`- src/${entityName}/module.ts`);
-console.log(`- src/${entityName}/dto/create.dto.ts`);
-console.log(`- src/${entityName}/dto/update.dto.ts`);
-console.log(`- src/${entityName}/interfaces/interface.ts`);
+console.log(`- src/features/${entityName}/service.ts`);
+console.log(`- src/features/${entityName}/controller.ts`);
+console.log(`- src/features/${entityName}/module.ts`);
+console.log(`- src/features/${entityName}/dto/create.dto.ts`);
+console.log(`- src/features/${entityName}/dto/update.dto.ts`);
+console.log(`- src/features/${entityName}/interfaces/interface.ts`);
 
-console.log("\nDon't forget to:");
-console.log(`1. Add ${entityNamePascal}Module to app.module.ts imports`);
-console.log('2. Update the Prisma schema if needed');
-console.log('3. Run prisma generate to update the Prisma client');
-console.log('4. Customize the interface.ts file to add relations');
-console.log('5. Customize the search parameters in controller.ts if needed');
+console.log(`
+Não se esqueça de:
+1. Adicione o ${entityNamePascal}Module ao app.module.ts:
+   - Importe: import { ${entityNamePascal}Module } from './features/${entityName}/${entityName}.module';
+   - Adicione ao array de imports: ${entityNamePascal}Module,
+2. Atualize o schema do Prisma se necessário
+3. Execute prisma generate para atualizar o cliente Prisma
+4. Personalize o arquivo interface.ts para adicionar relações
+5. Personalize os parâmetros de busca no controller.ts se necessário
+`);
