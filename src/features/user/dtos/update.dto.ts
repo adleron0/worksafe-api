@@ -2,7 +2,7 @@ import {
   IsEmail,
   IsString,
   MinLength,
-  Matches,
+  IsInt,
   IsOptional,
   IsUrl,
   Length,
@@ -34,12 +34,12 @@ export class UpdateDto {
   @IsOptional()
   cpf: string;
 
-  @IsString()
+  @IsInt()
   @IsOptional()
   @Type(() => Number)
   companyId: number;
 
-  @IsString()
+  @IsInt()
   @IsOptional()
   @Type(() => Number)
   profileId: number;
