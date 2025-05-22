@@ -7,6 +7,7 @@ import {
   IsUrl,
   Length,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { IsCpf } from 'src/validators/is-cpf.constraint';
 
 export class UpdateDto {
@@ -35,10 +36,12 @@ export class UpdateDto {
 
   @IsString()
   @IsOptional()
+  @Type(() => Number)
   companyId: number;
 
   @IsString()
   @IsOptional()
+  @Type(() => Number)
   profileId: number;
 
   @IsUrl({}, { message: 'Invalid URL format for image' })
