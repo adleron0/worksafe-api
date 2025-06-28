@@ -15,16 +15,16 @@ import {
   applyDecorators,
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import e, { Request } from 'express';
+import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 // Import entity template
 import { CreateDto } from './dto/create.dto';
 import { UpdateDto } from './dto/update.dto';
 import { IEntity } from './interfaces/interface';
-import { CustomerContactsService as Service } from './service';
+import { CourseService as Service } from './service';
 // Import utils specifics
 import { FileInterceptor } from '@nestjs/platform-express';
-import { getMulterOptions } from '../upload/upload.middleware';
+import { getMulterOptions } from '../../upload/upload.middleware';
 // Import generic controller
 import { GenericController } from 'src/features/generic/generic.controller';
 
@@ -34,14 +34,14 @@ function UserPermission(permission: string) {
 }
 
 const entity = {
-  model: 'customer_Contacts' as keyof PrismaClient,
-  name: 'CustomerContacts',
-  route: 'customer-contacts',
-  permission: 'clientes',
+  model: 'course' as keyof PrismaClient,
+  name: 'Course',
+  route: 'courses',
+  permission: 'treinamentos',
 };
 
 @Controller(entity.route)
-export class CustomerContactsController extends GenericController<
+export class CourseController extends GenericController<
   CreateDto,
   UpdateDto,
   IEntity,
@@ -55,15 +55,16 @@ export class CustomerContactsController extends GenericController<
   @UserPermission(`list_${entity.permission}`) // Permissão para rota genérica
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
-    return super.get(request, query, {}, false);
+    const noCompany = false; // quando a rota não exige buscar companyId pelo token
+    // filtros e atributos de associações
+    const paramsIncludes = {};
+    return super.get(request, query, paramsIncludes, noCompany);
   }
 
   // Rota intermediária para validação de permissão
   @UserPermission(`create_${entity.permission}`) // Permissão para rota genérica
   @Post()
-  @UseInterceptors(
-    FileInterceptor('image', getMulterOptions('customer_contacts-image')),
-  )
+  @UseInterceptors(FileInterceptor('image', getMulterOptions('course-image')))
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async create(
     @Req() request: Request,
@@ -71,7 +72,8 @@ export class CustomerContactsController extends GenericController<
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
     const search = {
-      email: CreateDto.email,
+      name: CreateDto.name,
+      inactiveAt: null,
     }; // Customize search parameters if needed
     return super.create(request, CreateDto, file, search);
   }
@@ -79,9 +81,7 @@ export class CustomerContactsController extends GenericController<
   // Rota intermediária para validação de permissão
   @UserPermission(`update_${entity.permission}`) // Permissão para rota genérica
   @Put(':id')
-  @UseInterceptors(
-    FileInterceptor('image', getMulterOptions('customer_contacts-image')),
-  )
+  @UseInterceptors(FileInterceptor('image', getMulterOptions('course-image')))
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async update(
     @Param('id') id: number,
@@ -89,6 +89,9 @@ export class CustomerContactsController extends GenericController<
     @Body() UpdateDto: UpdateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
+    if (!UpdateDto.weekly) UpdateDto.weekly = false;
+    if (!UpdateDto.weekDays) UpdateDto.weekDays = null;
+    if (!UpdateDto.faq) UpdateDto.faq = null;
     return super.update(id, request, UpdateDto, file);
   }
 

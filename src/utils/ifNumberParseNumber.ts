@@ -5,11 +5,16 @@ export function ifNumberParseNumber(valor: any): any {
   // Verifica se é um booleano
   if (typeof valor === 'boolean') return valor;
 
-  // Verifica se é uma string composta apenas por dígitos
-  if (typeof valor === 'string' && /^\d+$/.test(valor)) {
-    return Number(valor);
-  }
+  // Valor é null ou undefined
+  if (!valor || Array.isArray(valor)) return valor;
 
-  // Retorna o valor original em outros casos
-  return valor;
+  // se começar com 0 ou tiver ponto, trata como string
+  const num =
+    valor.startsWith('0') || valor.includes('.') || valor.includes(',')
+      ? valor
+      : Number(valor);
+
+  const result = isNaN(num) ? valor : num;
+
+  return result;
 }

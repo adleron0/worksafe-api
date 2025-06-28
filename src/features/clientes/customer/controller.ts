@@ -21,10 +21,10 @@ import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { CreateDto } from './dto/create.dto';
 import { UpdateDto } from './dto/update.dto';
 import { IEntity } from './interfaces/interface';
-import { CourseService as Service } from './service';
+import { CustomerService as Service } from './service';
 // Import utils specifics
 import { FileInterceptor } from '@nestjs/platform-express';
-import { getMulterOptions } from '../upload/upload.middleware';
+import { getMulterOptions } from '../../upload/upload.middleware';
 // Import generic controller
 import { GenericController } from 'src/features/generic/generic.controller';
 
@@ -34,14 +34,14 @@ function UserPermission(permission: string) {
 }
 
 const entity = {
-  model: 'course' as keyof PrismaClient,
-  name: 'Course',
-  route: 'courses',
-  permission: 'treinamentos',
+  model: 'customer' as keyof PrismaClient,
+  name: 'Cliente',
+  route: 'customer',
+  permission: 'clientes',
 };
 
 @Controller(entity.route)
-export class CourseController extends GenericController<
+export class CustomerController extends GenericController<
   CreateDto,
   UpdateDto,
   IEntity,
@@ -55,33 +55,31 @@ export class CourseController extends GenericController<
   @UserPermission(`list_${entity.permission}`) // Permissão para rota genérica
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
-    const noCompany = false; // quando a rota não exige buscar companyId pelo token
-    // filtros e atributos de associações
-    const paramsIncludes = {};
-    return super.get(request, query, paramsIncludes, noCompany);
+    return super.get(request, query, {}, false);
   }
 
   // Rota intermediária para validação de permissão
   @UserPermission(`create_${entity.permission}`) // Permissão para rota genérica
   @Post()
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('course-image')))
+  @UseInterceptors(FileInterceptor('image', getMulterOptions('custumer-logo')))
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async create(
     @Req() request: Request,
     @Body() CreateDto: CreateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
+    const { companyId } = request.user;
     const search = {
-      name: CreateDto.name,
-      inactiveAt: null,
-    }; // Customize search parameters if needed
+      cnpj: CreateDto.cnpj,
+      companyId: Number(companyId),
+    };
     return super.create(request, CreateDto, file, search);
   }
 
   // Rota intermediária para validação de permissão
   @UserPermission(`update_${entity.permission}`) // Permissão para rota genérica
   @Put(':id')
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('course-image')))
+  @UseInterceptors(FileInterceptor('image', getMulterOptions('custumer-logo')))
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async update(
     @Param('id') id: number,
@@ -89,9 +87,6 @@ export class CourseController extends GenericController<
     @Body() UpdateDto: UpdateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
-    if (!UpdateDto.weekly) UpdateDto.weekly = false;
-    if (!UpdateDto.weekDays) UpdateDto.weekDays = null;
-    if (!UpdateDto.faq) UpdateDto.faq = null;
     return super.update(id, request, UpdateDto, file);
   }
 
