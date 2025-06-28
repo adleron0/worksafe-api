@@ -30,6 +30,7 @@
     "@nestjs/platform-express": "^10.4.6",
     "@nestjs/swagger": "^7.4.2",
     "@prisma/client": "^6.5.0",
+    "@prisma/internals": "^6.10.1",
     "aws-sdk": "^2.1692.0",
     "axios": "^1.7.6",
     "bcrypt": "^5.1.1",

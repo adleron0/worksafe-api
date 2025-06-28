@@ -24,6 +24,53 @@ type entity = {
   permission: string;
 };
 
+// Função utilitária para processar filtros
+function parseFilterObject(filterObj: any) {
+  const condition: any = {};
+  for (const key in filterObj) {
+    if (key.includes('in-')) {
+      const array = filterObj[key]
+        .split(',')
+        .map((item: any) => ifNumberParseNumber(item));
+      condition[key.split('-')[1]] = { in: array };
+    } else if (key.includes('notin-')) {
+      const array = filterObj[key]
+        .split(',')
+        .map((item: any) => ifNumberParseNumber(item));
+      condition[key.split('-')[1]] = { notIn: array };
+    } else if (key.includes('like-')) {
+      condition[key.split('-')[1]] = {
+        contains: filterObj[key],
+        mode: 'insensitive',
+      };
+    } else if (key.includes('not-')) {
+      condition[key.split('-')[1]] = {
+        not: ifNumberParseNumber(filterObj[key]),
+      };
+    } else if (key.includes('gt-')) {
+      condition[key.split('-')[1]] = {
+        gt: ifNumberParseNumber(filterObj[key]),
+      };
+    } else if (key.includes('lt-')) {
+      condition[key.split('-')[1]] = {
+        lt: ifNumberParseNumber(filterObj[key]),
+      };
+    } else if (key.includes('gte-')) {
+      condition[key.split('-')[1]] = {
+        gte: ifNumberParseNumber(filterObj[key]),
+      };
+    } else if (key.includes('lte-')) {
+      condition[key.split('-')[1]] = {
+        lte: ifNumberParseNumber(filterObj[key]),
+      };
+    } else {
+      condition[key] = ifNumberParseNumber(filterObj[key]);
+      condition[key] = ifBooleanParseBoolean(condition[key]);
+    }
+  }
+  return condition;
+}
+
 @Injectable()
 export class GenericService<TCreateDto, TUpdateDto, TEntity> {
   constructor(
@@ -108,38 +155,17 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       // Aplicando os filtros adicionais corretamente
       params.where = {};
 
-      // Filtros adicionais
-      for (const filter of Object.keys(filters)) {
-        if (filters[filter]?.length > 0 && filters[filter].includes(',')) {
-          const array = filters[filter]
-            .split(',')
-            .map((item) => ifNumberParseNumber(item));
-          params.where[filter] = { in: array };
-        } else if (filter.includes('not-')) {
-          params.where[filter.split('-')[1]] = {
-            not: ifNumberParseNumber(filters[filter]),
-          };
-        } else if (filter.includes('min-')) {
-          params.where[filter.split('-')[1]] = {
-            ...params.where[filter.split('-')[1]],
-            gte: ifNumberParseNumber(filters[filter]),
-          };
-        } else if (filter.includes('max-')) {
-          params.where[filter.split('-')[1]] = {
-            ...params.where[filter.split('-')[1]],
-            lte: ifNumberParseNumber(filters[filter]),
-          };
-        } else {
-          // Casos para ignorar no ParseNumber
-          const ignore = ['password', 'cpf', 'cnpj', 'phone'];
-          if (!ignore.includes(filter)) {
-            params.where[filter] = ifNumberParseNumber(filters[filter]);
-          } else {
-            params.where[filter] = filters[filter];
-          }
-          params.where[filter] = ifBooleanParseBoolean(params.where[filter]);
-        }
+      // Suporte ao filtro OR
+      if (filters.or && Array.isArray(filters.or)) {
+        params.where.OR = filters.or.map((orFilter: any) =>
+          parseFilterObject(orFilter),
+        );
+        // Remove o filtro 'or' do objeto principal para não duplicar condições
+        delete filters.or;
       }
+
+      // Filtros adicionais
+      Object.assign(params.where, parseFilterObject(filters));
 
       // Deleta Específicos
       delete params.where.includesToShow;
@@ -161,17 +187,42 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
         }
       });
       Object.keys(params.where).forEach((key) => {
+        if (key.startsWith('in-')) {
+          delete params.where[key];
+        }
+      });
+      Object.keys(params.where).forEach((key) => {
+        if (key.startsWith('notIn-')) {
+          delete params.where[key];
+        }
+      });
+      Object.keys(params.where).forEach((key) => {
         if (key.startsWith('not-')) {
           delete params.where[key];
         }
       });
       Object.keys(params.where).forEach((key) => {
-        if (key.startsWith('max-')) {
+        if (key.startsWith('gte-')) {
           delete params.where[key];
         }
       });
       Object.keys(params.where).forEach((key) => {
-        if (key.startsWith('min-')) {
+        if (key.startsWith('lte-')) {
+          delete params.where[key];
+        }
+      });
+      Object.keys(params.where).forEach((key) => {
+        if (key.startsWith('gt-')) {
+          delete params.where[key];
+        }
+      });
+      Object.keys(params.where).forEach((key) => {
+        if (key.startsWith('lt-')) {
+          delete params.where[key];
+        }
+      });
+      Object.keys(params.where).forEach((key) => {
+        if (key.startsWith('like-')) {
           delete params.where[key];
         }
       });
@@ -181,18 +232,18 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
         params.where.companyId = filters.companyId;
       }
 
-      if (filters.searchName) {
-        params.where.searchName = {
-          contains: normalizeTerm(filters.searchName),
-          mode: 'insensitive',
-        };
-      }
-      if (filters.name) {
-        params.where.name = {
-          contains: filters.name,
-          mode: 'insensitive',
-        };
-      }
+      // if (filters.searchName) {
+      //   params.where.searchName = {
+      //     contains: normalizeTerm(filters.searchName),
+      //     mode: 'insensitive',
+      //   };
+      // }
+      // if (filters.name) {
+      //   params.where.name = {
+      //     contains: filters.name,
+      //     mode: 'insensitive',
+      //   };
+      // }
       if (filters.active === 'true') {
         // quero só os ativos → inactiveAt IS NULL
         params.where.inactiveAt = null;
@@ -219,6 +270,8 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       // Ordenação
       let orderBy = [{ id: 'desc' }]; // Ordenação padrão
       if (filters.orderBy.length) orderBy = filters.orderBy; // Ordenação customizada da busca
+
+      console.log("🚀 ~ GenericService<TCreateDto, ~ params:", params)
 
       let result;
       if (filters.all) {

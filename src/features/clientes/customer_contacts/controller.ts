@@ -15,19 +15,18 @@ import {
   applyDecorators,
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { Request } from 'express';
+import e, { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 // Import entity template
 import { CreateDto } from './dto/create.dto';
 import { UpdateDto } from './dto/update.dto';
 import { IEntity } from './interfaces/interface';
-import { SiteProductsService as Service } from './service';
+import { CustomerContactsService as Service } from './service';
 // Import utils specifics
 import { FileInterceptor } from '@nestjs/platform-express';
-import { getMulterOptions } from '../upload/upload.middleware';
+import { getMulterOptions } from '../../upload/upload.middleware';
 // Import generic controller
 import { GenericController } from 'src/features/generic/generic.controller';
-import { Public } from 'src/auth/decorators/public.decorator';
 
 // Create a decorator factory for User controller permissions
 function UserPermission(permission: string) {
@@ -35,14 +34,14 @@ function UserPermission(permission: string) {
 }
 
 const entity = {
-  model: 'site_Products' as keyof PrismaClient,
-  name: 'Site Produtos',
-  route: 'site-products',
-  permission: 'loja_site',
+  model: 'customer_Contacts' as keyof PrismaClient,
+  name: 'CustomerContacts',
+  route: 'customer-contacts',
+  permission: 'clientes',
 };
 
 @Controller(entity.route)
-export class SiteProductsController extends GenericController<
+export class CustomerContactsController extends GenericController<
   CreateDto,
   UpdateDto,
   IEntity,
@@ -53,31 +52,17 @@ export class SiteProductsController extends GenericController<
   }
 
   // Rota intermediária para validação de permissão
-  // @UserPermission(`list_${entity.permission}`) // Permissão para rota genérica
-  @Public()
+  @UserPermission(`list_${entity.permission}`) // Permissão para rota genérica
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
-    // filtros e atributos de associações
-    const paramsIncludes = {
-      images: {
-        select: {
-          id: true,
-          imageUrl: true,
-          name: true,
-        },
-        where: {
-          active: true,
-        },
-      },
-    };
-    return super.get(request, query, paramsIncludes, true);
+    return super.get(request, query, {}, false);
   }
 
   // Rota intermediária para validação de permissão
   @UserPermission(`create_${entity.permission}`) // Permissão para rota genérica
   @Post()
   @UseInterceptors(
-    FileInterceptor('image', getMulterOptions('site_products-image')),
+    FileInterceptor('image', getMulterOptions('customer_contacts-image')),
   )
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async create(
@@ -86,10 +71,8 @@ export class SiteProductsController extends GenericController<
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
     const search = {
-      name: CreateDto.name,
+      email: CreateDto.email,
     }; // Customize search parameters if needed
-    if (!CreateDto.price) CreateDto.price = 0;
-    if (!CreateDto.oldPrice) CreateDto.oldPrice = 0;
     return super.create(request, CreateDto, file, search);
   }
 
@@ -97,7 +80,7 @@ export class SiteProductsController extends GenericController<
   @UserPermission(`update_${entity.permission}`) // Permissão para rota genérica
   @Put(':id')
   @UseInterceptors(
-    FileInterceptor('image', getMulterOptions('site_products-image')),
+    FileInterceptor('image', getMulterOptions('customer_contacts-image')),
   )
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async update(
@@ -106,9 +89,6 @@ export class SiteProductsController extends GenericController<
     @Body() UpdateDto: UpdateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
-    if (!UpdateDto.price) UpdateDto.price = 0;
-    if (!UpdateDto.oldPrice) UpdateDto.oldPrice = 0;
-    if (!UpdateDto.featured) UpdateDto.featured = false;
     return super.update(id, request, UpdateDto, file);
   }
 

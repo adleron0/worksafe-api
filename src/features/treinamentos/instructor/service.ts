@@ -10,7 +10,7 @@ import { CreateDto } from './dto/create.dto';
 import { UpdateDto } from './dto/update.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { PrismaClient } from '@prisma/client';
-import { UploadService } from '../upload/upload.service';
+import { UploadService } from '../../upload/upload.service';
 
 type logParams = {
   userId: string;

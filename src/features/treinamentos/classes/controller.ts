@@ -21,12 +21,13 @@ import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { CreateDto } from './dto/create.dto';
 import { UpdateDto } from './dto/update.dto';
 import { IEntity } from './interfaces/interface';
-import { CourseClassInstructorService as Service } from './service';
+import { ClassesService as Service } from './service';
 // Import utils specifics
 import { FileInterceptor } from '@nestjs/platform-express';
-import { getMulterOptions } from '../upload/upload.middleware';
+import { getMulterOptions } from '../../upload/upload.middleware';
 // Import generic controller
 import { GenericController } from 'src/features/generic/generic.controller';
+import { Public } from 'src/auth/decorators/public.decorator';
 
 // Create a decorator factory for User controller permissions
 function UserPermission(permission: string) {
@@ -34,14 +35,14 @@ function UserPermission(permission: string) {
 }
 
 const entity = {
-  model: 'courseClassInstructor' as keyof PrismaClient,
-  name: 'Instrutores da Turma',
-  route: 'class-instructors',
+  model: 'courseClass' as keyof PrismaClient,
+  name: 'Classes',
+  route: 'classes',
   permission: 'classes',
 };
 
 @Controller(entity.route)
-export class CourseClassInstructorController extends GenericController<
+export class ClassesController extends GenericController<
   CreateDto,
   UpdateDto,
   IEntity,
@@ -52,10 +53,11 @@ export class CourseClassInstructorController extends GenericController<
   }
 
   // Rota intermediária para validação de permissão
-  @UserPermission(`list_${entity.permission}`) // Permissão para rota genérica
+  // @UserPermission(`list_${entity.permission}`) // Permissão para rota genérica
+  @Public()
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
-    const noCompany = false; // quando a rota não exige buscar companyId pelo token
+    const noCompany = true; // quando a rota não exige buscar companyId pelo token
     // filtros e atributos de associações
     const paramsIncludes = {};
     return super.get(request, query, paramsIncludes, noCompany);
@@ -64,9 +66,7 @@ export class CourseClassInstructorController extends GenericController<
   // Rota intermediária para validação de permissão
   @UserPermission(`create_${entity.permission}`) // Permissão para rota genérica
   @Post()
-  @UseInterceptors(
-    FileInterceptor('image', getMulterOptions('course_class_instructor-image')),
-  )
+  @UseInterceptors(FileInterceptor('image', getMulterOptions('classes-image')))
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async create(
     @Req() request: Request,
@@ -74,8 +74,8 @@ export class CourseClassInstructorController extends GenericController<
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
     const search = {
-      classId: CreateDto.classId,
-      instructorId: CreateDto.instructorId,
+      courseId: CreateDto.courseId,
+      initialDate: CreateDto.initialDate,
     }; // Customize search parameters if needed
     return super.create(request, CreateDto, file, search);
   }
@@ -83,9 +83,7 @@ export class CourseClassInstructorController extends GenericController<
   // Rota intermediária para validação de permissão
   @UserPermission(`update_${entity.permission}`) // Permissão para rota genérica
   @Put(':id')
-  @UseInterceptors(
-    FileInterceptor('image', getMulterOptions('course_class_instructor-image')),
-  )
+  @UseInterceptors(FileInterceptor('image', getMulterOptions('classes-image')))
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async update(
     @Param('id') id: number,
@@ -93,6 +91,11 @@ export class CourseClassInstructorController extends GenericController<
     @Body() UpdateDto: UpdateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
+    if (!UpdateDto.price) UpdateDto.price = null;
+    if (!UpdateDto.oldPrice) UpdateDto.oldPrice = null;
+    if (!UpdateDto.openClass) UpdateDto.openClass = false;
+    if (!UpdateDto.allowExam) UpdateDto.allowExam = false;
+    if (!UpdateDto.allowReview) UpdateDto.allowReview = false;
     return super.update(id, request, UpdateDto, file);
   }
 
