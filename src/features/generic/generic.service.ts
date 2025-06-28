@@ -8,7 +8,6 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { UploadService } from '../upload/upload.service';
 // utils specific imports
 import { hash } from 'bcrypt';
-import { normalizeTerm } from 'src/utils/normalizeTerm';
 import { ifNumberParseNumber } from 'src/utils/ifNumberParseNumber';
 import { ifBooleanParseBoolean } from 'src/utils/isBooleanParseBoolean';
 
@@ -63,6 +62,13 @@ function parseFilterObject(filterObj: any) {
       condition[key.split('-')[1]] = {
         lte: ifNumberParseNumber(filterObj[key]),
       };
+    } else if (key.includes('notlike-')) {
+      condition[key.split('-')[1]] = {
+        not: {
+          contains: filterObj[key],
+          mode: 'insensitive',
+        },
+      };
     } else {
       condition[key] = ifNumberParseNumber(filterObj[key]);
       condition[key] = ifBooleanParseBoolean(condition[key]);
@@ -84,8 +90,33 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
     entity: entity,
     file?: Express.MulterS3.File,
     searchVerify = {},
+    hooks?: {
+      hookPreCreate?: (params: {
+        dto: TCreateDto;
+        entity: entity;
+        prisma: PrismaService;
+        logParams: any;
+      }) => Promise<void> | void;
+      hookPosCreate?: (
+        params: {
+          dto: TCreateDto;
+          entity: entity;
+          prisma: PrismaService;
+          logParams: any;
+        },
+        created: TEntity,
+      ) => Promise<void> | void;
+    },
   ): Promise<TEntity> {
     try {
+      if (hooks?.hookPreCreate) {
+        await hooks.hookPreCreate({
+          dto,
+          entity,
+          prisma: this.prisma,
+          logParams,
+        });
+      }
       // Sempre ajuste a busca do verify do create, ela é personalizada por entidade
       const verify = await this.prisma.selectFirst(entity.model, {
         where: {
@@ -116,6 +147,12 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
         logParams,
       );
 
+      if (hooks?.hookPosCreate) {
+        await hooks.hookPosCreate(
+          { dto, entity, prisma: this.prisma, logParams },
+          created,
+        );
+      }
       return created;
     } catch (error) {
       console.log('🚀 ~ GenericService<TCreateDto, ~ error:', error);
@@ -192,7 +229,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
         }
       });
       Object.keys(params.where).forEach((key) => {
-        if (key.startsWith('notIn-')) {
+        if (key.startsWith('notin-')) {
           delete params.where[key];
         }
       });
@@ -226,24 +263,17 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
           delete params.where[key];
         }
       });
+      Object.keys(params.where).forEach((key) => {
+        if (key.startsWith('notlike-')) {
+          delete params.where[key];
+        }
+      });
 
       // Filtros específicos
       if (!noCompany) {
         params.where.companyId = filters.companyId;
       }
 
-      // if (filters.searchName) {
-      //   params.where.searchName = {
-      //     contains: normalizeTerm(filters.searchName),
-      //     mode: 'insensitive',
-      //   };
-      // }
-      // if (filters.name) {
-      //   params.where.name = {
-      //     contains: filters.name,
-      //     mode: 'insensitive',
-      //   };
-      // }
       if (filters.active === 'true') {
         // quero só os ativos → inactiveAt IS NULL
         params.where.inactiveAt = null;
@@ -270,8 +300,6 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       // Ordenação
       let orderBy = [{ id: 'desc' }]; // Ordenação padrão
       if (filters.orderBy.length) orderBy = filters.orderBy; // Ordenação customizada da busca
-
-      console.log("🚀 ~ GenericService<TCreateDto, ~ params:", params)
 
       let result;
       if (filters.all) {
@@ -300,8 +328,36 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
     logParams: logParams,
     entity: entity,
     file?: Express.MulterS3.File,
+    hooks?: {
+      hookPreUpdate?: (params: {
+        id: number;
+        dto: TUpdateDto;
+        entity: entity;
+        prisma: PrismaService;
+        logParams: logParams;
+      }) => Promise<void> | void;
+      hookPosUpdate?: (
+        params: {
+          id: number;
+          dto: TUpdateDto;
+          entity: entity;
+          prisma: PrismaService;
+          logParams: logParams;
+        },
+        updated: TEntity,
+      ) => Promise<void> | void;
+    },
   ): Promise<TEntity> {
     try {
+      if (hooks?.hookPreUpdate) {
+        await hooks.hookPreUpdate({
+          id,
+          dto,
+          entity,
+          prisma: this.prisma,
+          logParams,
+        });
+      }
       const verifyExist = await this.prisma.selectOne(entity.model, {
         where: {
           id: id,
@@ -342,6 +398,12 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
         {},
         id,
       );
+      if (hooks?.hookPosUpdate) {
+        await hooks.hookPosUpdate(
+          { id, dto, entity, prisma: this.prisma, logParams },
+          updated,
+        );
+      }
       return updated;
     } catch (error) {
       console.log('🚀 ~ GenericService<TCreateDto, ~ error:', error);

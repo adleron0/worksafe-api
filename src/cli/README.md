@@ -1,80 +1,263 @@
 # CLI Gerador de Entidade
 
-Esta ferramenta CLI gera arquivos de entidade seguindo o padrão genérico usado no projeto. Ela cria todos os arquivos necessários para uma nova entidade, incluindo controller, service, module, DTOs e interfaces.
+Esta ferramenta CLI gera arquivos de entidade seguindo o padrão genérico usado no projeto. Ela cria todos os arquivos necessários para uma nova entidade, incluindo controller, service, module, DTOs, interfaces e configurações de segurança.
 
-## Uso
+## 🚀 Uso
 
 ```bash
-npm run gen:entity <nomeDaEntidade> [opcoes]
+npm run gen:entity
 ```
 
-### Opções
+O script é **interativo** e guiará você através do processo de criação da entidade.
 
-- `--`: Se houver campos, é necessário `--` antes do nome
-- `--has-image`: Adicione esta flag se a entidade deve suportar uploads de imagem
-- `--field=nome:tipo:obrigatorio`: Adiciona campos aos DTOs da entidade
-  - `nome`: O nome do campo
-  - `tipo`: O tipo do campo (string, number, int, float, boolean, date, email, url)
-  - `obrigatorio`: Adicione 'required' se o campo for obrigatório no DTO de criação
+## 📋 Fluxo de Geração
 
-### Exemplos
+### 1. **Configuração do Grupo**
+- Pergunta se a entidade pertence a um grupo (ex: `clientes`, `treinamentos`)
+- Se sim, solicita o nome do grupo
+- Cria a estrutura de pastas adequada
 
-Gerar uma entidade básica de produto:
+### 2. **Nome da Feature**
+- Solicita o nome da feature (ex: `user`, `product`)
+- **Verifica automaticamente** se a entidade já existe
+- Se existir, cancela a operação e lista entidades existentes
+
+### 3. **Seleção do Modelo Prisma**
+- Lista todos os modelos disponíveis no schema unificado
+- Permite seleção por nome ou número da lista
+- Parseia automaticamente o schema do modelo selecionado
+
+### 4. **Configurações Adicionais**
+- **Campo de Imagem**: Pergunta se deve incluir suporte a upload de imagem
+- **CompanyId**: Pergunta se a rota exige `companyId` do token
+
+### 5. **Revisão e Confirmação**
+- Mostra os campos que serão incluídos nos DTOs
+- Permite confirmar antes de gerar os arquivos
+
+## 📁 Arquivos Gerados
+
+A CLI gerará os seguintes arquivos na estrutura apropriada:
+
+### Estrutura Básica
+```
+src/features/[grupo]/[entidade]/
+├── controller.ts          # Controller com CRUD completo
+├── service.ts            # Service que estende GenericService
+├── module.ts             # Módulo NestJS
+├── associations.ts       # Configuração de relacionamentos
+├── rules.ts              # Regras de negócio e configurações
+├── dto/
+│   ├── create.dto.ts     # DTO para criação
+│   └── update.dto.ts     # DTO para atualização
+└── interfaces/
+    └── interface.ts      # Interface da entidade
+```
+
+### Estrutura na Raiz (sem grupo)
+```
+src/features/[entidade]/
+├── controller.ts
+├── service.ts
+├── module.ts
+├── associations.ts
+├── rules.ts
+├── dto/
+│   ├── create.dto.ts
+│   └── update.dto.ts
+└── interfaces/
+    └── interface.ts
+```
+
+## 🔧 Funcionalidades Automáticas
+
+### 🛡️ **Verificação de Duplicatas**
+- **Detecta automaticamente** se a entidade já existe
+- **Cancela a operação** se encontrar duplicata
+- **Lista entidades existentes** para referência
+- **Funciona para grupos e raiz**
+
+### 🔒 **omitAttributes (Segurança Automática)**
+- **Detecta automaticamente** campos sensíveis baseado em palavras-chave:
+  - `password`, `token`, `secret`, `key`, `hash`, `salt`, `credential`, `auth`
+- **Gera configuração automática** no `rules.ts`
+- **Aplica automaticamente** nos filtros do controller
+- **Permite sobrescrever** via query parameters
+
+#### Exemplo de `omitAttributes` gerado:
+```typescript
+// Para modelo com campos sensíveis:
+export const omitAttributes = ['password', 'resetToken', 'apiKey'];
+
+// Para modelo sem campos sensíveis:
+export const omitAttributes: string[] = [];
+```
+
+### ⚙️ **Regras Automáticas**
+- **emptyUpdates**: Processa campos booleanos automaticamente
+- **getSearchParams**: Template para critérios de unicidade
+- **Hooks**: Estrutura para lógicas customizadas
+
+## 📝 Exemplos de Uso
+
+### Exemplo 1: Entidade Básica
 ```bash
-npm run gen:entity product
+$ npx ts-node src/cli/generate-entity.ts
+
+A entidade pertence a um grupo? (s/n): n
+Digite o nome da feature (ex: user, product): product
+Digite o nome do modelo (ou número da lista): 15
+Deseja incluir campo de imagem? (s/n): n
+A rota exige companyId do token? (s/n): n
+Deseja gerar a entidade com esses campos? (s/n): s
 ```
 
-Gerar uma entidade de produto com suporte a imagem:
+### Exemplo 2: Entidade em Grupo
 ```bash
-npm run gen:entity -- product --has-image
+$ npx ts-node src/cli/generate-entity.ts
+
+A entidade pertence a um grupo? (s/n): s
+Qual o nome do grupo? (ex: clientes): clientes
+Digite o nome da feature (ex: user, product): contact
+Digite o nome do modelo (ou número da lista): customer_contacts
+Deseja incluir campo de imagem? (s/n): s
+A rota exige companyId do token? (s/n): s
+Deseja gerar a entidade com esses campos? (s/n): s
 ```
 
-Gerar uma entidade de produto com campos personalizados:
-```bash
-npm run gen:entity -- product --field=name:string:required --field=price:number:required --field=description:string
+## 🔄 Após a Geração
+
+### 1. **Importar o Módulo**
+```typescript
+// Para entidade na raiz:
+import { ProductModule } from './features/product/product.module';
+
+// Para entidade em grupo:
+import { ContactModule } from './features/clientes/contact/contact.module';
+
+// No app.module.ts:
+imports: [..., ProductModule, ContactModule]
 ```
 
-Gerar uma entidade de produto com suporte a imagem e campos personalizados:
-```bash
-npm run gen:entity -- product --has-image --field=name:string:required --field=price:number:required --field=description:string
+### 2. **Personalizações Necessárias**
+
+#### **associations.ts**
+```typescript
+export const paramsIncludes = {
+  // Configure relacionamentos
+  company: { select: { id: true, name: true } },
+  user: true,
+};
 ```
 
-## Arquivos Gerados
+#### **rules.ts**
+```typescript
+// Ajuste critérios de unicidade
+export function getSearchParams(request: Request, CreateDto: any) {
+  return {
+    companyId: Number(request.user?.companyId),
+    email: CreateDto.email, // Exemplo
+    name: CreateDto.name,   // Exemplo
+  };
+}
 
-A CLI gerará os seguintes arquivos:
+// Personalize campos omitidos
+export const omitAttributes = ['password', 'sensitiveField'];
 
-- `src/<nomeDaEntidade>/service.ts`: Classe de serviço que estende GenericService
-- `src/<nomeDaEntidade>/controller.ts`: Classe de controller que estende GenericController
-- `src/<nomeDaEntidade>/module.ts`: Classe de módulo que importa o controller e o serviço
-- `src/<nomeDaEntidade>/dto/create.dto.ts`: DTO para operações de criação
-- `src/<nomeDaEntidade>/dto/update.dto.ts`: DTO para operações de atualização
-- `src/<nomeDaEntidade>/interfaces/interface.ts`: Interface que estende o modelo Prisma
+// Ajuste processamento de campos vazios
+export function emptyUpdates(UpdateDto: any) {
+  if (UpdateDto.status === undefined) UpdateDto.status = false;
+  return UpdateDto;
+}
+```
 
-## Após a Geração
+#### **Hooks Personalizados**
+```typescript
+export async function hookPreCreate(params: { 
+  dto: any; 
+  entity: any; 
+  prisma: PrismaService; 
+  logParams: any 
+}) {
+  // Lógica antes da criação
+}
 
-Após gerar os arquivos da entidade, você precisa:
+export async function hookPosCreate(params: { 
+  dto: any; 
+  entity: any; 
+  prisma: PrismaService; 
+  logParams: any 
+}, created: any) {
+  // Lógica após a criação
+}
+```
 
-1. Adicionar o módulo da entidade aos imports do `app.module.ts`
-2. Revisar os DTOs para garantir que eles estejam funcionando conforme o esperado
-3. Personalizar o arquivo interface.ts para adicionar relações
-4. Personalizar os parâmetros de busca no controller.ts, se necessário ([veja o campo personalização]#personalizacao)
+## 🚨 Tratamento de Erros
 
-## Estrutura da Entidade
+### Entidade Duplicada
+```
+❌ Erro: A entidade "user" já existe!
 
-A entidade gerada segue o padrão genérico usado no projeto:
+📋 Entidades existentes na raiz:
+  1. user
+  2. product
+  3. company
 
-- O serviço estende GenericService
-- O controller estende GenericController
-- Os DTOs incluem decoradores de validação
-- A interface estende o modelo Prisma
+💡 Dica: Use um nome diferente para a feature ou remova a entidade existente.
+```
 
-## Personalização
+### Modelo Não Encontrado
+```
+❌ Erro ao ler o modelo "InvalidModel"
+```
 
-Você pode precisar personalizar os arquivos gerados para atender aos seus requisitos específicos:
+## 🔧 Configurações Avançadas
 
-- Verifique se os campos da entidade estão nomeados corretamente
-- Verifique se no GET será necessário o noCompany
-- Adicionar parâmetros de busca específicos no método CREATE do controller
-- Adicionar relações na interface
-- Adicionar regras de validação específicas nos DTOs
-- Se necessário funções personalizadas fora do Generic, basta criar uma nova rota no controller e nova função no service da entidade
+### Permissões
+```typescript
+// No controller.ts - Descomente para remover permissão
+// @UserPermission(`list_${entity.permission}`)
+
+// Descomente para tornar pública
+// @Public()
+```
+
+### Upload de Imagem
+```typescript
+// Configuração automática no controller
+@UseInterceptors(FileInterceptor('image', getMulterOptions('entity-name-image')))
+```
+
+### Filtros Customizados
+```typescript
+// No método get do controller
+async get(@Req() request: Request, @Query() query: any) {
+  // Adiciona omitAttributes automaticamente
+  if (!query.omitAttributes) {
+    query.omitAttributes = omitAttributes;
+  }
+  return super.get(request, query, paramsIncludes, noCompany);
+}
+```
+
+## 📚 Estrutura da Entidade
+
+A entidade gerada segue o padrão genérico do projeto:
+
+- **Service**: Estende `GenericService` com funcionalidades CRUD
+- **Controller**: Estende `GenericController` com rotas padrão
+- **DTOs**: Incluem validações automáticas baseadas no schema
+- **Interface**: Estende o modelo Prisma correspondente
+- **Rules**: Configurações de segurança e regras de negócio
+- **Associations**: Configuração de relacionamentos
+
+## 🎯 Benefícios
+
+- ✅ **Geração Automática** de código padronizado
+- ✅ **Verificação de Duplicatas** para evitar conflitos
+- ✅ **Segurança Automática** com `omitAttributes`
+- ✅ **Detecção Inteligente** de campos sensíveis
+- ✅ **Flexibilidade** para personalizações
+- ✅ **Integração Completa** com o sistema existente
+- ✅ **Suporte a Grupos** para organização
+- ✅ **Validações Automáticas** baseadas no schema Prisma

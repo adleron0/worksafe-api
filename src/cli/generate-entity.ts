@@ -76,15 +76,10 @@ function getUnifiedPrismaSchema(): string {
 async function getPrismaModels(): Promise<string[]> {
   const unifiedSchema = getUnifiedPrismaSchema();
   // Log do schema unificado para debug
-  console.log('--- SCHEMA UNIFICADO ---\n', unifiedSchema);
   // Salvar schema unificado em arquivo temporário para análise
   fs.writeFileSync('schema-unificado-debug.prisma', unifiedSchema);
   const dmmf = await getDMMF({ datamodel: unifiedSchema });
   // Log dos models encontrados (numerado)
-  console.log('Modelos encontrados:');
-  dmmf.datamodel.models.forEach((m, idx) => {
-    console.log(`  ${idx + 1}. ${m.name}`);
-  });
   return dmmf.datamodel.models.map((model) => model.name);
 }
 
@@ -236,6 +231,104 @@ function shouldIncludeFieldInDTO(
   return field.name.toLowerCase().endsWith('id');
 }
 
+// Função para gerar regras de emptyUpdates baseadas nos campos booleanos
+function generateEmptyUpdatesRules(schemaModel: SchemaModel): string {
+  const booleanFields = schemaModel.fields.filter(
+    (field) =>
+      field.type === 'Boolean' &&
+      field.name !== 'active' &&
+      field.name !== 'status',
+  );
+
+  let rules = '';
+
+  if (booleanFields.length > 0) {
+    rules += '  // Campos booleanos detectados automaticamente\n';
+    booleanFields.forEach((field) => {
+      rules += `  if (UpdateDto.${field.name} === undefined) UpdateDto.${field.name} = false;\n`;
+    });
+    rules += '\n';
+  }
+
+  return rules;
+}
+
+// Função para gerar omitAttributes baseado no schema
+function generateOmitAttributes(schemaModel: SchemaModel): string {
+  const sensitiveFields = schemaModel.fields.filter((field) => {
+    const fieldName = field.name.toLowerCase();
+    return (
+      fieldName.includes('password') ||
+      fieldName.includes('token') ||
+      fieldName.includes('secret') ||
+      fieldName.includes('key') ||
+      fieldName.includes('hash') ||
+      fieldName.includes('salt') ||
+      fieldName.includes('credential') ||
+      fieldName.includes('auth')
+    );
+  });
+
+  if (sensitiveFields.length > 0) {
+    const fieldNames = sensitiveFields
+      .map((field) => `'${field.name}'`)
+      .join(', ');
+    return `export const omitAttributes = [${fieldNames}];`;
+  }
+
+  return `export const omitAttributes: string[] = [];`;
+}
+
+// Função para verificar se a entidade já existe
+function checkEntityExists(
+  featureName: string,
+  isGroup: boolean,
+  groupName: string,
+): boolean {
+  const entityName = featureName.toLowerCase();
+  let entityDir = '';
+
+  if (isGroup) {
+    entityDir = path.join(
+      process.cwd(),
+      'src',
+      'features',
+      groupName,
+      entityName,
+    );
+  } else {
+    entityDir = path.join(process.cwd(), 'src', 'features', entityName);
+  }
+
+  return fs.existsSync(entityDir);
+}
+
+// Função para listar entidades existentes em um grupo
+function listExistingEntitiesInGroup(groupName: string): string[] {
+  const groupDir = path.join(process.cwd(), 'src', 'features', groupName);
+  if (!fs.existsSync(groupDir)) {
+    return [];
+  }
+
+  return fs
+    .readdirSync(groupDir, { withFileTypes: true })
+    .filter((dirent) => dirent.isDirectory())
+    .map((dirent) => dirent.name);
+}
+
+// Função para listar entidades existentes na raiz
+function listExistingEntitiesInRoot(): string[] {
+  const featuresDir = path.join(process.cwd(), 'src', 'features');
+  if (!fs.existsSync(featuresDir)) {
+    return [];
+  }
+
+  return fs
+    .readdirSync(featuresDir, { withFileTypes: true })
+    .filter((dirent) => dirent.isDirectory())
+    .map((dirent) => dirent.name);
+}
+
 // Função principal interativa
 async function main() {
   const rl = createInterface();
@@ -272,13 +365,66 @@ async function main() {
       process.exit(1);
     }
 
-    // 2. Listar modelos disponíveis no schema unificado
+    // 2. Perguntar nome da rota
+    const routeName = await askQuestion(
+      rl,
+      'Digite o nome da rota (ex: users, products): ',
+    );
+
+    if (!routeName) {
+      console.error('❌ Nome da rota é obrigatório');
+      process.exit(1);
+    }
+
+    // 3. Perguntar nome da permission
+    const permissionName = await askQuestion(
+      rl,
+      'Digite o nome da permission (ex: users, products): ',
+    );
+
+    if (!permissionName) {
+      console.error('❌ Nome da permission é obrigatório');
+      process.exit(1);
+    }
+
+    // 4. Verificar se a entidade já existe
+    const entityExists = checkEntityExists(featureName, isGroup, groupName);
+    if (entityExists) {
+      console.error(`\n❌ Erro: A entidade "${featureName}" já existe!`);
+
+      if (isGroup) {
+        console.log(`\n📁 Entidades existentes no grupo "${groupName}":`);
+        const existingEntities = listExistingEntitiesInGroup(groupName);
+        existingEntities.forEach((entity, index) => {
+          console.log(`   ${index + 1}. 📄 ${entity}`);
+        });
+      } else {
+        console.log(`\n📁 Entidades existentes na raiz:`);
+        const existingEntities = listExistingEntitiesInRoot();
+        existingEntities.forEach((entity, index) => {
+          console.log(`   ${index + 1}. 📄 ${entity}`);
+        });
+      }
+
+      console.log(
+        '\n💡 Dica: Use um nome diferente para a feature ou remova a entidade existente.',
+      );
+      process.exit(1);
+    }
+
+    // 5. Listar modelos disponíveis no schema unificado
+    console.log('\n🔍 Carregando modelos disponíveis...');
     const availableModels = await getPrismaModels();
 
-    // 3. Perguntar nome do modelo
+    // 6. Perguntar nome do modelo
+    console.log('\n📋 Modelos disponíveis:');
+    availableModels.forEach((model, index) => {
+      console.log(`   ${index + 1}. 🗃️  ${model}`);
+    });
+
     const modelNameInput = await askQuestion(
       rl,
-      '\nDigite o nome do modelo (ou número da lista): ',
+      '\n🗃️  Digite o nome do modelo (ou número da lista): ',
     );
 
     let selectedModel = modelNameInput;
@@ -293,7 +439,8 @@ async function main() {
       selectedModel = availableModels[modelIndex];
     }
 
-    // 4. Ler e parsear o modelo
+    // 7. Ler e parsear o modelo
+    console.log(`\n🔍 Analisando modelo "${selectedModel}"...`);
     const schemaModel = await parsePrismaSchema(selectedModel);
 
     if (!schemaModel) {
@@ -301,60 +448,82 @@ async function main() {
       process.exit(1);
     }
 
-    // 5. Perguntar se quer incluir campo de imagem
+    // 8. Perguntar se quer incluir campo de imagem
     const hasImageAnswer = await askQuestion(
       rl,
-      '\nDeseja incluir campo de imagem? (s/n): ',
+      '\n🖼️  Deseja incluir campo de imagem? (s/n): ',
     );
     const hasImage =
       hasImageAnswer.toLowerCase() === 's' ||
       hasImageAnswer.toLowerCase() === 'sim';
 
-    // 6. Perguntar valor de noCompany
+    // 9. Perguntar valor de noCompany
     const noCompanyAnswer = await askQuestion(
       rl,
-      'A rota exige companyId do token? (s/n)\n(S = noCompany = false, N = noCompany = true): ',
+      '🏢 A rota exige companyId do token? (s/n)\n(S = noCompany = false, N = noCompany = true): ',
     );
     const noCompany =
       noCompanyAnswer.toLowerCase() === 'n' ||
       noCompanyAnswer.toLowerCase() === 'não' ||
       noCompanyAnswer.toLowerCase() === 'nao';
 
-    // 7. Mostrar campos que serão incluídos nos DTOs
+    // 10. Mostrar campos que serão incluídos nos DTOs
+    console.log('\n📝 Campos que serão incluídos nos DTOs:');
+
+    console.log('\n✅ DTO de Criação (CreateDto):');
     const createFields = schemaModel.fields.filter((field) =>
       shouldIncludeFieldInDTO(field, true),
     );
+    createFields.forEach((field) => {
+      console.log(
+        `   📄 ${field.name}: ${field.type}${field.isOptional ? '?' : ''}`,
+      );
+    });
+    if (hasImage) {
+      console.log('   🖼️  image?: any');
+    }
+
+    console.log('\n🔄 DTO de Atualização (UpdateDto):');
     const updateFields = schemaModel.fields.filter((field) =>
       shouldIncludeFieldInDTO(field, false),
     );
-
-    console.log('\nCampos do Create DTO:');
-    createFields.forEach((field) => {
-      console.log(
-        `  - ${field.name}: ${field.type}${field.isOptional ? '?' : ''}`,
-      );
-    });
-    if (hasImage) {
-      console.log('  - image: any (opcional)');
-    }
-
-    console.log('\nCampos do Update DTO:');
     updateFields.forEach((field) => {
       console.log(
-        `  - ${field.name}?: ${mapPrismaTypeToTypeScript(field.type)}`,
+        `   📄 ${field.name}?: ${mapPrismaTypeToTypeScript(field.type)}`,
       );
     });
     if (hasImage) {
-      console.log('  - image?: any');
+      console.log('   🖼️  image?: any');
     }
 
-    // 8. Confirmar geração
-    const confirm = await askQuestion(rl, '\nDeseja gerar a entidade com esses campos? (s/n): ');
-    if (confirm.toLowerCase() !== 's' && confirm.toLowerCase() !== 'sim') {
-      process.exit(0);
+    // 11. Confirmar geração
+    console.log('\n' + '='.repeat(50));
+    console.log('🚀 RESUMO DA GERAÇÃO');
+    console.log('='.repeat(50));
+    console.log(`📁 Feature: ${featureName}`);
+    console.log(`🌐 Rota: /${routeName}`);
+    console.log(`🔐 Permission: ${permissionName}`);
+    console.log(`🗃️  Modelo: ${selectedModel}`);
+    console.log(`🖼️  Imagem: ${hasImage ? 'Sim' : 'Não'}`);
+    console.log(`🏢 CompanyId: ${noCompany ? 'Não exige' : 'Exige'}`);
+    console.log(
+      `📊 Campos: ${createFields.length} no CreateDto, ${updateFields.length} no UpdateDto`,
+    );
+    console.log('='.repeat(50));
+
+    const answer = await askQuestion(
+      rl,
+      '\n✅ Deseja gerar a entidade com essas configurações? (s/n): ',
+    );
+
+    if (answer.toLowerCase() !== 's') {
+      console.log('\n❌ Geração cancelada pelo usuário.');
+      rl.close();
+      return;
     }
 
-    // 9. Gerar a entidade
+    // 12. Gerar a entidade
+    console.log('\n🚀 Iniciando geração da entidade...');
     await generateEntity(
       featureName,
       selectedModel,
@@ -363,8 +532,9 @@ async function main() {
       noCompany,
       isGroup,
       groupName,
+      routeName,
+      permissionName,
     );
-
   } catch (error) {
     console.error('❌ Erro:', error);
   } finally {
@@ -381,11 +551,13 @@ async function generateEntity(
   noCompany: boolean,
   isGroup: boolean,
   groupName: string,
+  routeName: string,
+  permissionName: string,
 ) {
   // Format entity name
   const entityName = featureName.toLowerCase();
   const entityNamePascal = toPascalCase(entityName);
-  const entityNamePlural = entityName + 's';
+  const entityNamePlural = routeName;
 
   // Definir diretório base
   let entityDir = '';
@@ -424,12 +596,118 @@ async function generateEntity(
   }
 
   // Gerar associations.ts
-  const associationsContent = `export const paramsIncludes = {\n  // Exemplo: relationName: true,\n};\n`;
-  fs.writeFileSync(path.join(entityDir, 'associations.ts'), associationsContent);
+  const associationsContent = `export const paramsIncludes = {
+  // Configure aqui os relacionamentos que devem ser incluídos nas consultas
+  // Exemplo: 'user': true,
+  // Exemplo: 'company': { select: { id: true, name: true } },
+};
+`;
 
   // Gerar rules.ts
-  const rulesContent = `export const noCompany = ${noCompany};\n`;
-  fs.writeFileSync(path.join(entityDir, 'rules.ts'), rulesContent);
+  const rulesContent = `import { PrismaService } from 'src/prisma/prisma.service';
+import { Request } from 'express';
+ 
+export const noCompany = ${noCompany};
+${generateOmitAttributes(schemaModel)}
+
+/*
+ * Função de search personalizada para verificação antes de criar
+ * Crie com os parametros de busca pré-criaão
+ */
+export function getSearchParams(request: Request, CreateDto: any) {
+  // Exemplo de search usando companyId do request e campos do dto
+  // PERSONALIZE ESTA FUNÇÃO conforme as necessidades da sua entidade
+  const search = {
+    companyId: Number(request.user?.companyId),
+    // Adicione aqui os campos que devem ser únicos por empresa
+    // Exemplo: name: CreateDto.name,
+    // Exemplo: email: CreateDto.email,
+  };
+  
+  return search;
+}
+
+/*
+ * Função para formatar campos pré-update
+ * ajustes valores para update
+ * ajuste valores null/booleab para quando vierem vazios
+ */
+export function formaterPreUpdate(UpdateDto: any) {
+  // Regras automáticas para campos booleanos (geradas automaticamente)
+  // PERSONALIZE ESTA FUNÇÃO conforme as necessidades da sua entidade
+  
+  ${generateEmptyUpdatesRules(schemaModel)}
+  
+  // Exemplos de outros tipos de campos
+  // if (UpdateDto.numberField === undefined) UpdateDto.numberField = 0;
+  // if (UpdateDto.arrayField === undefined) UpdateDto.arrayField = [];
+  // if (UpdateDto.objectField === undefined) UpdateDto.objectField = {};
+  
+  return UpdateDto;
+}
+
+// HOOKS DE PRÉ E PÓS CREATE/UPDATE
+
+/*
+ * Hook de pré criação
+ */
+export async function hookPreCreate(params: { 
+  dto: any; 
+  entity: any; 
+  prisma: PrismaService; 
+  logParams: any 
+}) {
+  const { dto, entity } = params;
+  // Personalize aqui se necessário
+}
+
+/*
+ * Hook de pós criação
+ */
+export async function hookPosCreate(
+  params: { 
+    dto: any; 
+    entity: any; 
+    prisma: PrismaService; 
+    logParams: any 
+  },
+  created: any
+) {
+  const { dto, entity } = params;
+  // Personalize aqui se necessário
+}
+
+/*
+ * Hook de pré update
+ */
+export async function hookPreUpdate(params: { 
+  id: number; 
+  dto: any; 
+  entity: any; 
+  prisma: PrismaService; 
+  logParams: any 
+}) {
+  const { id, dto, entity } = params;
+  // Personalize aqui se necessário
+}
+
+/*
+ * Hook de pós update
+ */
+export async function hookPosUpdate(
+  params: { 
+    id: number; 
+    dto: any; 
+    entity: any; 
+    prisma: PrismaService; 
+    logParams: any 
+  }, 
+  updated: any
+) {
+  const { id, dto, entity } = params;
+  // Personalize aqui se necessário
+}
+`;
 
   // Generate service.ts
   const serviceContent = `import { GenericService } from 'src/features/generic/generic.service';
@@ -499,7 +777,7 @@ import { GenericController } from 'src/features/generic/generic.controller';
 import { Public } from 'src/auth/decorators/public.decorator';
 // Import de configuraões
 import { paramsIncludes } from './associations';
-import { noCompany } from './rules';
+import { noCompany, getSearchParams, formaterPreUpdate, omitAttributes } from './rules';
 
 function UserPermission(permission: string) {
   return applyDecorators(Permissions(permission));
@@ -509,7 +787,7 @@ const entity = {
   model: '${schemaModel.name}' as keyof PrismaClient,
   name: '${entityNamePascal}',
   route: '${entityNamePlural}',
-  permission: '${entityNamePlural}',
+  permission: '${permissionName}',
 };
 
 @Controller(entity.route)
@@ -527,6 +805,10 @@ export class ${entityNamePascal}Controller extends GenericController<
   // @Public() // descomente para tornar publica
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
+    // Adiciona omitAttributes aos filtros se não estiver presente
+    if (!query.omitAttributes) {
+      query.omitAttributes = omitAttributes;
+    }
     return super.get(request, query, paramsIncludes, noCompany);
   }
 
@@ -540,7 +822,7 @@ export class ${entityNamePascal}Controller extends GenericController<
     @Body() CreateDto: CreateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
-    const search = {};
+    const search = getSearchParams(request, CreateDto);
     return super.create(request, CreateDto, file, search);
   }
 
@@ -555,7 +837,8 @@ export class ${entityNamePascal}Controller extends GenericController<
     @Body() UpdateDto: UpdateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
-    return super.update(id, request, UpdateDto, file);
+    const processedDto = formaterPreUpdate(UpdateDto);
+    return super.update(id, request, processedDto, file);
   }
 
   @UserPermission(\`activate_\${entity.permission}\`) // comente para tirar permissao
@@ -692,27 +975,59 @@ export interface IEntity extends Prisma {
 `;
 
   // Write files
+  console.log('\n📁 Criando estrutura de diretórios...');
   fs.writeFileSync(path.join(entityDir, 'service.ts'), serviceContent);
+  console.log('   ✅ service.ts criado');
   fs.writeFileSync(path.join(entityDir, 'controller.ts'), controllerContent);
+  console.log('   ✅ controller.ts criado');
   fs.writeFileSync(path.join(entityDir, 'module.ts'), moduleContent);
+  console.log('   ✅ module.ts criado');
   fs.writeFileSync(path.join(dtoDir, 'create.dto.ts'), createDtoContent);
+  console.log('   ✅ create.dto.ts criado');
   fs.writeFileSync(path.join(dtoDir, 'update.dto.ts'), updateDtoContent);
+  console.log('   ✅ update.dto.ts criado');
   fs.writeFileSync(path.join(interfacesDir, 'interface.ts'), interfaceContent);
+  console.log('   ✅ interface.ts criado');
+  fs.writeFileSync(
+    path.join(entityDir, 'associations.ts'),
+    associationsContent,
+  );
+  console.log('   ✅ associations.ts criado');
+  fs.writeFileSync(path.join(entityDir, 'rules.ts'), rulesContent);
+  console.log('   ✅ rules.ts criado');
 
   // Mensagem de sucesso e próximos passos
-  console.log('\n✅ Entidade gerada com sucesso!');
-  console.log('\n📋 Próximos passos:');
-  console.log(`1. Revise e ajuste os arquivos gerados: rules.ts (noCompany) e associations.ts (paramsIncludes)`);
-  console.log(`2. Importe o módulo gerado no app.module.ts para ativar a rota:`);
-  if (isGroup) {
-    console.log(`   import { ${toPascalCase(featureName)}Module } from './features/${groupName}/${entityName}/${entityName}.module';`);
-    console.log(`   imports: [ ..., ${toPascalCase(featureName)}Module ]`);
+  console.log('\n🎉 Entidade gerada com sucesso!');
+  console.log('\n📋 PRÓXIMOS PASSOS:');
+  console.log(
+    '\n1️⃣  Importe o módulo gerado no app.module.ts para ativar a rota:',
+  );
+  if (groupName) {
+    console.log(
+      `   📝 import { ${toPascalCase(featureName)}Module } from './features/${groupName}/${entityName}/module';`,
+    );
   } else {
-    console.log(`   import { ${toPascalCase(featureName)}Module } from './features/${entityName}/${entityName}.module';`);
-    console.log(`   imports: [ ..., ${toPascalCase(featureName)}Module ]`);
+    console.log(
+      `   📝 import { ${toPascalCase(featureName)}Module } from './features/${entityName}/module';`,
+    );
   }
-  console.log('3. Execute "prisma generate" se necessário');
-  console.log('4. Teste as rotas geradas');
+  console.log('\n2️⃣  Configure os arquivos gerados:');
+  console.log(
+    '   🔍 Ajuste a função getSearchParams em rules.ts para definir os critérios de unicidade',
+  );
+  console.log(
+    '   ⚙️  Personalize os hooks conforme necessário para lógicas específicas',
+  );
+  console.log(
+    '   🔗 Configure paramsIncludes em associations.ts para relacionamentos',
+  );
+  console.log(
+    '   🔄 Ajuste a função formaterPreUpdate em rules.ts para processar campos vazios/falsos no update',
+  );
+  console.log(
+    '   🔒 Configure omitAttributes em rules.ts para campos sensíveis que devem ser omitidos nas consultas',
+  );
+  console.log('\n✨ Sua entidade está pronta para uso!');
 }
 
 // Funções auxiliares
