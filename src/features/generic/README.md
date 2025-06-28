@@ -12,7 +12,7 @@ Este serviço permite buscas flexíveis utilizando filtros dinâmicos via query 
 
 - **in**: busca valores dentro de um array
   - `?in-id=1,2,3` (equivalente a `id IN [1,2,3]`)
-- **notIn**: busca valores fora de um array
+- **notin**: busca valores fora de um array
   - `?notin-id=1,2,3` (equivalente a `id NOT IN [1,2,3]`)
 - **not**: busca valores diferentes
   - `?not-status=ativo` (equivalente a `status != 'ativo'`)
@@ -26,6 +26,8 @@ Este serviço permite buscas flexíveis utilizando filtros dinâmicos via query 
   - `?lte-idade=60` (idade <= 60)
 - **like**: busca por "contém" (case insensitive)
   - `?like-nome=joao` (busca todos os registros cujo campo `nome` contém "joao", ignorando maiúsculas/minúsculas)
+- **notlike**: busca por "NÃO contém" (case insensitive)
+  - `?notlike-nome=joao` (busca todos os registros cujo campo `nome` NÃO contém "joao", ignorando maiúsculas/minúsculas)
 
 ## Filtro OR
 
@@ -38,14 +40,15 @@ Permite passar um array de condições, onde pelo menos uma deve ser satisfeita.
     { "name": "João" },
     { "not-status": "inativo" },
     { "in-id": "1,2,3" },
-    { "like-nome": "joao" }
+    { "like-nome": "joao" },
+    { "notlike-nome": "maria" }
   ]
 }
 ```
 
 ### Exemplo via query string (usando array):
 ```
-?or[0][name]=João&or[1][not-status]=inativo&or[2][in-id]=1,2,3&or[3][like-nome]=joao
+?or[0][name]=João&or[1][not-status]=inativo&or[2][in-id]=1,2,3&or[3][like-nome]=joao&or[4][notlike-nome]=maria
 ```
 
 ## Filtros Especiais

@@ -17,6 +17,7 @@ import { ApiOkResponse } from '@nestjs/swagger';
 import { PrismaClient } from '@prisma/client';
 import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
+import { PrismaService } from 'src/prisma/prisma.service';
 
 type entity = {
   model: keyof PrismaClient;
@@ -43,6 +44,18 @@ export interface ICrudService<T> {
     entity: entity,
     file?: Express.MulterS3.File,
     searchVerify?: any,
+    hooks?: {
+      hookPreCreate?: (params: {
+        dto: any;
+        entity: entity;
+        prisma: PrismaService;
+        logParams: any;
+      }) => Promise<void> | void;
+      hookPosCreate?: (
+        params: { dto: any; entity: entity; prisma: PrismaService; logParams: any },
+        created: T,
+      ) => Promise<void> | void;
+    },
   ): Promise<T>;
   update(
     id: number,
@@ -50,6 +63,19 @@ export interface ICrudService<T> {
     logParams: logParams,
     entity: entity,
     file?: Express.MulterS3.File,
+    hooks?: {
+      hookPreUpdate?: (params: {
+        id: number;
+        dto: any;
+        entity: entity;
+        prisma: PrismaService;
+        logParams: logParams;
+      }) => Promise<void> | void;
+      hookPosUpdate?: (
+        params: { id: number; dto: any; entity: entity; prisma: PrismaService; logParams: logParams },
+        updated: T,
+      ) => Promise<void> | void;
+    },
   ): Promise<T>;
   changeStatus(
     id: number,
@@ -130,26 +156,36 @@ export class GenericController<
   @Post()
   async create(
     @Req() request: Request,
-    @Body() dto: TCreateDto,
+    @Body() CreateDto: TCreateDto,
     @UploadedFile() file?: Express.MulterS3.File,
-    searchVerify?: any,
+    @Body('hooks') hooks?: any,
+    ...args: any[]
   ): Promise<TEntity> {
     const { sub: userId, companyId } = request.user;
     const logParams = {
       userId,
       companyId,
     };
-    dto['companyId'] = Number(companyId);
-    const search = searchVerify || {};
-    return this.service.create(dto, logParams, this.entity, file, search);
+    CreateDto['companyId'] = Number(companyId);
+    const search = args[0] || {};
+    return this.service.create(
+      CreateDto,
+      logParams,
+      this.entity,
+      file,
+      search,
+      hooks,
+    );
   }
 
   @Put(':id')
   async update(
     @Param('id') id: number,
     @Req() request: Request,
-    @Body() dto: TUpdateDto,
+    @Body() UpdateDto: TUpdateDto,
     @UploadedFile() file?: Express.MulterS3.File,
+    @Body('hooks') hooks?: any,
+    ...args: any[]
   ): Promise<TEntity> {
     const { sub: userId, companyId } = request.user;
     const logParams = {
@@ -157,7 +193,15 @@ export class GenericController<
       companyId,
     };
     const numberId = Number(id);
-    return this.service.update(numberId, dto, logParams, this.entity, file);
+    return this.service.update(
+      numberId,
+      UpdateDto,
+      logParams,
+      this.entity,
+      file,
+      ...args,
+      hooks,
+    );
   }
 
   @Patch('active/:id')
