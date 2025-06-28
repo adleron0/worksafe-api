@@ -112,9 +112,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       for (const filter of Object.keys(filters)) {
         if (
           // Filtros array IN
-          filter.includes('in-') &&
-          filters[filter]?.length > 0 &&
-          filters[filter].includes(',')
+          filter.includes('in-')
         ) {
           const array = filters[filter]
             .split(',')
@@ -122,9 +120,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
           params.where[filter.split('-')[1]] = { in: array };
         } else if (
           // Filtros array notIn
-          filter.includes('notin-') &&
-          filters[filter]?.length > 0 &&
-          filters[filter].includes(',')
+          filter.includes('notin-')
         ) {
           const array = filters[filter]
             .split(',')
