@@ -24,6 +24,53 @@ type entity = {
   permission: string;
 };
 
+// Função utilitária para processar filtros
+function parseFilterObject(filterObj: any) {
+  const condition: any = {};
+  for (const key in filterObj) {
+    if (key.includes('in-')) {
+      const array = filterObj[key]
+        .split(',')
+        .map((item: any) => ifNumberParseNumber(item));
+      condition[key.split('-')[1]] = { in: array };
+    } else if (key.includes('notin-')) {
+      const array = filterObj[key]
+        .split(',')
+        .map((item: any) => ifNumberParseNumber(item));
+      condition[key.split('-')[1]] = { notIn: array };
+    } else if (key.includes('like-')) {
+      condition[key.split('-')[1]] = {
+        contains: filterObj[key],
+        mode: 'insensitive',
+      };
+    } else if (key.includes('not-')) {
+      condition[key.split('-')[1]] = {
+        not: ifNumberParseNumber(filterObj[key]),
+      };
+    } else if (key.includes('gt-')) {
+      condition[key.split('-')[1]] = {
+        gt: ifNumberParseNumber(filterObj[key]),
+      };
+    } else if (key.includes('lt-')) {
+      condition[key.split('-')[1]] = {
+        lt: ifNumberParseNumber(filterObj[key]),
+      };
+    } else if (key.includes('gte-')) {
+      condition[key.split('-')[1]] = {
+        gte: ifNumberParseNumber(filterObj[key]),
+      };
+    } else if (key.includes('lte-')) {
+      condition[key.split('-')[1]] = {
+        lte: ifNumberParseNumber(filterObj[key]),
+      };
+    } else {
+      condition[key] = ifNumberParseNumber(filterObj[key]);
+      condition[key] = ifBooleanParseBoolean(condition[key]);
+    }
+  }
+  return condition;
+}
+
 @Injectable()
 export class GenericService<TCreateDto, TUpdateDto, TEntity> {
   constructor(
@@ -108,60 +155,17 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       // Aplicando os filtros adicionais corretamente
       params.where = {};
 
-      // Filtros adicionais
-      for (const filter of Object.keys(filters)) {
-        if (
-          // Filtros array IN
-          filter.includes('in-')
-        ) {
-          const array = filters[filter]
-            .split(',')
-            .map((item: any) => ifNumberParseNumber(item));
-          params.where[filter.split('-')[1]] = { in: array };
-        } else if (
-          // Filtros array notIn
-          filter.includes('notin-')
-        ) {
-          const array = filters[filter]
-            .split(',')
-            .map((item: any) => ifNumberParseNumber(item));
-          params.where[filter.split('-')[1]] = { notin: array };
-        } else if (filter.includes('not-')) {
-          // Filtro not
-          params.where[filter.split('-')[1]] = {
-            not: ifNumberParseNumber(filters[filter]),
-          };
-        } else if (filter.includes('gt-')) {
-          // Filtro valor maior quê
-          params.where[filter.split('-')[1]] = {
-            ...params.where[filter.split('-')[1]],
-            gt: ifNumberParseNumber(filters[filter]),
-          };
-        } else if (filter.includes('lt-')) {
-          // Filtro valor menor quê
-          params.where[filter.split('-')[1]] = {
-            ...params.where[filter.split('-')[1]],
-            lt: ifNumberParseNumber(filters[filter]),
-          };
-        } else if (filter.includes('gte-')) {
-          // Filtro valor maior ou igual a
-          params.where[filter.split('-')[1]] = {
-            ...params.where[filter.split('-')[1]],
-            gte: ifNumberParseNumber(filters[filter]),
-          };
-        } else if (filter.includes('lte-')) {
-          // Filtro valor menor ou igual a
-          params.where[filter.split('-')[1]] = {
-            ...params.where[filter.split('-')[1]],
-            lte: ifNumberParseNumber(filters[filter]),
-          };
-        } else {
-          // ParseNumber
-          params.where[filter] = ifNumberParseNumber(filters[filter]);
-          // ParseBoolean
-          params.where[filter] = ifBooleanParseBoolean(params.where[filter]);
-        }
+      // Suporte ao filtro OR
+      if (filters.or && Array.isArray(filters.or)) {
+        params.where.OR = filters.or.map((orFilter: any) =>
+          parseFilterObject(orFilter),
+        );
+        // Remove o filtro 'or' do objeto principal para não duplicar condições
+        delete filters.or;
       }
+
+      // Filtros adicionais
+      Object.assign(params.where, parseFilterObject(filters));
 
       // Deleta Específicos
       delete params.where.includesToShow;
@@ -217,24 +221,29 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
           delete params.where[key];
         }
       });
+      Object.keys(params.where).forEach((key) => {
+        if (key.startsWith('like-')) {
+          delete params.where[key];
+        }
+      });
 
       // Filtros específicos
       if (!noCompany) {
         params.where.companyId = filters.companyId;
       }
 
-      if (filters.searchName) {
-        params.where.searchName = {
-          contains: normalizeTerm(filters.searchName),
-          mode: 'insensitive',
-        };
-      }
-      if (filters.name) {
-        params.where.name = {
-          contains: filters.name,
-          mode: 'insensitive',
-        };
-      }
+      // if (filters.searchName) {
+      //   params.where.searchName = {
+      //     contains: normalizeTerm(filters.searchName),
+      //     mode: 'insensitive',
+      //   };
+      // }
+      // if (filters.name) {
+      //   params.where.name = {
+      //     contains: filters.name,
+      //     mode: 'insensitive',
+      //   };
+      // }
       if (filters.active === 'true') {
         // quero só os ativos → inactiveAt IS NULL
         params.where.inactiveAt = null;
