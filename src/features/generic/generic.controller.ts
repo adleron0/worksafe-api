@@ -52,7 +52,12 @@ export interface ICrudService<T> {
         logParams: any;
       }) => Promise<void> | void;
       hookPosCreate?: (
-        params: { dto: any; entity: entity; prisma: PrismaService; logParams: any },
+        params: {
+          dto: any;
+          entity: entity;
+          prisma: PrismaService;
+          logParams: any;
+        },
         created: T,
       ) => Promise<void> | void;
     },
@@ -72,7 +77,13 @@ export interface ICrudService<T> {
         logParams: logParams;
       }) => Promise<void> | void;
       hookPosUpdate?: (
-        params: { id: number; dto: any; entity: entity; prisma: PrismaService; logParams: logParams },
+        params: {
+          id: number;
+          dto: any;
+          entity: entity;
+          prisma: PrismaService;
+          logParams: logParams;
+        },
         updated: T,
       ) => Promise<void> | void;
     },
@@ -158,8 +169,8 @@ export class GenericController<
     @Req() request: Request,
     @Body() CreateDto: TCreateDto,
     @UploadedFile() file?: Express.MulterS3.File,
-    @Body('hooks') hooks?: any,
-    ...args: any[]
+    searchVerify?: any,
+    entityHooks?: any,
   ): Promise<TEntity> {
     const { sub: userId, companyId } = request.user;
     const logParams = {
@@ -167,7 +178,8 @@ export class GenericController<
       companyId,
     };
     CreateDto['companyId'] = Number(companyId);
-    const search = args[0] || {};
+    const search = searchVerify || {};
+    const hooks = entityHooks || {};
     return this.service.create(
       CreateDto,
       logParams,
@@ -184,9 +196,9 @@ export class GenericController<
     @Req() request: Request,
     @Body() UpdateDto: TUpdateDto,
     @UploadedFile() file?: Express.MulterS3.File,
-    @Body('hooks') hooks?: any,
-    ...args: any[]
+    entityHooks?: any,
   ): Promise<TEntity> {
+    const hooks = entityHooks || {};
     const { sub: userId, companyId } = request.user;
     const logParams = {
       userId,
@@ -199,7 +211,6 @@ export class GenericController<
       logParams,
       this.entity,
       file,
-      ...args,
       hooks,
     );
   }
