@@ -196,9 +196,9 @@ export class GenericController<
     @Req() request: Request,
     @Body() UpdateDto: TUpdateDto,
     @UploadedFile() file?: Express.MulterS3.File,
-    @Body('hooks') hooks?: any,
-    ...args: any[]
+    entityHooks?: any,
   ): Promise<TEntity> {
+    const hooks = entityHooks || {};
     const { sub: userId, companyId } = request.user;
     const logParams = {
       userId,
@@ -211,7 +211,6 @@ export class GenericController<
       logParams,
       this.entity,
       file,
-      ...args,
       hooks,
     );
   }
