@@ -651,7 +651,7 @@ export function formaterPreUpdate(UpdateDto: any) {
 /*
  * Hook de pré criação
  */
-export async function hookPreCreate(params: { 
+async function hookPreCreate(params: { 
   dto: any; 
   entity: any; 
   prisma: PrismaService; 
@@ -664,7 +664,7 @@ export async function hookPreCreate(params: {
 /*
  * Hook de pós criação
  */
-export async function hookPosCreate(
+async function hookPosCreate(
   params: { 
     dto: any; 
     entity: any; 
@@ -680,7 +680,7 @@ export async function hookPosCreate(
 /*
  * Hook de pré update
  */
-export async function hookPreUpdate(params: { 
+async function hookPreUpdate(params: { 
   id: number; 
   dto: any; 
   entity: any; 
@@ -694,7 +694,7 @@ export async function hookPreUpdate(params: {
 /*
  * Hook de pós update
  */
-export async function hookPosUpdate(
+async function hookPosUpdate(
   params: { 
     id: number; 
     dto: any; 
@@ -707,6 +707,16 @@ export async function hookPosUpdate(
   const { id, dto, entity } = params;
   // Personalize aqui se necessário
 }
+
+export const hooksCreate = {
+  hookPreCreate,
+  hookPosCreate,
+};
+
+export const hooksUpdate = {
+  hookPreUpdate,
+  hookPosUpdate,
+};
 `;
 
   // Generate service.ts
@@ -777,7 +787,14 @@ import { GenericController } from 'src/features/generic/generic.controller';
 import { Public } from 'src/auth/decorators/public.decorator';
 // Import de configuraões
 import { paramsIncludes } from './associations';
-import { noCompany, getSearchParams, formaterPreUpdate, omitAttributes } from './rules';
+import {
+  noCompany,
+  getSearchParams,
+  formaterPreUpdate,
+  omitAttributes,
+  hooksCreate,
+  hooksUpdate,
+} from './rules';
 
 function UserPermission(permission: string) {
   return applyDecorators(Permissions(permission));
@@ -823,7 +840,7 @@ export class ${entityNamePascal}Controller extends GenericController<
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
     const search = getSearchParams(request, CreateDto);
-    return super.create(request, CreateDto, file, search);
+    return super.create(request, CreateDto, file, search, hooksCreate);
   }
 
   @UserPermission(\`update_\${entity.permission}\`) // comente para tirar permissao
@@ -838,7 +855,7 @@ export class ${entityNamePascal}Controller extends GenericController<
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
     const processedDto = formaterPreUpdate(UpdateDto);
-    return super.update(id, request, processedDto, file);
+    return super.update(id, request, processedDto, file, hooksUpdate);
   }
 
   @UserPermission(\`activate_\${entity.permission}\`) // comente para tirar permissao

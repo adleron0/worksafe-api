@@ -117,7 +117,6 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
           logParams,
         });
       }
-      console.log("🚀 ~ GenericService<TCreateDto, ~ searchVerify:", searchVerify)
       // Sempre ajuste a busca do verify do rules, ela é personalizada por entidade
       const verify = await this.prisma.selectFirst(entity.model, {
         where: {

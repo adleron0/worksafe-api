@@ -169,8 +169,8 @@ export class GenericController<
     @Req() request: Request,
     @Body() CreateDto: TCreateDto,
     @UploadedFile() file?: Express.MulterS3.File,
-    @Body('hooks') hooks?: any,
-    ...args: any[]
+    searchVerify?: any,
+    entityHooks?: any,
   ): Promise<TEntity> {
     const { sub: userId, companyId } = request.user;
     const logParams = {
@@ -178,7 +178,8 @@ export class GenericController<
       companyId,
     };
     CreateDto['companyId'] = Number(companyId);
-    const search = args[0] || {};
+    const search = searchVerify || {};
+    const hooks = entityHooks || {};
     return this.service.create(
       CreateDto,
       logParams,
