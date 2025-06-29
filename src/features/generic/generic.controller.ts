@@ -52,7 +52,12 @@ export interface ICrudService<T> {
         logParams: any;
       }) => Promise<void> | void;
       hookPosCreate?: (
-        params: { dto: any; entity: entity; prisma: PrismaService; logParams: any },
+        params: {
+          dto: any;
+          entity: entity;
+          prisma: PrismaService;
+          logParams: any;
+        },
         created: T,
       ) => Promise<void> | void;
     },
@@ -72,7 +77,13 @@ export interface ICrudService<T> {
         logParams: logParams;
       }) => Promise<void> | void;
       hookPosUpdate?: (
-        params: { id: number; dto: any; entity: entity; prisma: PrismaService; logParams: logParams },
+        params: {
+          id: number;
+          dto: any;
+          entity: entity;
+          prisma: PrismaService;
+          logParams: logParams;
+        },
         updated: T,
       ) => Promise<void> | void;
     },
