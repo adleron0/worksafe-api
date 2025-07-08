@@ -160,18 +160,22 @@ export class PrismaService
         data,
       });
       if (result) {
-        await use.system_Logs.create({
-          data: {
-            companyId: logParams.companyId,
-            userId: logParams.userId,
-            action: 'create',
-            entity: String(model),
-            entityId: result.id,
-            column: null,
-            oldValue: null,
-            newValue: JSON.stringify(data),
-          },
-        });
+        use.system_Logs
+          .create({
+            data: {
+              companyId: logParams.companyId,
+              userId: logParams.userId,
+              action: 'create',
+              entity: String(model),
+              entityId: result.id,
+              column: null,
+              oldValue: null,
+              newValue: JSON.stringify(data),
+            },
+          })
+          .catch((logError) => {
+            console.error('Error creating log:', logError);
+          });
       }
       return result;
     } catch (error) {
@@ -240,18 +244,22 @@ export class PrismaService
       const changes = getChanges(oldValues, result);
 
       if (result && changes.length > 0) {
-        await use.system_Logs.createMany({
-          data: changes.map((change) => ({
-            companyId: logParams.companyId,
-            userId: logParams.userId,
-            action: 'update',
-            entity: String(model),
-            entityId: Number(result.id),
-            column: change.column,
-            oldValue: JSON.stringify(change.oldValue),
-            newValue: JSON.stringify(change.newValue),
-          })),
-        });
+        use.system_Logs
+          .createMany({
+            data: changes.map((change) => ({
+              companyId: logParams.companyId,
+              userId: logParams.userId,
+              action: 'update',
+              entity: String(model),
+              entityId: Number(result.id),
+              column: change.column,
+              oldValue: JSON.stringify(change.oldValue),
+              newValue: JSON.stringify(change.newValue),
+            })),
+          })
+          .catch((logError) => {
+            console.error('Error creating log:', logError);
+          });
       }
       return result;
     } catch (error) {
@@ -291,18 +299,22 @@ export class PrismaService
         const changes = getChanges(verifyExist, result);
 
         if (result && changes.length > 0) {
-          await use.system_Logs.createMany({
-            data: changes.map((change) => ({
-              companyId: logParams.companyId,
-              userId: logParams.userId,
-              action: 'update',
-              entity: String(model),
-              entityId: Number(result.id),
-              column: change.column,
-              oldValue: JSON.stringify(change.oldValue),
-              newValue: JSON.stringify(change.newValue),
-            })),
-          });
+          use.system_Logs
+            .createMany({
+              data: changes.map((change) => ({
+                companyId: logParams.companyId,
+                userId: logParams.userId,
+                action: 'update',
+                entity: String(model),
+                entityId: Number(result.id),
+                column: change.column,
+                oldValue: JSON.stringify(change.oldValue),
+                newValue: JSON.stringify(change.newValue),
+              })),
+            })
+            .catch((logError) => {
+              console.error('Error creating log:', logError);
+            });
         }
       } else {
         result = await use[model][this.methods.create]({
@@ -310,18 +322,22 @@ export class PrismaService
         });
 
         if (result) {
-          await use.system_Logs.create({
-            data: {
-              companyId: logParams.companyId,
-              userId: logParams.userId,
-              action: 'create',
-              entity: String(model),
-              entityId: result.id,
-              column: null,
-              oldValue: null,
-              newValue: JSON.stringify(data),
-            },
-          });
+          use.system_Logs
+            .create({
+              data: {
+                companyId: logParams.companyId,
+                userId: logParams.userId,
+                action: 'create',
+                entity: String(model),
+                entityId: result.id,
+                column: null,
+                oldValue: null,
+                newValue: JSON.stringify(data),
+              },
+            })
+            .catch((logError) => {
+              console.error('Error creating log:', logError);
+            });
         }
       }
     } catch (error) {
@@ -368,36 +384,44 @@ export class PrismaService
           data: { ...formDeteleteData },
         });
         if (result) {
-          await use.system_Logs.create({
-            data: {
-              companyId: logParams.companyId,
-              userId: logParams.userId,
-              action: 'soft_delete',
-              entity: String(model),
-              entityId: result.id,
-              column: 'inactiveAt',
-              oldValue: null,
-              newValue: JSON.stringify(result.inactiveAt),
-            },
-          });
+          use.system_Logs
+            .create({
+              data: {
+                companyId: logParams.companyId,
+                userId: logParams.userId,
+                action: 'soft_delete',
+                entity: String(model),
+                entityId: result.id,
+                column: 'inactiveAt',
+                oldValue: null,
+                newValue: JSON.stringify(result.inactiveAt),
+              },
+            })
+            .catch((logError) => {
+              console.error('Error creating log:', logError);
+            });
         }
       } else {
         result = await use[model][this.methods.delete]({
           ...params,
         });
         if (result) {
-          await use.system_Logs.create({
-            data: {
-              companyId: logParams.companyId,
-              userId: logParams.userId,
-              action: 'delete',
-              entity: String(model),
-              entityId: oldValues.id,
-              column: null,
-              oldValue: JSON.stringify(oldValues),
-              newValue: null,
-            },
-          });
+          use.system_Logs
+            .create({
+              data: {
+                companyId: logParams.companyId,
+                userId: logParams.userId,
+                action: 'delete',
+                entity: String(model),
+                entityId: oldValues.id,
+                column: null,
+                oldValue: JSON.stringify(oldValues),
+                newValue: null,
+              },
+            })
+            .catch((logError) => {
+              console.error('Error creating log:', logError);
+            });
         }
       }
       return result;

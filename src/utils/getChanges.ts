@@ -24,7 +24,7 @@ export const getChanges = (
   return Object.keys(oldValues)
     .filter((key) => !ignoreKeys.includes(key))
     .reduce((acc, key) => {
-      if (oldValues[key] !== newValues[key]) {
+      if (`${oldValues[key]}` !== `${newValues[key]}`) {
         acc.push({
           column: key,
           oldValue: oldValues[key],
