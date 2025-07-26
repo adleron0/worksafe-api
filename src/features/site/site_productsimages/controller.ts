@@ -27,6 +27,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { getMulterOptions } from '../../upload/upload.middleware';
 // Import generic controller
 import { GenericController } from 'src/features/generic/generic.controller';
+import { Cache, CacheEvictAll } from 'src/common/cache';
+import { CacheService } from 'src/common/services/cache.service';
 
 // Create a decorator factory for User controller permissions
 function UserPermission(permission: string) {
@@ -47,12 +49,16 @@ export class SiteProductsimagesController extends GenericController<
   IEntity,
   Service
 > {
-  constructor(private readonly Service: Service) {
+  constructor(
+    private readonly Service: Service,
+    private readonly cacheService: CacheService,
+  ) {
     super(Service, entity);
   }
 
   // Rota intermediária para validação de permissão
   @UserPermission(`list_${entity.permission}`) // Permissão para rota genérica
+  @Cache({ prefix: 'site-productsimages', ttl: 172800 }) // 48 horas
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
     const noCompany = false; // quando a rota não exige buscar companyId pelo token
@@ -63,6 +69,7 @@ export class SiteProductsimagesController extends GenericController<
 
   // Rota intermediária para validação de permissão
   @UserPermission(`create_${entity.permission}`) // Permissão para rota genérica
+  @CacheEvictAll('site-productsimages:*', 'site-products:*', 'cache:*/site-products*')
   @Post()
   @UseInterceptors(
     FileInterceptor('image', getMulterOptions('site_productsimages-image')),
@@ -83,6 +90,7 @@ export class SiteProductsimagesController extends GenericController<
 
   // Rota intermediária para validação de permissão
   @UserPermission(`update_${entity.permission}`) // Permissão para rota genérica
+  @CacheEvictAll('site-productsimages:*', 'site-products:*', 'cache:*/site-products*')
   @Put(':id')
   @UseInterceptors(
     FileInterceptor('image', getMulterOptions('site_productsimages-image')),
@@ -99,6 +107,7 @@ export class SiteProductsimagesController extends GenericController<
 
   // Rota intermediária para validação de permissão
   @UserPermission(`activate_${entity.permission}`) // Permissão para rota genérica
+  @CacheEvictAll('site-productsimages:*', 'site-products:*', 'cache:*/site-products*')
   @Patch('active/:id')
   async activate(@Param('id') id: number, @Req() request: Request) {
     return super.activate(id, request);
@@ -106,6 +115,7 @@ export class SiteProductsimagesController extends GenericController<
 
   // Rota intermediária para validação de permissão
   @UserPermission(`inactive_${entity.permission}`) // Permissão para rota genérica
+  @CacheEvictAll('site-productsimages:*', 'site-products:*', 'cache:*/site-products*')
   @Patch('inactive/:id')
   async inactivate(@Param('id') id: number, @Req() request: Request) {
     return super.inactivate(id, request);

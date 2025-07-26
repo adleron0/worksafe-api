@@ -5,6 +5,7 @@ import { UserService } from 'src/features/user/service';
 import { compare } from 'bcrypt';
 import { encryptPayload } from 'src/utils/crypto';
 import * as Zlib from 'zlib';
+import { AuthCacheService } from 'src/common/cache/auth-cache.service';
 
 const accessTokenSecret = process.env.JWT_ACCESS_SECRET;
 const refreshTokenSecret = process.env.JWT_REFRESH_SECRET;
@@ -17,6 +18,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly usersService: UserService,
     private prisma: PrismaService,
+    private readonly authCache: AuthCacheService,
   ) {}
 
   async login(user: any, response: any) {
@@ -179,8 +181,20 @@ export class AuthService {
         secret: refreshTokenSecret,
       });
 
-      // Verificar se o refreshToken está ativo
-      const refreshTokenResult = await this.prisma.session.findUnique({
+      // Tentar buscar do cache primeiro
+      const cachedSession = await this.authCache.getSession(
+        Number(verifyRefresh.sub),
+        refreshToken,
+      );
+
+      let refreshTokenResult;
+      
+      if (cachedSession) {
+        console.log(`Session cache hit for user ${verifyRefresh.sub}`);
+        refreshTokenResult = cachedSession;
+      } else {
+        // Se não tem cache, buscar do banco
+        refreshTokenResult = await this.prisma.session.findUnique({
         where: {
           userId_sessionToken: {
             userId: Number(verifyRefresh.sub),
@@ -224,8 +238,16 @@ export class AuthService {
         },
       });
 
-      if (!refreshTokenResult || refreshTokenResult.inactiveAt) {
-        throw new UnauthorizedException('Invalid refresh token');
+        if (!refreshTokenResult || refreshTokenResult.inactiveAt) {
+          throw new UnauthorizedException('Invalid refresh token');
+        }
+
+        // Salvar no cache para próximas requisições
+        await this.authCache.setSession(
+          Number(verifyRefresh.sub),
+          refreshToken,
+          refreshTokenResult,
+        );
       }
 
       // Verificar se o usuário está ativo
