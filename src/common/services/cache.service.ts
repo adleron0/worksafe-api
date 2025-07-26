@@ -7,33 +7,56 @@ export class CacheService implements OnModuleDestroy {
 
   constructor() {
     const isProduction = process.env.NODE_ENV === 'production';
-    
-    this.redis = new Redis({
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379'),
-      password: process.env.REDIS_PASSWORD,
-      db: parseInt(process.env.REDIS_DB || '0'),
-      // Configurações de SSL para produção
-      ...(isProduction && process.env.REDIS_TLS === 'true' ? {
-        tls: {
-          rejectUnauthorized: false,
+
+    // Suporta tanto REDIS_URL quanto configurações individuais
+    if (process.env.REDIS_URL) {
+      // Para Railway, Heroku, Render, etc que usam REDIS_URL
+      this.redis = new Redis(process.env.REDIS_URL, {
+        retryStrategy: (times: number) => {
+          const delay = Math.min(times * 50, 2000);
+          return delay;
         },
-      } : {}),
-      retryStrategy: (times: number) => {
-        const delay = Math.min(times * 50, 2000);
-        return delay;
-      },
-      reconnectOnError: (err) => {
-        const targetError = 'READONLY';
-        if (err.message.includes(targetError)) {
-          return true;
-        }
-        return false;
-      },
-      // Timeout para evitar travamentos
-      connectTimeout: 10000,
-      commandTimeout: 5000,
-    });
+        reconnectOnError: (err) => {
+          const targetError = 'READONLY';
+          if (err.message.includes(targetError)) {
+            return true;
+          }
+          return false;
+        },
+        connectTimeout: 10000,
+        commandTimeout: 5000,
+      });
+    } else {
+      // Configuração individual para desenvolvimento ou outros ambientes
+      this.redis = new Redis({
+        host: process.env.REDIS_HOST || 'localhost',
+        port: parseInt(process.env.REDIS_PORT || '6379'),
+        password: process.env.REDIS_PASSWORD,
+        db: parseInt(process.env.REDIS_DB || '0'),
+        // Configurações de SSL para produção
+        ...(isProduction && process.env.REDIS_TLS === 'true'
+          ? {
+              tls: {
+                rejectUnauthorized: false,
+              },
+            }
+          : {}),
+        retryStrategy: (times: number) => {
+          const delay = Math.min(times * 50, 2000);
+          return delay;
+        },
+        reconnectOnError: (err) => {
+          const targetError = 'READONLY';
+          if (err.message.includes(targetError)) {
+            return true;
+          }
+          return false;
+        },
+        // Timeout para evitar travamentos
+        connectTimeout: 10000,
+        commandTimeout: 5000,
+      });
+    }
 
     this.redis.on('error', (err) => {
       console.error('Redis Client Error:', err);
