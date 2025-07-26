@@ -6,11 +6,19 @@ export class CacheService implements OnModuleDestroy {
   private redis: Redis;
 
   constructor() {
+    const isProduction = process.env.NODE_ENV === 'production';
+    
     this.redis = new Redis({
       host: process.env.REDIS_HOST || 'localhost',
       port: parseInt(process.env.REDIS_PORT || '6379'),
       password: process.env.REDIS_PASSWORD,
       db: parseInt(process.env.REDIS_DB || '0'),
+      // Configurações de SSL para produção
+      ...(isProduction && process.env.REDIS_TLS === 'true' ? {
+        tls: {
+          rejectUnauthorized: false,
+        },
+      } : {}),
       retryStrategy: (times: number) => {
         const delay = Math.min(times * 50, 2000);
         return delay;
@@ -22,6 +30,9 @@ export class CacheService implements OnModuleDestroy {
         }
         return false;
       },
+      // Timeout para evitar travamentos
+      connectTimeout: 10000,
+      commandTimeout: 5000,
     });
 
     this.redis.on('error', (err) => {
