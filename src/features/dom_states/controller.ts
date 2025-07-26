@@ -27,6 +27,9 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { getMulterOptions } from '../upload/upload.middleware';
 // Import generic controller
 import { GenericController } from 'src/features/generic/generic.controller';
+import { Cache } from 'src/common/cache';
+import { CacheService } from 'src/common/services/cache.service';
+import { Public } from 'src/auth/decorators/public.decorator';
 
 // Create a decorator factory for User controller permissions
 function UserPermission(permission: string) {
@@ -47,7 +50,10 @@ export class DomStatesController extends GenericController<
   IEntity,
   Service
 > {
-  constructor(private readonly Service: Service) {
+  constructor(
+    private readonly Service: Service,
+    private readonly cacheService: CacheService,
+  ) {
     super(Service, entity);
   }
 
@@ -56,6 +62,22 @@ export class DomStatesController extends GenericController<
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
     return super.get(request, query, {}, true);
+  }
+
+  // Teste de cache
+  @Public()
+  @Cache({
+    key: 'states-test',
+    ttl: 60,
+  })
+  @Get('test-cache')
+  async testCache() {
+    console.log('Executando método testCache - buscando dados...');
+    return {
+      message: 'Dados do cache',
+      timestamp: new Date().toISOString(),
+      data: ['Estado 1', 'Estado 2', 'Estado 3'],
+    };
   }
 
   // Rota intermediária para validação de permissão

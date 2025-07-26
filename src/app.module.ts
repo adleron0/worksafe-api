@@ -23,9 +23,11 @@ import { InstructorModule } from './features/treinamentos/instructor/module';
 import { ClassesModule } from './features/treinamentos/classes/module';
 import { CourseClassInstructorModule } from './features/treinamentos/course_class_instructor/module';
 import { SiteProductsimagesModule } from './features/site/site_productsimages/module';
+import { CacheModule } from './common/cache';
 
 @Module({
   imports: [
+    CacheModule,
     UserModule,
     PrismaModule,
     AuthModule,
