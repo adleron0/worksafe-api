@@ -10,22 +10,42 @@ export class CacheService implements OnModuleDestroy {
 
     // Suporta tanto REDIS_URL quanto configurações individuais
     if (process.env.REDIS_URL) {
-      // Para Railway, Heroku, Render, etc que usam REDIS_URL
-      this.redis = new Redis(process.env.REDIS_URL, {
-        retryStrategy: (times: number) => {
-          const delay = Math.min(times * 50, 2000);
-          return delay;
-        },
-        reconnectOnError: (err) => {
-          const targetError = 'READONLY';
-          if (err.message.includes(targetError)) {
-            return true;
-          }
-          return false;
-        },
-        connectTimeout: 10000,
-        commandTimeout: 5000,
-      });
+      console.log('Connecting to Redis using REDIS_URL');
+
+      // Se a URL contém railway.internal, precisa de configuração especial
+      if (process.env.REDIS_URL.includes('railway.internal')) {
+        // Parse da URL para extrair host, porta e senha
+        const url = new URL(process.env.REDIS_URL);
+        this.redis = new Redis({
+          host: url.hostname,
+          port: parseInt(url.port || '6379'),
+          password: url.password,
+          family: 6, // Força IPv6 para Railway internal
+          retryStrategy: (times: number) => {
+            const delay = Math.min(times * 50, 2000);
+            return delay;
+          },
+          connectTimeout: 10000,
+          commandTimeout: 5000,
+        });
+      } else {
+        // URL normal (externa)
+        this.redis = new Redis(process.env.REDIS_URL, {
+          retryStrategy: (times: number) => {
+            const delay = Math.min(times * 50, 2000);
+            return delay;
+          },
+          reconnectOnError: (err) => {
+            const targetError = 'READONLY';
+            if (err.message.includes(targetError)) {
+              return true;
+            }
+            return false;
+          },
+          connectTimeout: 10000,
+          commandTimeout: 5000,
+        });
+      }
     } else {
       // Configuração individual para desenvolvimento ou outros ambientes
       this.redis = new Redis({
@@ -71,7 +91,7 @@ export class CacheService implements OnModuleDestroy {
     try {
       const value = await this.redis.get(key);
       if (!value) return null;
-      
+
       return JSON.parse(value);
     } catch (error) {
       console.error(`Error getting cache key ${key}:`, error);
@@ -82,7 +102,7 @@ export class CacheService implements OnModuleDestroy {
   async set(key: string, value: any, ttl?: number): Promise<void> {
     try {
       const serialized = JSON.stringify(value);
-      
+
       if (ttl) {
         await this.redis.setex(key, ttl, serialized);
       } else {
@@ -175,10 +195,13 @@ export class CacheService implements OnModuleDestroy {
     try {
       const value = await this.redis.hget(key, field);
       if (!value) return null;
-      
+
       return JSON.parse(value);
     } catch (error) {
-      console.error(`Error getting hash field ${field} from key ${key}:`, error);
+      console.error(
+        `Error getting hash field ${field} from key ${key}:`,
+        error,
+      );
       return null;
     }
   }
@@ -187,11 +210,11 @@ export class CacheService implements OnModuleDestroy {
     try {
       const hash = await this.redis.hgetall(key);
       const result: Record<string, T> = {};
-      
+
       for (const [field, value] of Object.entries(hash)) {
         result[field] = JSON.parse(value);
       }
-      
+
       return result;
     } catch (error) {
       console.error(`Error getting all hash fields from key ${key}:`, error);
