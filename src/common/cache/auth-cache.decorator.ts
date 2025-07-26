@@ -21,7 +21,7 @@ export function InvalidateAuthCache(
       // Depois invalidar o cache
       try {
         const authCache: AuthCacheService = (this as any).authCache;
-        
+
         if (!authCache) {
           console.warn('AuthCacheService not found in instance');
           return result;
@@ -32,7 +32,7 @@ export function InvalidateAuthCache(
 
         if (extractId) {
           const extracted = extractId(args);
-          
+
           switch (target) {
             case 'user':
               context.userId = extracted as number;
