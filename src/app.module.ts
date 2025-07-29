@@ -24,6 +24,7 @@ import { ClassesModule } from './features/treinamentos/classes/module';
 import { CourseClassInstructorModule } from './features/treinamentos/course_class_instructor/module';
 import { SiteProductsimagesModule } from './features/site/site_productsimages/module';
 import { CacheModule } from './common/cache';
+import { ImageModule } from './features/image/module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { CacheModule } from './common/cache';
     ClassesModule,
     CourseClassInstructorModule,
     SiteProductsimagesModule,
+    ImageModule,
   ],
   controllers: [],
   providers: [

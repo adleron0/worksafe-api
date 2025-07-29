@@ -361,7 +361,7 @@ export class PrismaService
     tx?: any,
   ) {
     const use = tx ? tx : this;
-    const soft = virtual ? virtual : true;
+    const soft = virtual !== undefined ? virtual : true;
     try {
       const oldValues = await use[model][this.methods.findUnique]({
         ...params,

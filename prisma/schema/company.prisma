@@ -26,6 +26,7 @@ model Company {
   customers Customer[] // Relacionamento com a tabela Customer
   customerContacts Customer_Contacts[] // Relacionamento com a tabela Customer_Contacts
   services Site_Services[] // Relacionamento com a tabela Site_Services
+  images Image[] // Relacionamento com a tabela Image
 
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @default(now()) @updatedAt
