@@ -1,0 +1,17 @@
+model Image {
+  id        Int      @id @default(autoincrement())
+  companyId Int?     @map("company_id") @db.Integer
+  company   Company? @relation(fields: [companyId], references: [id])
+  name      String   @db.VarChar(255)
+  imageUrl  String   @map("imageUrl") @db.Text
+  type      String   @default("certificate") @db.VarChar(50) // 'certificate', 'course', 'profile', 'general'
+  width     Int?
+  height    Int?
+  fileSize  Int?     @map("file_size")
+  mimeType  String?  @map("mime_type") @db.VarChar(100)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@index([imageUrl])
+  @@index([type])
+}
