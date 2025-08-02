@@ -1,13 +1,15 @@
 model CouseCertificate {
   id       Int       @id @default(autoincrement())
+  name     String
   courseId Int       @unique
   course   Course    @relation(fields: [courseId], references: [id])
-  conformity String  @db.VarChar(100)
-  description String
-  objective String
-  yearsOfValidity Int
+  companyId Int
+  company   Company   @relation(fields: [companyId], references: [id])
   active   Boolean   @default(true)
-  imageUrl String?   @db.VarChar(255)
+  canvasWidth        Int    @default(800) @map("canvas_width")
+  canvasHeight       Int    @default(600) @map("canvas_height")
+  fabricJsonFront    Json?  @map("fabric_json_front") @db.JsonB
+  fabricJsonBack     Json?  @map("fabric_json_back") @db.JsonB
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @default(now()) @updatedAt
