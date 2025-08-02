@@ -50,7 +50,7 @@ const entity = {
   model: 'CouseCertificate' as keyof PrismaClient,
   name: 'Certificate',
   route: 'certificate',
-  permission: 'treinamentos',
+  permission: 'certificados',
 };
 
 @Controller(entity.route)
