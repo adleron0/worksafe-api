@@ -25,6 +25,7 @@ import { CourseClassInstructorModule } from './features/training/course_class_in
 import { SiteProductsimagesModule } from './features/site/site_productsimages/module';
 import { CacheModule } from './common/cache';
 import { ImageModule } from './features/image/module';
+import { CertificateModule } from './features/training/certificate/module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { ImageModule } from './features/image/module';
     CourseClassInstructorModule,
     SiteProductsimagesModule,
     ImageModule,
+    CertificateModule,
   ],
   controllers: [],
   providers: [

@@ -47,6 +47,47 @@ function askQuestion(
   });
 }
 
+// Função para parsear tempo com unidades para segundos
+function parseTimeToSeconds(input: string): number | null {
+  const match = input.match(/^(\d+)([smhd])?$/i);
+  
+  if (!match) {
+    return null;
+  }
+  
+  const value = parseInt(match[1]);
+  const unit = match[2]?.toLowerCase() || 's';
+  
+  switch (unit) {
+    case 's':
+      return value;
+    case 'm':
+      return value * 60;
+    case 'h':
+      return value * 60 * 60;
+    case 'd':
+      return value * 60 * 60 * 24;
+    default:
+      return null;
+  }
+}
+
+// Função para formatar segundos em uma string legível
+function formatSecondsToReadable(seconds: number): string {
+  if (seconds < 60) {
+    return `${seconds} segundos`;
+  } else if (seconds < 3600) {
+    const minutes = Math.floor(seconds / 60);
+    return `${minutes} minuto${minutes > 1 ? 's' : ''}`;
+  } else if (seconds < 86400) {
+    const hours = Math.floor(seconds / 3600);
+    return `${hours} hora${hours > 1 ? 's' : ''}`;
+  } else {
+    const days = Math.floor(seconds / 86400);
+    return `${days} dia${days > 1 ? 's' : ''}`;
+  }
+}
+
 // Função para unificar todos os arquivos .prisma (generator/datasource do schema.prisma + modelos/enums dos demais)
 function getUnifiedPrismaSchema(): string {
   const schemaDir = path.join(process.cwd(), 'prisma', 'schema');
@@ -164,6 +205,7 @@ function mapPrismaTypeToTypeScript(prismaType: string): string {
 function getValidatorsForType(
   prismaType: string,
   field: SchemaField,
+  isCreateDTO: boolean = false,
 ): string[] {
   const validators: string[] = [];
 
@@ -196,8 +238,12 @@ function getValidatorsForType(
       validators.push('@IsString()');
   }
 
+  // Tornar companyId opcional no CreateDTO pois virá do token
+  if (field.name === 'companyId' && isCreateDTO) {
+    validators.push('@IsOptional()');
+  }
   // Adicionar validador de obrigatoriedade
-  if (field.isRequired && !field.isId) {
+  else if (field.isRequired && !field.isId) {
     validators.push(`@IsNotEmpty({ message: '${field.name} is required' })`);
   } else if (field.isOptional || field.isId) {
     validators.push('@IsOptional()');
@@ -467,7 +513,45 @@ async function main() {
       noCompanyAnswer.toLowerCase() === 'não' ||
       noCompanyAnswer.toLowerCase() === 'nao';
 
-    // 10. Mostrar campos que serão incluídos nos DTOs
+    // 10. Perguntar sobre cache
+    const useCacheAnswer = await askQuestion(
+      rl,
+      '\n💾 Deseja usar cache nas rotas? (s/n): ',
+    );
+    const useCache =
+      useCacheAnswer.toLowerCase() === 's' ||
+      useCacheAnswer.toLowerCase() === 'sim';
+    
+    let cacheTTLSeconds = 3600; // padrão 1 hora em segundos
+    if (useCache) {
+      let validTime = false;
+      while (!validTime) {
+        const cacheTTLAnswer = await askQuestion(
+          rl,
+          '⏱️  Por quanto tempo deseja manter o cache?\n' +
+          '   Exemplos: 300s (5 minutos), 5m, 1h, 24h, 7d\n' +
+          '   Digite o tempo: ',
+        );
+        
+        if (!cacheTTLAnswer) {
+          // Se vazio, usar padrão
+          cacheTTLSeconds = 3600;
+          validTime = true;
+        } else {
+          const parsedSeconds = parseTimeToSeconds(cacheTTLAnswer);
+          if (parsedSeconds !== null && parsedSeconds > 0) {
+            cacheTTLSeconds = parsedSeconds;
+            validTime = true;
+          } else {
+            console.error('\n❌ Entrada inválida! Use o formato: número + unidade (s/m/h/d)');
+            console.log('   Exemplos válidos: 30s, 5m, 2h, 1d');
+          }
+        }
+      }
+      console.log(`\n✅ Cache configurado para ${formatSecondsToReadable(cacheTTLSeconds)}`);
+    }
+
+    // 11. Mostrar campos que serão incluídos nos DTOs
     console.log('\n📝 Campos que serão incluídos nos DTOs:');
 
     console.log('\n✅ DTO de Criação (CreateDto):');
@@ -496,7 +580,7 @@ async function main() {
       console.log('   🖼️  image?: any');
     }
 
-    // 11. Confirmar geração
+    // 12. Confirmar geração
     console.log('\n' + '='.repeat(50));
     console.log('🚀 RESUMO DA GERAÇÃO');
     console.log('='.repeat(50));
@@ -506,6 +590,7 @@ async function main() {
     console.log(`🗃️  Modelo: ${selectedModel}`);
     console.log(`🖼️  Imagem: ${hasImage ? 'Sim' : 'Não'}`);
     console.log(`🏢 CompanyId: ${noCompany ? 'Não exige' : 'Exige'}`);
+    console.log(`💾 Cache: ${useCache ? `Sim (${formatSecondsToReadable(cacheTTLSeconds)})` : 'Não'}`);
     console.log(
       `📊 Campos: ${createFields.length} no CreateDto, ${updateFields.length} no UpdateDto`,
     );
@@ -522,7 +607,7 @@ async function main() {
       return;
     }
 
-    // 12. Gerar a entidade
+    // 13. Gerar a entidade
     console.log('\n🚀 Iniciando geração da entidade...');
     await generateEntity(
       featureName,
@@ -534,6 +619,8 @@ async function main() {
       groupName,
       routeName,
       permissionName,
+      useCache,
+      cacheTTLSeconds,
     );
   } catch (error) {
     console.error('❌ Erro:', error);
@@ -553,6 +640,8 @@ async function generateEntity(
   groupName: string,
   routeName: string,
   permissionName: string,
+  useCache: boolean,
+  cacheTTLSeconds: number,
 ) {
   // Format entity name
   const entityName = featureName.toLowerCase();
@@ -563,6 +652,11 @@ async function generateEntity(
   let entityDir = '';
   let uploadImportPath = '';
   if (isGroup) {
+    // Se o grupo não existir, criar pasta
+    const groupDir = path.join(process.cwd(), 'src', 'features', groupName);
+    if (!fs.existsSync(groupDir)) {
+      fs.mkdirSync(groupDir, { recursive: true });
+    }
     entityDir = path.join(
       process.cwd(),
       'src',
@@ -571,11 +665,6 @@ async function generateEntity(
       entityName,
     );
     uploadImportPath = '../../upload/upload.middleware';
-    // Se o grupo não existir, criar pasta
-    const groupDir = path.join(process.cwd(), 'src', 'features', groupName);
-    if (!fs.existsSync(groupDir)) {
-      fs.mkdirSync(groupDir, { recursive: true });
-    }
   } else {
     entityDir = path.join(process.cwd(), 'src', 'features', entityName);
     uploadImportPath = '../upload/upload.middleware';
@@ -755,6 +844,11 @@ export class ${entityNamePascal}Service extends GenericService<
 `;
 
   // Generate controller.ts
+  const cacheKeyPrefix = entityNamePlural.replace(/[_\s]/g, '-');
+  const cacheReadableTime = formatSecondsToReadable(cacheTTLSeconds);
+  const cacheDecorator = useCache ? `@Cache({ prefix: '${cacheKeyPrefix}', ttl: ${cacheTTLSeconds} })` : `// @Cache({ prefix: '${cacheKeyPrefix}', ttl: ${cacheTTLSeconds} }) // descomente para usar cache (${cacheReadableTime})`;
+  const cacheEvictDecorator = useCache ? `@CacheEvictAll('${cacheKeyPrefix}:*', 'cache:*/${cacheKeyPrefix}*')` : `// @CacheEvictAll('${cacheKeyPrefix}:*', 'cache:*/${cacheKeyPrefix}*') // descomente para limpar cache`;
+  
   const controllerContent = `import {
   Body,
   Controller,
@@ -785,6 +879,9 @@ import { getMulterOptions } from '${uploadImportPath}';
 // Import generic controller
 import { GenericController } from 'src/features/generic/generic.controller';
 import { Public } from 'src/auth/decorators/public.decorator';
+// Import cache
+import { Cache, CacheEvictAll } from 'src/common/cache';
+import { CacheService } from 'src/common/services/cache.service';
 // Import de configuraões
 import { paramsIncludes } from './associations';
 import {
@@ -814,12 +911,17 @@ export class ${entityNamePascal}Controller extends GenericController<
   IEntity,
   Service
 > {
-  constructor(private readonly Service: Service) {
+  constructor(
+    private readonly Service: Service,
+    // cacheService é usado pelos decorators de cache
+    private readonly cacheService: CacheService,
+  ) {
     super(Service, entity);
   }
 
   @UserPermission(\`list_\${entity.permission}\`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
+  ${cacheDecorator}
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
     // Adiciona omitAttributes aos filtros se não estiver presente
@@ -831,6 +933,7 @@ export class ${entityNamePascal}Controller extends GenericController<
 
   @UserPermission(\`create_\${entity.permission}\`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
+  ${cacheEvictDecorator}
   @Post()
   @UseInterceptors(FileInterceptor('image', getMulterOptions('${entityName}-image')))
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
@@ -845,6 +948,7 @@ export class ${entityNamePascal}Controller extends GenericController<
 
   @UserPermission(\`update_\${entity.permission}\`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
+  ${cacheEvictDecorator}
   @Put(':id')
   @UseInterceptors(FileInterceptor('image', getMulterOptions('${entityName}-image')))
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
@@ -860,6 +964,7 @@ export class ${entityNamePascal}Controller extends GenericController<
 
   @UserPermission(\`activate_\${entity.permission}\`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
+  ${cacheEvictDecorator}
   @Patch('active/:id')
   async activate(@Param('id') id: number, @Req() request: Request) {
     return super.activate(id, request);
@@ -867,6 +972,7 @@ export class ${entityNamePascal}Controller extends GenericController<
 
   @UserPermission(\`inactive_\${entity.permission}\`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
+  ${cacheEvictDecorator}
   @Patch('inactive/:id')
   async inactivate(@Param('id') id: number, @Req() request: Request) {
     return super.inactivate(id, request);
@@ -875,10 +981,11 @@ export class ${entityNamePascal}Controller extends GenericController<
 `;
 
   // Generate module.ts
+  const uploadModulePath = isGroup ? '../../upload/upload.module' : '../upload/upload.module';
   const moduleContent = `import { Module } from '@nestjs/common';
 import { ${entityNamePascal}Controller as Controller } from './controller';
 import { ${entityNamePascal}Service as Service } from './service';
-import { UploadModule } from '../upload/upload.module';
+import { UploadModule } from '${uploadModulePath}';
 
 @Module({
   controllers: [Controller],
@@ -911,12 +1018,15 @@ export class CreateDto {
     shouldIncludeFieldInDTO(field, true),
   );
   createFields.forEach((field) => {
-    const validators = getValidatorsForType(field.type, field);
+    const validators = getValidatorsForType(field.type, field, true); // passar true para isCreateDTO
     const tsType = mapPrismaTypeToTypeScript(field.type);
+    
+    // Se for companyId, tornar opcional no tipo também
+    const isOptionalField = field.isOptional || field.name === 'companyId';
 
     createDtoContent += `
   ${validators.join('\n  ')}
-  ${field.name}${field.isOptional ? '?' : ''}: ${tsType};
+  ${field.name}${isOptionalField ? '?' : ''}: ${tsType};
 `;
   });
 
