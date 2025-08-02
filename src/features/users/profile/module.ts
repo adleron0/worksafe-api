@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
-import { CourseClassInstructorController as Controller } from './controller';
-import { CourseClassInstructorService as Service } from './service';
+import { ProfileController as Controller } from './controller';
+import { ProfileService as Service } from './service';
 import { UploadModule } from '../../upload/upload.module';
 
 @Module({
@@ -8,4 +8,4 @@ import { UploadModule } from '../../upload/upload.module';
   providers: [Service],
   imports: [UploadModule],
 })
-export class CourseClassInstructorModule {}
+export class ProfileModule {}

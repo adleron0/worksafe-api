@@ -29,7 +29,7 @@ export class CacheInterceptor implements NestInterceptor {
     const request = context.switchToHttp().getRequest();
     const response = context.switchToHttp().getResponse();
     const handler = context.getHandler();
-    
+
     // Apenas fazer cache de requisições GET
     if (request.method !== 'GET') {
       return next.handle();
@@ -37,8 +37,12 @@ export class CacheInterceptor implements NestInterceptor {
 
     // Obter metadados do decorator
     const ttl = this.reflector.get<number>(CACHE_TTL_METADATA, handler) || 300;
-    const prefix = this.reflector.get<string>(CACHE_PREFIX_METADATA, handler) || '';
-    const customKey = this.reflector.get<string | Function>(CACHE_KEY_METADATA, handler);
+    const prefix =
+      this.reflector.get<string>(CACHE_PREFIX_METADATA, handler) || '';
+    const customKey = this.reflector.get<string | Function>(
+      CACHE_KEY_METADATA,
+      handler,
+    );
 
     // Gerar chave de cache
     const cacheKey = this.generateCacheKey(request, prefix, customKey);
@@ -59,7 +63,7 @@ export class CacheInterceptor implements NestInterceptor {
     // Se não tem cache, executar e salvar
     // Definir header antes de enviar a resposta
     response.setHeader('X-Cache', 'MISS');
-    
+
     return next.handle().pipe(
       tap(async (data) => {
         try {
@@ -90,9 +94,10 @@ export class CacheInterceptor implements NestInterceptor {
 
     // Gerar chave baseada na URL e query
     const { url, path, query } = request;
-    const queryStr = query && Object.keys(query).length > 0
-      ? `:${this.serializeQuery(query)}`
-      : '';
+    const queryStr =
+      query && Object.keys(query).length > 0
+        ? `:${this.serializeQuery(query)}`
+        : '';
 
     // Se tem prefixo, usar ele
     if (prefix) {
@@ -107,9 +112,9 @@ export class CacheInterceptor implements NestInterceptor {
     // Ordenar as chaves para garantir consistência
     const sortedKeys = Object.keys(query).sort();
     const pairs = sortedKeys
-      .filter(key => query[key] !== undefined && query[key] !== null)
-      .map(key => `${key}=${query[key]}`);
-    
+      .filter((key) => query[key] !== undefined && query[key] !== null)
+      .map((key) => `${key}=${query[key]}`);
+
     return pairs.join('&');
   }
 }

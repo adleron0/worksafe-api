@@ -14,9 +14,9 @@ export interface CacheOptions {
 
 /**
  * Decorator de cache robusto e adaptativo
- * 
+ *
  * Exemplos de uso:
- * 
+ *
  * @Cache() // Cache padrão com TTL de 5 minutos
  * @Cache({ ttl: 3600 }) // Cache de 1 hora
  * @Cache({ prefix: 'products', ttl: 172800 }) // Cache de 48h com prefixo
@@ -37,11 +37,17 @@ export function Cache(options: CacheOptions = {}) {
 
 /**
  * Decorator para invalidar cache
- * 
+ *
  * @param pattern - Padrão para invalidar (ex: 'products:*') ou função que gera o padrão
  */
-export function CacheEvict(pattern: string | ((args: any[]) => string)): MethodDecorator {
-  return (target: any, propertyKey: string | symbol, descriptor: PropertyDescriptor) => {
+export function CacheEvict(
+  pattern: string | ((args: any[]) => string),
+): MethodDecorator {
+  return (
+    target: any,
+    propertyKey: string | symbol,
+    descriptor: PropertyDescriptor,
+  ) => {
     const originalMethod = descriptor.value;
 
     descriptor.value = async function (...args: any[]) {
@@ -52,7 +58,8 @@ export function CacheEvict(pattern: string | ((args: any[]) => string)): MethodD
       try {
         const cacheService = (this as any).cacheService;
         if (cacheService) {
-          const patternToEvict = typeof pattern === 'function' ? pattern(args) : pattern;
+          const patternToEvict =
+            typeof pattern === 'function' ? pattern(args) : pattern;
           await cacheService.reset(patternToEvict);
           console.log(`Cache evicted: ${patternToEvict}`);
         }
@@ -71,7 +78,11 @@ export function CacheEvict(pattern: string | ((args: any[]) => string)): MethodD
  * Decorator para invalidar múltiplos padrões de cache
  */
 export function CacheEvictAll(...patterns: string[]): MethodDecorator {
-  return (target: any, propertyKey: string | symbol, descriptor: PropertyDescriptor) => {
+  return (
+    target: any,
+    propertyKey: string | symbol,
+    descriptor: PropertyDescriptor,
+  ) => {
     const originalMethod = descriptor.value;
 
     descriptor.value = async function (...args: any[]) {
@@ -83,7 +94,7 @@ export function CacheEvictAll(...patterns: string[]): MethodDecorator {
         const cacheService = (this as any).cacheService;
         if (cacheService) {
           await Promise.all(
-            patterns.map(pattern => cacheService.reset(pattern))
+            patterns.map((pattern) => cacheService.reset(pattern)),
           );
           console.log(`Cache evicted: ${patterns.join(', ')}`);
         }
