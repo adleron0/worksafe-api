@@ -188,55 +188,55 @@ export class AuthService {
       );
 
       let refreshTokenResult;
-      
+
       if (cachedSession) {
         console.log(`Session cache hit for user ${verifyRefresh.sub}`);
         refreshTokenResult = cachedSession;
       } else {
         // Se não tem cache, buscar do banco
         refreshTokenResult = await this.prisma.session.findUnique({
-        where: {
-          userId_sessionToken: {
-            userId: Number(verifyRefresh.sub),
-            sessionToken: refreshToken,
+          where: {
+            userId_sessionToken: {
+              userId: Number(verifyRefresh.sub),
+              sessionToken: refreshToken,
+            },
           },
-        },
-        include: {
-          user: {
-            include: {
-              profile: {
-                include: {
-                  permissions: {
-                    include: {
-                      permission: true,
-                    },
-                    where: {
-                      inactiveAt: null,
+          include: {
+            user: {
+              include: {
+                profile: {
+                  include: {
+                    permissions: {
+                      include: {
+                        permission: true,
+                      },
+                      where: {
+                        inactiveAt: null,
+                      },
                     },
                   },
                 },
-              },
-              permissions: {
-                include: {
-                  permission: true,
+                permissions: {
+                  include: {
+                    permission: true,
+                  },
+                  where: {
+                    inactiveAt: null,
+                  },
                 },
-                where: {
-                  inactiveAt: null,
-                },
-              },
-              company: {
-                include: {
-                  products: {
-                    include: {
-                      product: true,
+                company: {
+                  include: {
+                    products: {
+                      include: {
+                        product: true,
+                      },
                     },
                   },
                 },
               },
             },
           },
-        },
-      });
+        });
 
         if (!refreshTokenResult || refreshTokenResult.inactiveAt) {
           throw new UnauthorizedException('Invalid refresh token');

@@ -50,14 +50,14 @@ function askQuestion(
 // Função para parsear tempo com unidades para segundos
 function parseTimeToSeconds(input: string): number | null {
   const match = input.match(/^(\d+)([smhd])?$/i);
-  
+
   if (!match) {
     return null;
   }
-  
+
   const value = parseInt(match[1]);
   const unit = match[2]?.toLowerCase() || 's';
-  
+
   switch (unit) {
     case 's':
       return value;
@@ -521,7 +521,7 @@ async function main() {
     const useCache =
       useCacheAnswer.toLowerCase() === 's' ||
       useCacheAnswer.toLowerCase() === 'sim';
-    
+
     let cacheTTLSeconds = 3600; // padrão 1 hora em segundos
     if (useCache) {
       let validTime = false;
@@ -529,10 +529,10 @@ async function main() {
         const cacheTTLAnswer = await askQuestion(
           rl,
           '⏱️  Por quanto tempo deseja manter o cache?\n' +
-          '   Exemplos: 300s (5 minutos), 5m, 1h, 24h, 7d\n' +
-          '   Digite o tempo: ',
+            '   Exemplos: 300s (5 minutos), 5m, 1h, 24h, 7d\n' +
+            '   Digite o tempo: ',
         );
-        
+
         if (!cacheTTLAnswer) {
           // Se vazio, usar padrão
           cacheTTLSeconds = 3600;
@@ -543,12 +543,16 @@ async function main() {
             cacheTTLSeconds = parsedSeconds;
             validTime = true;
           } else {
-            console.error('\n❌ Entrada inválida! Use o formato: número + unidade (s/m/h/d)');
+            console.error(
+              '\n❌ Entrada inválida! Use o formato: número + unidade (s/m/h/d)',
+            );
             console.log('   Exemplos válidos: 30s, 5m, 2h, 1d');
           }
         }
       }
-      console.log(`\n✅ Cache configurado para ${formatSecondsToReadable(cacheTTLSeconds)}`);
+      console.log(
+        `\n✅ Cache configurado para ${formatSecondsToReadable(cacheTTLSeconds)}`,
+      );
     }
 
     // 11. Mostrar campos que serão incluídos nos DTOs
@@ -590,7 +594,9 @@ async function main() {
     console.log(`🗃️  Modelo: ${selectedModel}`);
     console.log(`🖼️  Imagem: ${hasImage ? 'Sim' : 'Não'}`);
     console.log(`🏢 CompanyId: ${noCompany ? 'Não exige' : 'Exige'}`);
-    console.log(`💾 Cache: ${useCache ? `Sim (${formatSecondsToReadable(cacheTTLSeconds)})` : 'Não'}`);
+    console.log(
+      `💾 Cache: ${useCache ? `Sim (${formatSecondsToReadable(cacheTTLSeconds)})` : 'Não'}`,
+    );
     console.log(
       `📊 Campos: ${createFields.length} no CreateDto, ${updateFields.length} no UpdateDto`,
     );
@@ -846,9 +852,13 @@ export class ${entityNamePascal}Service extends GenericService<
   // Generate controller.ts
   const cacheKeyPrefix = entityNamePlural.replace(/[_\s]/g, '-');
   const cacheReadableTime = formatSecondsToReadable(cacheTTLSeconds);
-  const cacheDecorator = useCache ? `@Cache({ prefix: '${cacheKeyPrefix}', ttl: ${cacheTTLSeconds} })` : `// @Cache({ prefix: '${cacheKeyPrefix}', ttl: ${cacheTTLSeconds} }) // descomente para usar cache (${cacheReadableTime})`;
-  const cacheEvictDecorator = useCache ? `@CacheEvictAll('${cacheKeyPrefix}:*', 'cache:*/${cacheKeyPrefix}*')` : `// @CacheEvictAll('${cacheKeyPrefix}:*', 'cache:*/${cacheKeyPrefix}*') // descomente para limpar cache`;
-  
+  const cacheDecorator = useCache
+    ? `@Cache({ prefix: '${cacheKeyPrefix}', ttl: ${cacheTTLSeconds} })`
+    : `// @Cache({ prefix: '${cacheKeyPrefix}', ttl: ${cacheTTLSeconds} }) // descomente para usar cache (${cacheReadableTime})`;
+  const cacheEvictDecorator = useCache
+    ? `@CacheEvictAll('${cacheKeyPrefix}:*', 'cache:*/${cacheKeyPrefix}*')`
+    : `// @CacheEvictAll('${cacheKeyPrefix}:*', 'cache:*/${cacheKeyPrefix}*') // descomente para limpar cache`;
+
   const controllerContent = `import {
   Body,
   Controller,
@@ -981,7 +991,9 @@ export class ${entityNamePascal}Controller extends GenericController<
 `;
 
   // Generate module.ts
-  const uploadModulePath = isGroup ? '../../upload/upload.module' : '../upload/upload.module';
+  const uploadModulePath = isGroup
+    ? '../../upload/upload.module'
+    : '../upload/upload.module';
   const moduleContent = `import { Module } from '@nestjs/common';
 import { ${entityNamePascal}Controller as Controller } from './controller';
 import { ${entityNamePascal}Service as Service } from './service';
@@ -1020,7 +1032,7 @@ export class CreateDto {
   createFields.forEach((field) => {
     const validators = getValidatorsForType(field.type, field, true); // passar true para isCreateDTO
     const tsType = mapPrismaTypeToTypeScript(field.type);
-    
+
     // Se for companyId, tornar opcional no tipo também
     const isOptionalField = field.isOptional || field.name === 'companyId';
 

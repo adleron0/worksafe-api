@@ -69,7 +69,11 @@ export class SiteProductsimagesController extends GenericController<
 
   // Rota intermediária para validação de permissão
   @UserPermission(`create_${entity.permission}`) // Permissão para rota genérica
-  @CacheEvictAll('site-productsimages:*', 'site-products:*', 'cache:*/site-products*')
+  @CacheEvictAll(
+    'site-productsimages:*',
+    'site-products:*',
+    'cache:*/site-products*',
+  )
   @Post()
   @UseInterceptors(
     FileInterceptor('image', getMulterOptions('site_productsimages-image')),
@@ -90,7 +94,11 @@ export class SiteProductsimagesController extends GenericController<
 
   // Rota intermediária para validação de permissão
   @UserPermission(`update_${entity.permission}`) // Permissão para rota genérica
-  @CacheEvictAll('site-productsimages:*', 'site-products:*', 'cache:*/site-products*')
+  @CacheEvictAll(
+    'site-productsimages:*',
+    'site-products:*',
+    'cache:*/site-products*',
+  )
   @Put(':id')
   @UseInterceptors(
     FileInterceptor('image', getMulterOptions('site_productsimages-image')),
@@ -107,7 +115,11 @@ export class SiteProductsimagesController extends GenericController<
 
   // Rota intermediária para validação de permissão
   @UserPermission(`activate_${entity.permission}`) // Permissão para rota genérica
-  @CacheEvictAll('site-productsimages:*', 'site-products:*', 'cache:*/site-products*')
+  @CacheEvictAll(
+    'site-productsimages:*',
+    'site-products:*',
+    'cache:*/site-products*',
+  )
   @Patch('active/:id')
   async activate(@Param('id') id: number, @Req() request: Request) {
     return super.activate(id, request);
@@ -115,7 +127,11 @@ export class SiteProductsimagesController extends GenericController<
 
   // Rota intermediária para validação de permissão
   @UserPermission(`inactive_${entity.permission}`) // Permissão para rota genérica
-  @CacheEvictAll('site-productsimages:*', 'site-products:*', 'cache:*/site-products*')
+  @CacheEvictAll(
+    'site-productsimages:*',
+    'site-products:*',
+    'cache:*/site-products*',
+  )
   @Patch('inactive/:id')
   async inactivate(@Param('id') id: number, @Req() request: Request) {
     return super.inactivate(id, request);

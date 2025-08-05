@@ -12,7 +12,6 @@ import {
 } from 'class-validator';
 
 export class UpdateDto {
-
   @IsInt()
   @Type(() => Number)
   @IsOptional()
