@@ -8,6 +8,7 @@ import {
   Post,
   Put,
   Req,
+  Res,
   UploadedFile,
   UseInterceptors,
   UsePipes,
@@ -16,7 +17,7 @@ import {
   applyDecorators,
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 // Import entity template
 import { CreateDto } from './dto/create.dto';
@@ -126,5 +127,88 @@ export class ImageController extends GenericController<
       companyId,
     };
     return this.Service.deleteImage(id, logParams);
+  }
+
+  @Public()
+  @Get('proxy')
+  async proxyImage(@Query('url') url: string, @Res() res: Response) {
+    try {
+      if (!url) {
+        return res.status(400).json({ error: 'URL é obrigatória' });
+      }
+
+      // Validação básica de segurança - só aceita URLs do S3
+      const allowedDomains = [
+        'amazonaws.com',
+        's3.amazonaws.com',
+        '.s3.amazonaws.com',
+        '.s3-accelerate.amazonaws.com',
+      ];
+
+      const urlObj = new URL(url);
+      const isAllowed = allowedDomains.some((domain) =>
+        urlObj.hostname.includes(domain),
+      );
+
+      if (!isAllowed) {
+        return res.status(403).json({ error: 'Domínio não permitido' });
+      }
+
+      // Busca a imagem
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        return res
+          .status(response.status)
+          .json({ error: 'Erro ao buscar imagem' });
+      }
+
+      const buffer = await response.arrayBuffer();
+
+      // Detecta o tipo de conteúdo
+      let contentType = response.headers.get('content-type') || 'image/png';
+
+      // Fallback caso o S3 não retorne content-type correto
+      if (
+        contentType === 'application/octet-stream' ||
+        !contentType.startsWith('image/')
+      ) {
+        const extension = url.split('.').pop()?.toLowerCase();
+        switch (extension) {
+          case 'jpg':
+          case 'jpeg':
+            contentType = 'image/jpeg';
+            break;
+          case 'png':
+            contentType = 'image/png';
+            break;
+          case 'gif':
+            contentType = 'image/gif';
+            break;
+          case 'webp':
+            contentType = 'image/webp';
+            break;
+          case 'svg':
+            contentType = 'image/svg+xml';
+            break;
+          default:
+            contentType = 'image/png';
+        }
+      }
+
+      // Define headers CORS e cache
+      res.set({
+        'Content-Type': contentType,
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET',
+        'Cache-Control': 'public, max-age=86400', // 24 horas
+        'X-Content-Type-Options': 'nosniff',
+      });
+
+      res.send(Buffer.from(buffer));
+    } catch (error) {
+      console.error('Erro no proxy de imagem:', error);
+      res.status(500).json({ error: 'Erro ao processar imagem' });
+    }
   }
 }
