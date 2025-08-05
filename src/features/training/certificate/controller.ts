@@ -84,7 +84,9 @@ export class CertificateController extends GenericController<
   // @Public() // descomente para tornar publica
   // @CacheEvictAll('certificate:*', 'cache:*/certificate*') // descomente para limpar cache
   @Post()
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('certificate-image')))
+  @UseInterceptors(
+    FileInterceptor('image', getMulterOptions('certificate-image')),
+  )
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async create(
     @Req() request: Request,
@@ -99,7 +101,9 @@ export class CertificateController extends GenericController<
   // @Public() // descomente para tornar publica
   // @CacheEvictAll('certificate:*', 'cache:*/certificate*') // descomente para limpar cache
   @Put(':id')
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('certificate-image')))
+  @UseInterceptors(
+    FileInterceptor('image', getMulterOptions('certificate-image')),
+  )
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async update(
     @Param('id') id: number,

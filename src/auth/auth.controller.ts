@@ -21,14 +21,20 @@ export class AuthController {
   @Public()
   @Post('login')
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
-  async login(@Body() user: LoginDto, @Res() response: Response) {
+  async login(
+    @Body() user: LoginDto,
+    @Res({ passthrough: true }) response: Response,
+  ) {
     const result = await this.authService.login(user, response);
-    return response.status(200).json(result);
+    return result;
   }
 
   @Public()
   @Post('refresh-token')
-  async refreshToken(@Req() request: Request, @Res() response: Response) {
+  async refreshToken(
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
     const refreshToken = request.cookies['refreshToken'];
     if (!refreshToken) {
       throw new UnauthorizedException('No refresh token found');
@@ -39,18 +45,21 @@ export class AuthController {
       throw new NotAcceptableException('Direcionado para Logout');
     } else {
       const result = await this.authService.refreshToken(refreshToken);
-      return response.status(200).json(result);
+      return result;
     }
   }
 
   @Public()
   @Post('logout')
-  async logout(@Req() request: Request, @Res() response: Response) {
+  async logout(
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ) {
     const refreshToken = request.cookies['refreshToken'];
     if (!refreshToken) {
       throw new UnauthorizedException('No refresh token found');
     }
     await this.authService.logout(refreshToken, response);
-    return response.status(200).json({ message: 'Logout successful' });
+    return { message: 'Logout successful' };
   }
 }

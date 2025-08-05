@@ -289,7 +289,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
           lte: new Date(filters.createdAt[1]),
         };
       }
-        console.log("🚀 ~ GenericService ~ get ~ params:", params)
+      console.log('🚀 ~ GenericService ~ get ~ params:', params);
 
       // Definindo valores padrão para página e limite
       const page = filters.page ? Number(filters.page) + 1 : 1;

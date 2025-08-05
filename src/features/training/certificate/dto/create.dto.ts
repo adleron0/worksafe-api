@@ -13,7 +13,6 @@ import {
 } from 'class-validator';
 
 export class CreateDto {
-
   @IsString()
   @IsNotEmpty({ message: 'name is required' })
   name: string;

@@ -1,4 +1,10 @@
-import { IsEmail, IsString, IsNotEmpty, Matches, MinLength } from 'class-validator';
+import {
+  IsEmail,
+  IsString,
+  IsNotEmpty,
+  Matches,
+  MinLength,
+} from 'class-validator';
 
 export class LoginDto {
   @IsEmail({}, { message: 'Fromato de email inválido' })

@@ -28,7 +28,11 @@ export class AuthCacheService {
     return this.cacheService.get(key);
   }
 
-  async setSession(userId: number, refreshToken: string, sessionData: any): Promise<void> {
+  async setSession(
+    userId: number,
+    refreshToken: string,
+    sessionData: any,
+  ): Promise<void> {
     const key = `session:${userId}:${refreshToken}`;
     await this.cacheService.set(key, sessionData, 604800); // 7 dias
   }
@@ -39,13 +43,13 @@ export class AuthCacheService {
   async invalidateUserCache(userId: number): Promise<void> {
     // Invalida cache de permissões
     await this.cacheService.del(`user:${userId}:permissions`);
-    
+
     // Invalida todas as sessões do usuário
     const sessionKeys = await this.cacheService.keys(`session:${userId}:*`);
     if (sessionKeys.length > 0) {
-      await Promise.all(sessionKeys.map(key => this.cacheService.del(key)));
+      await Promise.all(sessionKeys.map((key) => this.cacheService.del(key)));
     }
-    
+
     console.log(`Cache invalidated for user ${userId}`);
   }
 
@@ -53,7 +57,9 @@ export class AuthCacheService {
    * Invalidação de cache para múltiplos usuários (ex: ao mudar permissões de um perfil)
    */
   async invalidateMultipleUsersCache(userIds: number[]): Promise<void> {
-    await Promise.all(userIds.map(userId => this.invalidateUserCache(userId)));
+    await Promise.all(
+      userIds.map((userId) => this.invalidateUserCache(userId)),
+    );
   }
 
   /**
@@ -62,7 +68,7 @@ export class AuthCacheService {
   async invalidateCompanyCache(companyId: number): Promise<void> {
     // Busca padrão de cache por empresa
     const userKeys = await this.cacheService.keys(`user:*:permissions`);
-    
+
     // Para cada chave, verifica se pertence à empresa e invalida
     for (const key of userKeys) {
       const userData = await this.cacheService.get(key);
@@ -70,7 +76,7 @@ export class AuthCacheService {
         await this.cacheService.del(key);
       }
     }
-    
+
     console.log(`Cache invalidated for company ${companyId}`);
   }
 
@@ -86,15 +92,15 @@ export class AuthCacheService {
     if (context.userId) {
       await this.invalidateUserCache(context.userId);
     }
-    
+
     if (context.userIds && context.userIds.length > 0) {
       await this.invalidateMultipleUsersCache(context.userIds);
     }
-    
+
     if (context.companyId) {
       await this.invalidateCompanyCache(context.companyId);
     }
-    
+
     // Se mudou um perfil, invalida cache de todos os usuários com esse perfil
     if (context.profileId) {
       const userKeys = await this.cacheService.keys(`user:*:permissions`);

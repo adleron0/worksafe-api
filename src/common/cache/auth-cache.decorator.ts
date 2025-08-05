@@ -28,7 +28,7 @@ export function InvalidateAuthCache(
         }
 
         // Extrair IDs baseado no tipo de target
-        let context: any = {};
+        const context: any = {};
 
         if (extractId) {
           const extracted = extractId(args);
