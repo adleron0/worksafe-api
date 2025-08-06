@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Options,
   Param,
   Patch,
   Post,
@@ -130,11 +131,22 @@ export class ImageController extends GenericController<
   }
 
   @Public()
+  @Options('proxy')
+  async proxyOptions(@Res() res: Response) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.status(200).send();
+  }
+
+  @Public()
   @Get('proxy')
   async proxyImage(@Query('url') url: string, @Res() res: Response) {
+    console.log('🚀 ~ ImageController ~ proxyImage ~ url:', url);
     try {
       if (!url) {
-        return res.status(400).json({ error: 'URL é obrigatória' });
+        res.status(400).json({ error: 'URL é obrigatória' });
+        return;
       }
 
       // Validação básica de segurança - só aceita URLs do S3
@@ -145,25 +157,35 @@ export class ImageController extends GenericController<
         '.s3-accelerate.amazonaws.com',
       ];
 
-      const urlObj = new URL(url);
-      const isAllowed = allowedDomains.some((domain) =>
-        urlObj.hostname.includes(domain),
-      );
+      try {
+        const urlObj = new URL(url);
+        const isAllowed = allowedDomains.some((domain) =>
+          urlObj.hostname.includes(domain),
+        );
 
-      if (!isAllowed) {
-        return res.status(403).json({ error: 'Domínio não permitido' });
+        if (!isAllowed) {
+          res.status(403).json({ error: 'Domínio não permitido' });
+          return;
+        }
+      } catch (urlError) {
+        console.error('URL inválida:', urlError);
+        res.status(400).json({ error: 'URL inválida' });
+        return;
       }
 
       // Busca a imagem
+      console.log('Buscando imagem do S3:', url);
       const response = await fetch(url);
 
       if (!response.ok) {
-        return res
-          .status(response.status)
-          .json({ error: 'Erro ao buscar imagem' });
+        console.error('Erro ao buscar do S3:', response.status);
+        res.status(response.status).json({ error: 'Erro ao buscar imagem' });
+        return;
       }
 
       const buffer = await response.arrayBuffer();
+      const imageBuffer = Buffer.from(buffer);
+      console.log('Imagem recebida, tamanho:', imageBuffer.length);
 
       // Detecta o tipo de conteúdo
       let contentType = response.headers.get('content-type') || 'image/png';
@@ -196,16 +218,19 @@ export class ImageController extends GenericController<
         }
       }
 
-      // Define headers CORS e cache
-      res.set({
-        'Content-Type': contentType,
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET',
-        'Cache-Control': 'public, max-age=86400', // 24 horas
-        'X-Content-Type-Options': 'nosniff',
-      });
+      console.log('Content-Type definido:', contentType);
 
-      res.send(Buffer.from(buffer));
+      // Define headers CORS e cache
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Length', imageBuffer.length.toString());
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+
+      // Envia a imagem como buffer binário
+      res.status(200).send(imageBuffer);
     } catch (error) {
       console.error('Erro no proxy de imagem:', error);
       res.status(500).json({ error: 'Erro ao processar imagem' });
