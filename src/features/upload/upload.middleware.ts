@@ -23,6 +23,7 @@ export const getMulterOptions = (folder: string) => ({
       const name = (req.body.name || file.originalname).replace(/\s+/g, '_');
       cb(null, `${folder}/${Date.now()}_${name}`);
     },
+    contentType: multerS3.AUTO_CONTENT_TYPE,
   }),
   limits: {
     fileSize: 20 * 1024 * 1024, // Limite de 20MB por arquivo
