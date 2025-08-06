@@ -1,7 +1,7 @@
 model CouseCertificate {
   id       Int       @id @default(autoincrement())
   name     String
-  courseId Int       @unique
+  courseId Int
   course   Course    @relation(fields: [courseId], references: [id])
   companyId Int
   company   Company   @relation(fields: [companyId], references: [id])

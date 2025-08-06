@@ -14,6 +14,7 @@ export function getSearchParams(request: Request, CreateDto: any) {
   const search = {
     companyId: Number(request.user?.companyId),
     name: CreateDto.name,
+    active: true,
   };
 
   return search;
