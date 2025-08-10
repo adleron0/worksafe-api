@@ -229,6 +229,7 @@ export class PrismaService
   ) {
     const use = tx ? tx : this;
     if (id) {
+      params = params || {};
       params.where = params.where || {};
       params.where.id = Number(id);
     }

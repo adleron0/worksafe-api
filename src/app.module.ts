@@ -26,6 +26,8 @@ import { SiteProductsimagesModule } from './features/site/site_productsimages/mo
 import { CacheModule } from './common/cache';
 import { ImageModule } from './features/image/module';
 import { CertificateModule } from './features/training/certificate/module';
+import { SubscriptionModule } from './features/training/subscription/module';
+import { AlunosModule } from './features/training/alunos/module';
 
 @Module({
   imports: [
@@ -53,6 +55,8 @@ import { CertificateModule } from './features/training/certificate/module';
     SiteProductsimagesModule,
     ImageModule,
     CertificateModule,
+    SubscriptionModule,
+    AlunosModule,
   ],
   controllers: [],
   providers: [

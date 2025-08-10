@@ -25,8 +25,10 @@ import { CourseService as Service } from './service';
 // Import utils specifics
 import { FileInterceptor } from '@nestjs/platform-express';
 import { getMulterOptions } from '../../upload/upload.middleware';
+import { Public } from 'src/auth/decorators/public.decorator';
 // Import generic controller
 import { GenericController } from 'src/features/generic/generic.controller';
+import { CacheEvictAll } from 'src/common/cache';
 
 // Create a decorator factory for User controller permissions
 function UserPermission(permission: string) {
@@ -61,8 +63,16 @@ export class CourseController extends GenericController<
     return super.get(request, query, paramsIncludes, noCompany);
   }
 
+  @Public()
+  @Get('list')
+  async list(@Req() request: Request, @Query() query: any) {
+    // filtros e atributos de associações
+    return this.service.list(query, entity);
+  }
+
   // Rota intermediária para validação de permissão
   @UserPermission(`create_${entity.permission}`) // Permissão para rota genérica
+  @CacheEvictAll('training-classes:*', 'cache:*/classes*')
   @Post()
   @UseInterceptors(FileInterceptor('image', getMulterOptions('course-image')))
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
@@ -80,6 +90,7 @@ export class CourseController extends GenericController<
 
   // Rota intermediária para validação de permissão
   @UserPermission(`update_${entity.permission}`) // Permissão para rota genérica
+  @CacheEvictAll('training-classes:*', 'cache:*/classes*')
   @Put(':id')
   @UseInterceptors(FileInterceptor('image', getMulterOptions('course-image')))
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
@@ -97,6 +108,7 @@ export class CourseController extends GenericController<
 
   // Rota intermediária para validação de permissão
   @UserPermission(`activate_${entity.permission}`) // Permissão para rota genérica
+  @CacheEvictAll('training-classes:*', 'cache:*/classes*')
   @Patch('active/:id')
   async activate(@Param('id') id: number, @Req() request: Request) {
     return super.activate(id, request);
@@ -104,6 +116,7 @@ export class CourseController extends GenericController<
 
   // Rota intermediária para validação de permissão
   @UserPermission(`inactive_${entity.permission}`) // Permissão para rota genérica
+  @CacheEvictAll('training-classes:*', 'cache:*/classes*')
   @Patch('inactive/:id')
   async inactivate(@Param('id') id: number, @Req() request: Request) {
     return super.inactivate(id, request);

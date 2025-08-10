@@ -28,6 +28,8 @@ import { getMulterOptions } from '../../upload/upload.middleware';
 // Import generic controller
 import { GenericController } from 'src/features/generic/generic.controller';
 import { Public } from 'src/auth/decorators/public.decorator';
+import { Cache, CacheEvictAll } from 'src/common/cache';
+import { CacheService } from 'src/common/services/cache.service';
 
 // Create a decorator factory for User controller permissions
 function UserPermission(permission: string) {
@@ -48,23 +50,55 @@ export class ClassesController extends GenericController<
   IEntity,
   Service
 > {
-  constructor(private readonly Service: Service) {
+  constructor(
+    private readonly Service: Service,
+    // cacheService é usado pelos decorators de cache
+    private readonly cacheService: CacheService,
+  ) {
     super(Service, entity);
   }
 
   // Rota intermediária para validação de permissão
   // @UserPermission(`list_${entity.permission}`) // Permissão para rota genérica
   @Public()
+  @Cache({ prefix: 'training-classes', ttl: 172800 }) // 48 horas
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
     const noCompany = true; // quando a rota não exige buscar companyId pelo token
     // filtros e atributos de associações
-    const paramsIncludes = {};
+    const paramsIncludes = {
+      instructors: {
+        include: {
+          instructor: {
+            select: {
+              id: true,
+              name: true,
+              imageUrl: true,
+              active: true,
+              curriculum: true,
+              highlight: true,
+              formation: true,
+              formationCode: true,
+            },
+          },
+        },
+      },
+      _count: {
+        select: {
+          subscriptions: {
+            where: {
+              subscribeStatus: 'confirmed',
+            },
+          },
+        },
+      },
+    };
     return super.get(request, query, paramsIncludes, noCompany);
   }
 
   // Rota intermediária para validação de permissão
   @UserPermission(`create_${entity.permission}`) // Permissão para rota genérica
+  @CacheEvictAll('training-classes:*', 'cache:*/classes*')
   @Post()
   @UseInterceptors(FileInterceptor('image', getMulterOptions('classes-image')))
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
@@ -82,6 +116,7 @@ export class ClassesController extends GenericController<
 
   // Rota intermediária para validação de permissão
   @UserPermission(`update_${entity.permission}`) // Permissão para rota genérica
+  @CacheEvictAll('training-classes:*', 'cache:*/classes*')
   @Put(':id')
   @UseInterceptors(FileInterceptor('image', getMulterOptions('classes-image')))
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
@@ -101,6 +136,7 @@ export class ClassesController extends GenericController<
 
   // Rota intermediária para validação de permissão
   @UserPermission(`activate_${entity.permission}`) // Permissão para rota genérica
+  @CacheEvictAll('training-classes:*', 'cache:*/classes*')
   @Patch('active/:id')
   async activate(@Param('id') id: number, @Req() request: Request) {
     return super.activate(id, request);
@@ -108,6 +144,7 @@ export class ClassesController extends GenericController<
 
   // Rota intermediária para validação de permissão
   @UserPermission(`inactive_${entity.permission}`) // Permissão para rota genérica
+  @CacheEvictAll('training-classes:*', 'cache:*/classes*')
   @Patch('inactive/:id')
   async inactivate(@Param('id') id: number, @Req() request: Request) {
     return super.inactivate(id, request);

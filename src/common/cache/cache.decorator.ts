@@ -84,27 +84,66 @@ export function CacheEvictAll(...patterns: string[]): MethodDecorator {
     descriptor: PropertyDescriptor,
   ) => {
     const originalMethod = descriptor.value;
+    const isAsync = originalMethod.constructor.name === 'AsyncFunction';
 
-    descriptor.value = async function (...args: any[]) {
-      // Executar o método original primeiro
-      const result = await originalMethod.apply(this, args);
+    if (isAsync) {
+      descriptor.value = async function (...args: any[]) {
+        // Invalidar o cache ANTES de executar o método
+        try {
+          const cacheService = (this as any).cacheService;
+          if (cacheService) {
+            await Promise.all(
+              patterns.map((pattern) => cacheService.reset(pattern)),
+            );
+            console.log(`Cache evicted BEFORE execution: ${patterns.join(', ')}`);
+          }
+        } catch (error) {
+          console.error('Cache eviction error:', error);
+        }
 
-      // Depois invalidar todos os caches
-      try {
+        // Executar o método original preservando o contexto
+        const result = await originalMethod.call(this, ...args);
+
+        // Invalidar novamente DEPOIS para garantir
+        try {
+          const cacheService = (this as any).cacheService;
+          if (cacheService) {
+            await Promise.all(
+              patterns.map((pattern) => cacheService.reset(pattern)),
+            );
+            console.log(`Cache evicted AFTER execution: ${patterns.join(', ')}`);
+          }
+        } catch (error) {
+          console.error('Cache eviction error:', error);
+        }
+
+        return result;
+      };
+    } else {
+      descriptor.value = function (...args: any[]) {
+        // Versão síncrona (se houver)
+        const result = originalMethod.call(this, ...args);
+        
+        // Tentar invalidar cache de forma assíncrona
         const cacheService = (this as any).cacheService;
         if (cacheService) {
-          await Promise.all(
+          Promise.all(
             patterns.map((pattern) => cacheService.reset(pattern)),
-          );
-          console.log(`Cache evicted: ${patterns.join(', ')}`);
+          ).then(() => {
+            console.log(`Cache evicted: ${patterns.join(', ')}`);
+          }).catch((error) => {
+            console.error('Cache eviction error:', error);
+          });
         }
-      } catch (error) {
-        console.error('Cache eviction error:', error);
-      }
+        
+        return result;
+      };
+    }
 
-      return result;
-    };
-
+    // Preservar metadados do método original
+    Object.setPrototypeOf(descriptor.value, originalMethod);
+    Object.defineProperty(descriptor.value, 'name', { value: originalMethod.name });
+    
     return descriptor;
   };
 }

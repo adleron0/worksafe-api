@@ -28,6 +28,14 @@ export class CreateDto {
 
   @IsString()
   @IsOptional()
+  icon: string;
+
+  @IsString()
+  @IsOptional()
+  color: string;
+
+  @IsString()
+  @IsOptional()
   description: string;
 
   @IsString()
@@ -50,6 +58,11 @@ export class CreateDto {
   @IsJSON()
   @IsOptional()
   faq: string;
+
+  @IsInt()
+  @Type(() => Number)
+  @IsOptional()
+  yearOfValidation: number;
 
   @IsJSON()
   @IsOptional()

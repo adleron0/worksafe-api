@@ -33,6 +33,7 @@ model CourseClass {
   exams CourseClassExam[]
   instructors CourseClassInstructor[]
   reviews CourseReview[]
+  subscriptions CourseClassSubscription[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @default(now()) @updatedAt

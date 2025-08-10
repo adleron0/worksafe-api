@@ -9,7 +9,7 @@ model TraineeCourseCertificate {
   conformity String  @db.VarChar(100)
   description String
   objective String
-  yearsOfValidity Int
+  expirationDate DateTime?
   active   Boolean   @default(true)
   imageUrl String?   @db.VarChar(255)
 

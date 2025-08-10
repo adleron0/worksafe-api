@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
-import { ClassesController as Controller } from './controller';
-import { ClassesService as Service } from './service';
+import { SubscriptionController as Controller } from './controller';
+import { SubscriptionService as Service } from './service';
 import { UploadModule } from '../../upload/upload.module';
 import { CacheModule } from 'src/common/cache';
 
@@ -9,4 +9,4 @@ import { CacheModule } from 'src/common/cache';
   providers: [Service],
   imports: [UploadModule, CacheModule],
 })
-export class ClassesModule {}
+export class SubscriptionModule {}
