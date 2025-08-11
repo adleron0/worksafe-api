@@ -133,4 +133,8 @@ export class CreateDto {
   @IsOptional()
   @Type(() => Number)
   maxSubscriptions?: number;
+
+  @IsString()
+  @IsOptional()
+  classCode?: string;
 }

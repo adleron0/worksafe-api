@@ -8,4 +8,5 @@ model DOM_Cities {
   inactiveAt  DateTime?
 
   customers   Customer[]
+  trainees   Trainee[]
 }

@@ -2,7 +2,20 @@ model Trainee {
   id       Int       @id @default(autoincrement())
   name     String    @db.VarChar(100)
   cpf      String    @db.VarChar(20)
+  email    String?   @db.VarChar(100)
+  phone    String?   @db.VarChar(20)
+  birthDate DateTime?
+  zipCode  String?   @db.VarChar(10)
+  address  String?   @db.VarChar(255)
+  addressNumber Int?
+  complement String? @db.VarChar(100)
+  cityId   Int?
+  city     DOM_Cities?     @relation(fields: [cityId], references: [id])
+  stateId  Int?
+  state    DOM_States?    @relation(fields: [stateId], references: [id])
+  password String?   @db.VarChar(255)
   customerId Int?
+  companyId Int
   imageUrl String? @db.VarChar(255)
   active Boolean @default(true)
 

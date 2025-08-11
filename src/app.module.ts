@@ -28,6 +28,7 @@ import { ImageModule } from './features/image/module';
 import { CertificateModule } from './features/training/certificate/module';
 import { SubscriptionModule } from './features/training/subscription/module';
 import { AlunosModule } from './features/training/alunos/module';
+import { ExamesModule } from './features/training/exames/module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { AlunosModule } from './features/training/alunos/module';
     CertificateModule,
     SubscriptionModule,
     AlunosModule,
+    ExamesModule,
   ],
   controllers: [],
   providers: [

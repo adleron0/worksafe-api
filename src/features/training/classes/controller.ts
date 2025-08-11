@@ -20,6 +20,7 @@ import { Permissions } from 'src/auth/decorators/permissions.decorator';
 // Import entity template
 import { CreateDto } from './dto/create.dto';
 import { UpdateDto } from './dto/update.dto';
+import { ValidateStudentDto } from './dto/validate-student.dto';
 import { IEntity } from './interfaces/interface';
 import { ClassesService as Service } from './service';
 // Import utils specifics
@@ -148,5 +149,15 @@ export class ClassesController extends GenericController<
   @Patch('inactive/:id')
   async inactivate(@Param('id') id: number, @Req() request: Request) {
     return super.inactivate(id, request);
+  }
+
+  // ROTA PÚBLICA PARA VALIDAR ALUNO PELO CPF E CÓDIGO DA TURMA
+  @Public()
+  @Post('validate-student')
+  @UseInterceptors(FileInterceptor('image', getMulterOptions('classes-image')))
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
+  async validateStudent(@Body() validateDto: ValidateStudentDto) {
+    const { cpf, classCode, classId } = validateDto;
+    return this.Service.validateStudent(cpf, classCode, classId);
   }
 }

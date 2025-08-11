@@ -21,7 +21,7 @@ import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { CreateDto } from './dto/create.dto';
 import { UpdateDto } from './dto/update.dto';
 import { IEntity } from './interfaces/interface';
-import { SubscriptionService as Service } from './service';
+import { ExamesService as Service } from './service';
 // Import utils specifics
 import { FileInterceptor } from '@nestjs/platform-express';
 import { getMulterOptions } from '../../upload/upload.middleware';
@@ -47,14 +47,14 @@ function UserPermission(permission: string) {
 }
 
 const entity = {
-  model: 'CourseClassSubscription' as keyof PrismaClient,
-  name: 'Subscription',
-  route: 'subscription',
+  model: 'CourseClassExam' as keyof PrismaClient,
+  name: 'Exames',
+  route: 'exames',
   permission: 'classes',
 };
 
 @Controller(entity.route)
-export class SubscriptionController extends GenericController<
+export class ExamesController extends GenericController<
   CreateDto,
   UpdateDto,
   IEntity,
@@ -70,7 +70,7 @@ export class SubscriptionController extends GenericController<
 
   @UserPermission(`list_${entity.permission}`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
-  // @Cache({ prefix: 'subscription', ttl: 3600 }) // descomente para usar cache (1 hora)
+  // @Cache({ prefix: 'exames', ttl: 3600 }) // descomente para usar cache (1 hora)
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
     // Adiciona omitAttributes aos filtros se não estiver presente
@@ -82,16 +82,9 @@ export class SubscriptionController extends GenericController<
 
   @UserPermission(`create_${entity.permission}`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
+  // @CacheEvictAll('exames:*', 'cache:*/exames*') // descomente para limpar cache
   @Post()
-  @CacheEvictAll(
-    'subscription:*',
-    'cache:*/subscription*',
-    'training-classes:*',
-    'cache:*/classes*',
-  ) // limpa cache de subscription e classes
-  @UseInterceptors(
-    FileInterceptor('image', getMulterOptions('subscription-image')),
-  )
+  @UseInterceptors(FileInterceptor('image', getMulterOptions('exames-image')))
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async create(
     @Req() request: Request,
@@ -104,94 +97,52 @@ export class SubscriptionController extends GenericController<
 
   @UserPermission(`update_${entity.permission}`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
+  // @CacheEvictAll('exames:*', 'cache:*/exames*') // descomente para limpar cache
   @Put(':id')
-  @CacheEvictAll(
-    'subscription:*',
-    'cache:*/subscription*',
-    'training-classes:*',
-    'cache:*/classes*',
-  ) // limpa cache de subscription e classes
-  @UseInterceptors(
-    FileInterceptor('image', getMulterOptions('subscription-image')),
-  )
+  @UseInterceptors(FileInterceptor('image', getMulterOptions('exames-image')))
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async update(
     @Param('id') id: number,
     @Req() request: Request,
-    @Body() body: any,
+    @Body() UpdateDto: UpdateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
-    let inactiveAt: Date | null = null;
-    if (body.subscribeStatus === 'declined') {
-      inactiveAt = new Date();
-    } else {
-      inactiveAt = null;
-    }
-    // Converter tipos de dados do FormData
-    const UpdateDto: UpdateDto = {
-      ...body,
-      companyId: body.companyId ? Number(body.companyId) : undefined,
-      classId: body.classId ? Number(body.classId) : undefined,
-      traineeId:
-        body.traineeId && body.traineeId !== 'null'
-          ? Number(body.traineeId)
-          : null,
-      inactiveAt: inactiveAt,
-    };
-
-    // Remover campos que não devem ser atualizados
-    delete UpdateDto['id'];
-    delete UpdateDto['createdAt'];
-    delete UpdateDto['updatedAt'];
-
     const processedDto = formaterPreUpdate(UpdateDto);
     return super.update(id, request, processedDto, file, hooksUpdate);
   }
 
   @UserPermission(`activate_${entity.permission}`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
+  // @CacheEvictAll('exames:*', 'cache:*/exames*') // descomente para limpar cache
   @Patch('active/:id')
-  @CacheEvictAll(
-    'subscription:*',
-    'cache:*/subscription*',
-    'training-classes:*',
-    'cache:*/classes*',
-  ) // limpa cache de subscription e classes
   async activate(@Param('id') id: number, @Req() request: Request) {
     return super.activate(id, request);
   }
 
   @UserPermission(`inactive_${entity.permission}`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
+  // @CacheEvictAll('exames:*', 'cache:*/exames*') // descomente para limpar cache
   @Patch('inactive/:id')
-  @CacheEvictAll(
-    'subscription:*',
-    'cache:*/subscription*',
-    'training-classes:*',
-    'cache:*/classes*',
-  ) // limpa cache de subscription e classes
   async inactivate(@Param('id') id: number, @Req() request: Request) {
     return super.inactivate(id, request);
   }
 
-  // ROTA ABERTA PARA INSCRIÇÃO SEM NECESSIDADE DE PERMISSÃO
+  // ROTA PÚBLICA PARA REGISTRO DE EXAME COM VALIDAÇÃO DE TRAINEE
   @Public()
-  @Post('subscribe')
-  @CacheEvictAll(
-    'subscription:*',
-    'cache:*/subscription*',
-    'training-classes:*',
-    'cache:*/classes*',
-  ) // limpa cache de subscription e classes
-  @UseInterceptors(
-    FileInterceptor('image', getMulterOptions('subscription-image')),
-  )
+  @Post('register')
+  @UseInterceptors(FileInterceptor('image', getMulterOptions('exames-image')))
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
-  async subscription(
+  async registerExam(
     @Req() request: Request,
     @Body() CreateDto: CreateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
-    const search = getSearchParams(request, CreateDto);
-    return this.Service.subscription(search, entity, CreateDto);
+    // Se houver arquivo, adiciona ao DTO
+    if (file) {
+      CreateDto['imageUrl'] = file.location;
+    }
+
+    // Chama o método do service que valida e cria o exame
+    return this.Service.registerExam(CreateDto, entity);
   }
 }

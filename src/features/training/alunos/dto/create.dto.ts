@@ -22,6 +22,53 @@ export class CreateDto {
   @IsNotEmpty({ message: 'cpf is required' })
   cpf: string;
 
+  @IsEmail()
+  @IsOptional()
+  email?: string;
+
+  @IsString()
+  @IsOptional()
+  phone?: string;
+
+  @IsDate()
+  @Type(() => Date)
+  @IsOptional()
+  birthDate?: Date;
+
+  @IsString()
+  @IsOptional()
+  zipCode?: string;
+
+  @IsString()
+  @IsOptional()
+  address?: string;
+
+  @IsInt()
+  @Type(() => Number)
+  @IsOptional()
+  addressNumber?: number;
+
+  @IsString()
+  @IsOptional()
+  complement?: string;
+
+  @IsInt()
+  @Type(() => Number)
+  @IsOptional()
+  cityId?: number;
+
+  @IsInt()
+  @Type(() => Number)
+  stateId?: number;
+
+  @IsInt()
+  @Type(() => Number)
+  companyId: number;
+
+  @IsString()
+  @IsOptional()
+  password?: string;
+
   @IsInt()
   @Type(() => Number)
   @IsOptional()

@@ -1,7 +1,7 @@
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Request } from 'express';
-
-export const noCompany = true;
+ 
+export const noCompany = false;
 export const omitAttributes: string[] = [];
 
 /*
@@ -13,7 +13,8 @@ export function getSearchParams(request: Request, CreateDto: any) {
   // PERSONALIZE ESTA FUNÇÃO conforme as necessidades da sua entidade
   const search = {
     companyId: Number(request.user?.companyId),
-    cpf: CreateDto.cpf,
+    traineeId: CreateDto.traineeId,
+    classId: CreateDto.classId,
   };
 
   return search;
@@ -28,7 +29,10 @@ export function formaterPreUpdate(UpdateDto: any) {
   // Regras automáticas para campos booleanos (geradas automaticamente)
   // PERSONALIZE ESTA FUNÇÃO conforme as necessidades da sua entidade
   
-  
+    // Campos booleanos detectados automaticamente
+  if (UpdateDto.result === undefined) UpdateDto.result = false;
+
+
   
   // Exemplos de outros tipos de campos
   // if (UpdateDto.numberField === undefined) UpdateDto.numberField = 0;

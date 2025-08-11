@@ -132,4 +132,8 @@ export class UpdateDto {
   @IsOptional()
   @Type(() => Number)
   maxSubscriptions?: number;
+
+  @IsString()
+  @IsOptional()
+  classCode?: string;
 }
