@@ -17,6 +17,7 @@ model Course {
   faq Json?
   exam Json?
   yearOfValidation Int?
+  media Int? @default(6)
 
   certificates CouseCertificate[]
   traineesCertificates TraineeCourseCertificate[]

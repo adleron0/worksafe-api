@@ -9,6 +9,9 @@ import { CreateDto } from './dto/create.dto';
 import { UpdateDto } from './dto/update.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { PrismaClient } from '@prisma/client';
+import { getExpirationDate } from 'src/utils/dataFunctions';
+import { makeVariablesToReplace } from 'src/helpers/makeVariablesToReplace';
+import { correctExam } from 'src/helpers/exameHelper';
 
 type entity = {
   model: keyof PrismaClient;
@@ -62,8 +65,15 @@ export class ExamesService extends GenericService<
             class: {
               include: {
                 course: true,
+                certificate: true,
+                instructors: {
+                  include: {
+                    instructor: true,
+                  },
+                },
               },
             },
+            trainee: true,
           },
         },
       );
@@ -74,7 +84,7 @@ export class ExamesService extends GenericService<
         );
       }
 
-      // Se passou pelas validações, criar o exame
+      // Se passou pelas validações, processar o exame
       const logParams = {
         userId: 0, // Sistema/público
         companyId: confirmedSubscription.companyId,
@@ -84,6 +94,22 @@ export class ExamesService extends GenericService<
       dto.companyId = confirmedSubscription.companyId;
       dto.classId = confirmedSubscription.classId;
       dto.courseId = confirmedSubscription.class.courseId;
+
+      // Corrigir o exame comparando respostas do aluno com o gabarito
+      const originalExam = confirmedSubscription.class.course.exam;
+      const studentAnswers = dto.examResponses as any; // Respostas enviadas pelo aluno (JSON convertido para array)
+      const passingGrade = confirmedSubscription.class.course.media || 6;
+
+      const examResult = correctExam(
+        originalExam,
+        studentAnswers,
+        passingGrade,
+      );
+
+      // Atualizar o DTO com o resultado da correção
+      dto.examResponses = examResult.questions as any; // Exame corrigido com marcações
+      dto.result = examResult.passed; // Se foi aprovado ou não
+      const nota = examResult.nota; // Nota do aluno
 
       // Verificar se já existe um exame para este trainee nesta turma
       const existingExam = await this.prisma.selectFirst(entity.model, {
@@ -109,10 +135,48 @@ export class ExamesService extends GenericService<
         logParams,
       );
 
+      // Se o aluno foi aprovado, cria o certificado
+      if (examResult.passed) {
+        const traineeCertificateData = {};
+
+        const certificate = confirmedSubscription.class.certificate;
+        const course = confirmedSubscription.class.course;
+
+        // Calcular data de vencimento
+        const expirationDate = getExpirationDate(course.yearOfValidation);
+
+        // Gerar variáveis para substituição
+        const variablesToReplace = makeVariablesToReplace(
+          confirmedSubscription,
+          expirationDate,
+        );
+
+        traineeCertificateData['fabricJsonFront'] = certificate.fabricJsonFront;
+        traineeCertificateData['fabricJsonBack'] = certificate.fabricJsonBack;
+        traineeCertificateData['courseId'] = dto.courseId;
+        traineeCertificateData['traineeId'] = dto.traineeId;
+        traineeCertificateData['classId'] = dto.classId;
+        traineeCertificateData['expirationDate'] = expirationDate;
+        traineeCertificateData['variableToReplace'] = variablesToReplace;
+        traineeCertificateData['companyId'] = confirmedSubscription.companyId;
+
+        // Criar o certificado do trainee
+        await this.prisma.insert(
+          'traineeCourseCertificate',
+          traineeCertificateData,
+          logParams,
+        );
+      }
+
       return {
         success: true,
         message: 'Exame cadastrado com sucesso',
         data: created,
+        approved: examResult.passed,
+        nota: nota,
+        media: passingGrade,
+        correctAnswers: examResult.correctAnswers,
+        totalQuestions: examResult.totalQuestions,
         subscription: {
           classId: confirmedSubscription.classId,
           className: confirmedSubscription.class.name,

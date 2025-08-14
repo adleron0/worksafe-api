@@ -6,9 +6,13 @@ model CourseClass {
   customer   Customer?   @relation(fields: [customerId], references: [id])
   courseId Int
   course   Course   @relation(fields: [courseId], references: [id])
+  certificateId Int?
+  certificate   CouseCertificate?   @relation(fields: [certificateId], references: [id])
+  categoryId Int?
   classCode String? @db.VarChar(50)
   price         Decimal?   @db.Decimal(18, 2)
   oldPrice      Decimal?   @db.Decimal(18, 2)
+  dividedIn Int?
   hoursDuration Int?
   openClass     Boolean?   @default(false)
   gifts String?

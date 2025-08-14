@@ -821,6 +821,7 @@ import { IEntity } from './interfaces/interface';
 import { CreateDto } from './dto/create.dto';
 import { UpdateDto } from './dto/update.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { UploadService } from 'src/features/upload/upload.service';
 
 @Injectable()
 export class ${entityNamePascal}Service extends GenericService<
@@ -828,8 +829,11 @@ export class ${entityNamePascal}Service extends GenericService<
   UpdateDto,
   IEntity
 > {
-  constructor(protected prisma: PrismaService) {
-    super(prisma, null);
+  constructor(
+    protected prisma: PrismaService,
+    protected uploadService: UploadService,
+  ) {
+    super(prisma, uploadService);
   }
 
   /**

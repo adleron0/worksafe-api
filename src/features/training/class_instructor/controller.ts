@@ -27,6 +27,9 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { getMulterOptions } from '../../upload/upload.middleware';
 // Import generic controller
 import { GenericController } from 'src/features/generic/generic.controller';
+// Import cache
+import { Cache, CacheEvictAll } from 'src/common/cache';
+import { CacheService } from 'src/common/services/cache.service';
 
 // Create a decorator factory for User controller permissions
 function UserPermission(permission: string) {
@@ -47,7 +50,10 @@ export class CourseClassInstructorController extends GenericController<
   IEntity,
   Service
 > {
-  constructor(private readonly Service: Service) {
+  constructor(
+    private readonly Service: Service,
+    private readonly cacheService: CacheService,
+  ) {
     super(Service, entity);
   }
 
@@ -64,6 +70,12 @@ export class CourseClassInstructorController extends GenericController<
   // Rota intermediária para validação de permissão
   @UserPermission(`create_${entity.permission}`) // Permissão para rota genérica
   @Post()
+  @CacheEvictAll(
+    'subscription:*',
+    'cache:*/subscription*',
+    'training-classes:*',
+    'cache:*/classes*',
+  )
   @UseInterceptors(
     FileInterceptor('image', getMulterOptions('course_class_instructor-image')),
   )
@@ -99,6 +111,12 @@ export class CourseClassInstructorController extends GenericController<
   // Rota intermediária para validação de permissão
   @UserPermission(`activate_${entity.permission}`) // Permissão para rota genérica
   @Patch('active/:id')
+  @CacheEvictAll(
+    'subscription:*',
+    'cache:*/subscription*',
+    'training-classes:*',
+    'cache:*/classes*',
+  )
   async activate(@Param('id') id: number, @Req() request: Request) {
     return super.activate(id, request);
   }
@@ -106,6 +124,12 @@ export class CourseClassInstructorController extends GenericController<
   // Rota intermediária para validação de permissão
   @UserPermission(`inactive_${entity.permission}`) // Permissão para rota genérica
   @Patch('inactive/:id')
+  @CacheEvictAll(
+    'subscription:*',
+    'cache:*/subscription*',
+    'training-classes:*',
+    'cache:*/classes*',
+  )
   async inactivate(@Param('id') id: number, @Req() request: Request) {
     return super.inactivate(id, request);
   }

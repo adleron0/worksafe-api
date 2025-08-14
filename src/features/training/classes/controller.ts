@@ -156,7 +156,7 @@ export class ClassesController extends GenericController<
   @Post('validate-student')
   @UseInterceptors(FileInterceptor('image', getMulterOptions('classes-image')))
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
-  async validateStudent(@Body() validateDto: ValidateStudentDto) {
+  async validateStudent(@Body() validateDto: ValidateStudentDto): Promise<any> {
     const { cpf, classCode, classId } = validateDto;
     return this.Service.validateStudent(cpf, classCode, classId);
   }

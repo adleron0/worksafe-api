@@ -68,6 +68,11 @@ export class CreateDto {
   @IsOptional()
   exam: JSON;
 
+  @IsInt()
+  @Type(() => Number)
+  @IsOptional()
+  media: number;
+
   @IsUrl({}, { message: 'Invalid URL format for image' })
   @IsOptional()
   imageUrl?: string | null;

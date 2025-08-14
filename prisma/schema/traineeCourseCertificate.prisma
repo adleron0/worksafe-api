@@ -6,7 +6,12 @@ model TraineeCourseCertificate {
   trainee   Trainee  @relation(fields: [traineeId], references: [id])
   classId Int
   class   CourseClass  @relation(fields: [classId], references: [id])
+  companyId Int
+  company   Company   @relation(fields: [companyId], references: [id])
   expirationDate DateTime?
+  fabricJsonFront    Json?  @map("fabric_json_front") @db.JsonB
+  fabricJsonBack     Json?  @map("fabric_json_back") @db.JsonB
+  variableToReplace  Json?  @map("variable_to_replace") @db.JsonB
   pdfUrl String?   @db.VarChar(255)
 
   createdAt DateTime  @default(now())

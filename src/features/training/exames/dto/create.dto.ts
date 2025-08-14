@@ -35,7 +35,7 @@ export class CreateDto {
 
   @IsBoolean()
   @Type(() => Boolean)
-  @IsNotEmpty({ message: 'result is required' })
+  @IsOptional()
   result: boolean;
 
   @IsInt()

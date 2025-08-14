@@ -28,6 +28,7 @@ model Company {
   services Site_Services[] // Relacionamento com a tabela Site_Services
   images Image[] // Relacionamento com a tabela Image
   courseCertificates CouseCertificate[] // Relacionamento com a tabela CourseCertificate
+  certificates TraineeCourseCertificate[] // Relacionamento com a tabela TraineeCourseCertificate
 
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @default(now()) @updatedAt

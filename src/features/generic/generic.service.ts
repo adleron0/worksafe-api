@@ -372,6 +372,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       // Se uma nova imagem foi enviada, exclui a imagem antiga e define a nova URL
       if (file) {
         if (verifyExist.imageUrl) {
+          console.log("🚀 ~ GenericService ~ update ~ verifyExist.imageUrl:", verifyExist.imageUrl)
           await this.uploadService.deleteImageFromS3(verifyExist.imageUrl);
         }
         dto['imageUrl'] = file.location;

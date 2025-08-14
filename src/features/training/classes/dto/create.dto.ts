@@ -54,7 +54,17 @@ export class CreateDto {
   @IsNumber()
   @IsOptional()
   @Type(() => Number)
+  certificateId?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
   oldPrice?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  dividedIn?: number;
 
   @IsNumber()
   @IsOptional()

@@ -53,7 +53,17 @@ export class UpdateDto {
   @IsNumber()
   @IsOptional()
   @Type(() => Number)
+  certificateId?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
   oldPrice?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  dividedIn?: number;
 
   @IsNumber()
   @IsOptional()

@@ -9,6 +9,8 @@ import { IEntity } from './interfaces/interface';
 import { CreateDto } from './dto/create.dto';
 import { UpdateDto } from './dto/update.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { UploadService } from 'src/features/upload/upload.service';
+import { removeCorrectAnswers } from 'src/helpers/exameHelper';
 
 @Injectable()
 export class ClassesService extends GenericService<
@@ -16,8 +18,11 @@ export class ClassesService extends GenericService<
   UpdateDto,
   IEntity
 > {
-  constructor(protected prisma: PrismaService) {
-    super(prisma, null);
+  constructor(
+    protected prisma: PrismaService,
+    protected uploadService: UploadService,
+  ) {
+    super(prisma, uploadService);
   }
 
   /**
@@ -72,6 +77,7 @@ export class ClassesService extends GenericService<
           id: classId,
           classCode: classCode,
           inactiveAt: null,
+          allowExam: true, // Verifica se a turma permite exame
         },
         include: {
           course: true,
@@ -106,6 +112,13 @@ export class ClassesService extends GenericService<
         throw new BadRequestException(`Aluno já realizou o exame do curso!`);
       }
 
+      // Remover respostas corretas do exame antes de enviar ao aluno
+      let examWithoutAnswers = null;
+
+      if (classData.course.exam) {
+        examWithoutAnswers = removeCorrectAnswers(classData.course.exam);
+      }
+
       // Retornar as informações solicitadas
       return {
         traineeId: trainee.id,
@@ -114,7 +127,7 @@ export class ClassesService extends GenericService<
         courseName: classData.course.name,
         traineeName: trainee.name,
         className: classData.name,
-        exam: classData.course.exam, // JSON
+        exam: examWithoutAnswers, // JSON sem as respostas corretas
       };
     } catch (error) {
       console.log('🚀 ~ ClassesService ~ validateStudent ~ error:', error);
