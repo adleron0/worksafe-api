@@ -2,11 +2,17 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { CreateUserPermissionDto } from './dto/create-user-permission.dto';
 import { CreateProfilePermissionDto } from './dto/create-profile-permission.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { AuthCacheService } from 'src/common/cache/auth-cache.service';
+import { InvalidateAuthCache } from 'src/common/cache/auth-cache.decorator';
 
 @Injectable()
 export class PermissionsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly authCache: AuthCacheService,
+  ) {}
 
+  @InvalidateAuthCache('user', (args) => args[0].userId)
   async activeUserPermission(payload: CreateUserPermissionDto, logParams: any) {
     try {
       await this.prisma.upsert(
@@ -35,6 +41,7 @@ export class PermissionsService {
     }
   }
 
+  @InvalidateAuthCache('profile', (args) => args[0].profileId)
   async activeProfilePermission(
     payload: CreateProfilePermissionDto,
     logParams: any,
@@ -98,6 +105,7 @@ export class PermissionsService {
     return filterPermissions;
   }
 
+  @InvalidateAuthCache('user', (args) => args[0].userId)
   async inactiveUserPermission(
     payload: CreateUserPermissionDto,
     logParams: any,
@@ -123,6 +131,7 @@ export class PermissionsService {
     }
   }
 
+  @InvalidateAuthCache('profile', (args) => args[0].profileId)
   async inactiveProfilePermission(
     payload: CreateProfilePermissionDto,
     logParams: any,
