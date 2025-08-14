@@ -4,6 +4,8 @@ model Course {
   name     String    @db.VarChar(100)
   hoursDuration Int?
   flags     String?    @db.VarChar(255)
+  icon String?    @db.VarChar(100)
+  color String?    @db.VarChar(20)
   companyId Int
   description String?
   gradeTheory String
@@ -14,6 +16,8 @@ model Course {
   weekDays String? @db.VarChar(255)
   faq Json?
   exam Json?
+  yearOfValidation Int?
+  media Int? @default(6)
 
   certificates CouseCertificate[]
   traineesCertificates TraineeCourseCertificate[]

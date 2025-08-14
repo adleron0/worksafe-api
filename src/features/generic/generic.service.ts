@@ -47,21 +47,21 @@ function parseFilterObject(filterObj: any) {
         not: ifNumberParseNumber(filterObj[key]),
       };
     } else if (key.includes('gt-')) {
-      condition[key.split('-')[1]] = {
-        gt: ifNumberParseNumber(filterObj[key]),
-      };
+      const fieldName = key.split('-')[1];
+      if (!condition[fieldName]) condition[fieldName] = {};
+      condition[fieldName].gt = ifNumberParseNumber(filterObj[key]);
     } else if (key.includes('lt-')) {
-      condition[key.split('-')[1]] = {
-        lt: ifNumberParseNumber(filterObj[key]),
-      };
+      const fieldName = key.split('-')[1];
+      if (!condition[fieldName]) condition[fieldName] = {};
+      condition[fieldName].lt = ifNumberParseNumber(filterObj[key]);
     } else if (key.includes('gte-')) {
-      condition[key.split('-')[1]] = {
-        gte: ifNumberParseNumber(filterObj[key]),
-      };
+      const fieldName = key.split('-')[1];
+      if (!condition[fieldName]) condition[fieldName] = {};
+      condition[fieldName].gte = ifNumberParseNumber(filterObj[key]);
     } else if (key.includes('lte-')) {
-      condition[key.split('-')[1]] = {
-        lte: ifNumberParseNumber(filterObj[key]),
-      };
+      const fieldName = key.split('-')[1];
+      if (!condition[fieldName]) condition[fieldName] = {};
+      condition[fieldName].lte = ifNumberParseNumber(filterObj[key]);
     } else if (key.includes('notlike-')) {
       condition[key.split('-')[1]] = {
         not: {
@@ -372,6 +372,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       // Se uma nova imagem foi enviada, exclui a imagem antiga e define a nova URL
       if (file) {
         if (verifyExist.imageUrl) {
+          console.log("🚀 ~ GenericService ~ update ~ verifyExist.imageUrl:", verifyExist.imageUrl)
           await this.uploadService.deleteImageFromS3(verifyExist.imageUrl);
         }
         dto['imageUrl'] = file.location;

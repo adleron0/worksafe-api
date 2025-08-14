@@ -85,6 +85,7 @@ export class ImageController extends GenericController<
     @Body() CreateDto: CreateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
+    console.log('🚀 ~ ImageController ~ create ~ CreateDto:', CreateDto);
     const search = getSearchParams(request, CreateDto);
     return super.create(request, CreateDto, file, search, hooksCreate);
   }

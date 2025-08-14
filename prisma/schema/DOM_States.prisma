@@ -8,4 +8,5 @@ model DOM_States {
 
   citys       DOM_Cities[]
   customers   Customer[]
+  trainees   Trainee[]
 }

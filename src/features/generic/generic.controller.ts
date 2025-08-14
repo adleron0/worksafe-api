@@ -123,8 +123,8 @@ export class GenericController<
     let userId = null;
     let companyId = null;
     if (request.user) {
-      userId = request.user.sub;
-      companyId = request.user.companyId;
+      userId = request?.user?.sub;
+      companyId = request?.user?.companyId;
     }
     const { startedAt, endedAt, show, self } = query;
 

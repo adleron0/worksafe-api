@@ -41,6 +41,14 @@ export class UpdateDto {
 
   @IsString()
   @IsOptional()
+  icon: string;
+
+  @IsString()
+  @IsOptional()
+  color: string;
+
+  @IsString()
+  @IsOptional()
   description: string;
 
   @IsString()
@@ -64,9 +72,19 @@ export class UpdateDto {
   @IsOptional()
   faq: string;
 
+  @IsInt()
+  @Type(() => Number)
+  @IsOptional()
+  yearOfValidation: number;
+
   @IsJSON()
   @IsOptional()
   exam: JSON;
+
+  @IsInt()
+  @Type(() => Number)
+  @IsOptional()
+  media: number;
 
   @IsUrl({}, { message: 'Invalid URL format for image' })
   @IsOptional()

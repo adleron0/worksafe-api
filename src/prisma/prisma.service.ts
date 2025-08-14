@@ -229,6 +229,7 @@ export class PrismaService
   ) {
     const use = tx ? tx : this;
     if (id) {
+      params = params || {};
       params.where = params.where || {};
       params.where.id = Number(id);
     }
@@ -262,6 +263,71 @@ export class PrismaService
           });
       }
       return result;
+    } catch (error) {
+      throw new BadRequestException(error);
+    }
+  }
+
+  /**
+   * selectOrCreate: Busca um registro ou cria se não existir
+   * @param model Model do prisma
+   * @param where Condições para buscar o registro
+   * @param data Dados para criar o registro se não existir
+   * @param logParams Parametros para o log
+   * @param tx Transação
+   * @returns Retorna o registro encontrado ou criado
+   */
+  async selectOrCreate<Model extends keyof PrismaClient>(
+    model: Model,
+    where: any,
+    data: any,
+    logParams: any,
+    tx?: any,
+  ) {
+    const use = tx ? tx : this;
+    try {
+      // Primeiro tenta encontrar o registro
+      const existing = await use[model][this.methods.findFirst]({
+        where,
+      });
+
+      // Se encontrou, retorna o existente
+      if (existing) {
+        return {
+          data: existing,
+          created: false,
+        };
+      }
+
+      // Se não encontrou, cria um novo
+      const result = await use[model][this.methods.create]({
+        data,
+      });
+
+      // Log da criação
+      if (result) {
+        use.system_Logs
+          .create({
+            data: {
+              companyId: logParams.companyId,
+              userId: logParams.userId,
+              action: 'create',
+              entity: String(model),
+              entityId: result.id,
+              column: null,
+              oldValue: null,
+              newValue: JSON.stringify(data),
+            },
+          })
+          .catch((logError) => {
+            console.error('Error creating log:', logError);
+          });
+      }
+
+      return {
+        data: result,
+        created: true,
+      };
     } catch (error) {
       throw new BadRequestException(error);
     }
