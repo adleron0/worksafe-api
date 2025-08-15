@@ -13,6 +13,7 @@ export function getSearchParams(request: Request, CreateDto: any) {
   // PERSONALIZE ESTA FUNÇÃO conforme as necessidades da sua entidade
   const search = {
     companyId: CreateDto.companyId || request.user.companyId,
+    classId: CreateDto.classId,
     traineeId: CreateDto.traineeId,
   };
 

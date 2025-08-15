@@ -59,6 +59,7 @@ export class ExamesService extends GenericService<
           where: {
             traineeId: Number(dto.traineeId),
             subscribeStatus: 'confirmed',
+            classId: Number(dto.classId),
             inactiveAt: null,
           },
           include: {

@@ -4,6 +4,17 @@ import { Request } from 'express';
 export const noCompany = true;
 export const omitAttributes: string[] = [];
 
+// Campos a serem encriptados na resposta do GET
+export const encryptFields = ['variableToReplace'];
+
+// Se quiser adicionar campos de relações no futuro:
+// export const encryptFields = [
+//   'variableToReplace',        // Campo da entidade principal
+//   'trainee.cpf',              // Campo da relação trainee
+//   'trainee.rg',               // Campo da relação trainee
+//   'company.cnpj',             // Campo da relação company
+// ];
+
 /*
  * Função de search personalizada para verificação antes de criar
  * Crie com os parametros de busca pré-criaão
