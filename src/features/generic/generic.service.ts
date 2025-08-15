@@ -10,6 +10,7 @@ import { UploadService } from '../upload/upload.service';
 import { hash } from 'bcrypt';
 import { ifNumberParseNumber } from 'src/utils/ifNumberParseNumber';
 import { ifBooleanParseBoolean } from 'src/utils/isBooleanParseBoolean';
+import { encryptionConfig, applyEncryption, applyDynamicEncryption } from './encryption.config';
 
 type logParams = {
   userId: string;
@@ -24,57 +25,308 @@ type entity = {
 };
 
 // Função utilitária para processar filtros
-function parseFilterObject(filterObj: any) {
+function parseFilterObject(filterObj: any, skipNestedFilters = false) {
   const condition: any = {};
   for (const key in filterObj) {
+    // Pula filtros de associações aninhadas se solicitado
+    if (skipNestedFilters && key.includes('.')) {
+      continue;
+    }
+    
     if (key.includes('in-')) {
+      const fieldPath = key.substring(3); // Remove 'in-' prefix
+      // Pula se for filtro de associação aninhada
+      if (skipNestedFilters && fieldPath.includes('.')) continue;
+      
       const array = filterObj[key]
         .split(',')
         .map((item: any) => ifNumberParseNumber(item));
-      condition[key.split('-')[1]] = { in: array };
+      
+      if (!fieldPath.includes('.')) {
+        condition[fieldPath] = { in: array };
+      }
     } else if (key.includes('notin-')) {
+      const fieldPath = key.substring(6); // Remove 'notin-' prefix
+      if (skipNestedFilters && fieldPath.includes('.')) continue;
+      
       const array = filterObj[key]
         .split(',')
         .map((item: any) => ifNumberParseNumber(item));
-      condition[key.split('-')[1]] = { notIn: array };
+      
+      if (!fieldPath.includes('.')) {
+        condition[fieldPath] = { notIn: array };
+      }
     } else if (key.includes('like-')) {
-      condition[key.split('-')[1]] = {
-        contains: filterObj[key],
-        mode: 'insensitive',
-      };
-    } else if (key.includes('not-')) {
-      condition[key.split('-')[1]] = {
-        not: ifNumberParseNumber(filterObj[key]),
-      };
-    } else if (key.includes('gt-')) {
-      const fieldName = key.split('-')[1];
-      if (!condition[fieldName]) condition[fieldName] = {};
-      condition[fieldName].gt = ifNumberParseNumber(filterObj[key]);
-    } else if (key.includes('lt-')) {
-      const fieldName = key.split('-')[1];
-      if (!condition[fieldName]) condition[fieldName] = {};
-      condition[fieldName].lt = ifNumberParseNumber(filterObj[key]);
-    } else if (key.includes('gte-')) {
-      const fieldName = key.split('-')[1];
-      if (!condition[fieldName]) condition[fieldName] = {};
-      condition[fieldName].gte = ifNumberParseNumber(filterObj[key]);
-    } else if (key.includes('lte-')) {
-      const fieldName = key.split('-')[1];
-      if (!condition[fieldName]) condition[fieldName] = {};
-      condition[fieldName].lte = ifNumberParseNumber(filterObj[key]);
-    } else if (key.includes('notlike-')) {
-      condition[key.split('-')[1]] = {
-        not: {
+      const fieldPath = key.substring(5); // Remove 'like-' prefix
+      if (skipNestedFilters && fieldPath.includes('.')) continue;
+      
+      if (!fieldPath.includes('.')) {
+        condition[fieldPath] = {
           contains: filterObj[key],
           mode: 'insensitive',
-        },
-      };
+        };
+      }
+    } else if (key.includes('notlike-')) {
+      const fieldPath = key.substring(8); // Remove 'notlike-' prefix
+      if (skipNestedFilters && fieldPath.includes('.')) continue;
+      
+      if (!fieldPath.includes('.')) {
+        condition[fieldPath] = {
+          not: {
+            contains: filterObj[key],
+            mode: 'insensitive',
+          },
+        };
+      }
+    } else if (key.includes('not-')) {
+      const fieldPath = key.substring(4); // Remove 'not-' prefix
+      if (skipNestedFilters && fieldPath.includes('.')) continue;
+      
+      if (!fieldPath.includes('.')) {
+        condition[fieldPath] = {
+          not: ifNumberParseNumber(filterObj[key]),
+        };
+      }
+    } else if (key.includes('gt-')) {
+      const fieldPath = key.substring(3); // Remove 'gt-' prefix
+      if (skipNestedFilters && fieldPath.includes('.')) continue;
+      
+      if (!fieldPath.includes('.')) {
+        if (!condition[fieldPath]) condition[fieldPath] = {};
+        condition[fieldPath].gt = ifNumberParseNumber(filterObj[key]);
+      }
+    } else if (key.includes('lt-')) {
+      const fieldPath = key.substring(3); // Remove 'lt-' prefix
+      if (skipNestedFilters && fieldPath.includes('.')) continue;
+      
+      if (!fieldPath.includes('.')) {
+        if (!condition[fieldPath]) condition[fieldPath] = {};
+        condition[fieldPath].lt = ifNumberParseNumber(filterObj[key]);
+      }
+    } else if (key.includes('gte-')) {
+      const fieldPath = key.substring(4); // Remove 'gte-' prefix
+      if (skipNestedFilters && fieldPath.includes('.')) continue;
+      
+      if (!fieldPath.includes('.')) {
+        if (!condition[fieldPath]) condition[fieldPath] = {};
+        condition[fieldPath].gte = ifNumberParseNumber(filterObj[key]);
+      }
+    } else if (key.includes('lte-')) {
+      const fieldPath = key.substring(4); // Remove 'lte-' prefix
+      if (skipNestedFilters && fieldPath.includes('.')) continue;
+      
+      if (!fieldPath.includes('.')) {
+        if (!condition[fieldPath]) condition[fieldPath] = {};
+        condition[fieldPath].lte = ifNumberParseNumber(filterObj[key]);
+      }
     } else {
-      condition[key] = ifNumberParseNumber(filterObj[key]);
-      condition[key] = ifBooleanParseBoolean(condition[key]);
+      // Para campos sem operador
+      if (!skipNestedFilters || !key.includes('.')) {
+        condition[key] = ifNumberParseNumber(filterObj[key]);
+        condition[key] = ifBooleanParseBoolean(condition[key]);
+      }
     }
   }
   return condition;
+}
+
+// Nova função para processar filtros de associações aninhadas
+function processNestedFilters(filters: any, includesToShow: string[], paramsIncludes: any) {
+  const nestedFilters: any = {
+    belongsToFilters: {}, // Para relações Many-to-One (aplicar no where principal)
+    hasManyFilters: {}    // Para relações One-to-Many (aplicar no include com where)
+  };
+  
+  // Identifica todos os filtros que contêm pontos (indicando associações aninhadas)
+  for (const key in filters) {
+    // Processa diferentes operadores
+    let operator = '';
+    let fieldPath = key;
+    
+    if (key.startsWith('like-')) {
+      operator = 'like-';
+      fieldPath = key.substring(5);
+    } else if (key.startsWith('notlike-')) {
+      operator = 'notlike-';
+      fieldPath = key.substring(8);
+    } else if (key.startsWith('in-')) {
+      operator = 'in-';
+      fieldPath = key.substring(3);
+    } else if (key.startsWith('notin-')) {
+      operator = 'notin-';
+      fieldPath = key.substring(6);
+    } else if (key.startsWith('not-')) {
+      operator = 'not-';
+      fieldPath = key.substring(4);
+    } else if (key.startsWith('gt-')) {
+      operator = 'gt-';
+      fieldPath = key.substring(3);
+    } else if (key.startsWith('lt-')) {
+      operator = 'lt-';
+      fieldPath = key.substring(3);
+    } else if (key.startsWith('gte-')) {
+      operator = 'gte-';
+      fieldPath = key.substring(4);
+    } else if (key.startsWith('lte-')) {
+      operator = 'lte-';
+      fieldPath = key.substring(4);
+    }
+    
+    // Verifica se é um filtro de associação aninhada
+    if (fieldPath.includes('.')) {
+      const pathParts = fieldPath.split('.');
+      const associationName = pathParts[0];
+      
+      // Verifica se a associação está incluída no 'show'
+      if (includesToShow.includes(associationName)) {
+        // Para relações Many-to-One (belongsTo), aplicamos o filtro no where principal
+        // Vamos assumir que se tem select ou é um objeto simples, é Many-to-One
+        const isBelongsTo = paramsIncludes[associationName] && 
+                           (paramsIncludes[associationName].select || 
+                            typeof paramsIncludes[associationName] === 'boolean');
+        
+        if (isBelongsTo) {
+          // Adiciona ao belongsToFilters para aplicar no where principal
+          const fullPath = fieldPath; // Mantém o caminho completo
+          const filterKey = operator ? `${operator}${fullPath}` : fullPath;
+          nestedFilters.belongsToFilters[filterKey] = filters[key];
+        } else {
+          // Para relações One-to-Many, mantém o comportamento original
+          if (!nestedFilters.hasManyFilters[associationName]) {
+            nestedFilters.hasManyFilters[associationName] = {};
+          }
+          
+          const remainingPath = pathParts.slice(1).join('.');
+          const filterKey = operator ? `${operator}${remainingPath}` : remainingPath;
+          nestedFilters.hasManyFilters[associationName][filterKey] = filters[key];
+        }
+      }
+    }
+  }
+  
+  return nestedFilters;
+}
+
+// Função recursiva para aplicar filtros em includes aninhados
+function applyFiltersToIncludes(include: any, nestedFilters: any, paramsIncludes: any) {
+  const processedInclude: any = {};
+  
+  for (const [associationName, includeValue] of Object.entries(include)) {
+    // Se há filtros para esta associação
+    if (nestedFilters[associationName]) {
+      const associationFilters = nestedFilters[associationName];
+      
+      // Separa filtros diretos de filtros aninhados
+      const directFilters: any = {};
+      const deeperNestedFilters: any = {};
+      
+      for (const [filterKey, filterValue] of Object.entries(associationFilters)) {
+        // Extrai o operador e o campo
+        let operator = '';
+        let fieldPath = filterKey;
+        
+        if (filterKey.startsWith('like-')) {
+          operator = 'like-';
+          fieldPath = filterKey.substring(5);
+        } else if (filterKey.startsWith('notlike-')) {
+          operator = 'notlike-';
+          fieldPath = filterKey.substring(8);
+        } else if (filterKey.startsWith('in-')) {
+          operator = 'in-';
+          fieldPath = filterKey.substring(3);
+        } else if (filterKey.startsWith('notin-')) {
+          operator = 'notin-';
+          fieldPath = filterKey.substring(6);
+        } else if (filterKey.startsWith('not-')) {
+          operator = 'not-';
+          fieldPath = filterKey.substring(4);
+        } else if (filterKey.startsWith('gt-')) {
+          operator = 'gt-';
+          fieldPath = filterKey.substring(3);
+        } else if (filterKey.startsWith('lt-')) {
+          operator = 'lt-';
+          fieldPath = filterKey.substring(3);
+        } else if (filterKey.startsWith('gte-')) {
+          operator = 'gte-';
+          fieldPath = filterKey.substring(4);
+        } else if (filterKey.startsWith('lte-')) {
+          operator = 'lte-';
+          fieldPath = filterKey.substring(4);
+        }
+        
+        if (fieldPath.includes('.')) {
+          // É um filtro aninhado mais profundo
+          const [nestedAssoc, ...rest] = fieldPath.split('.');
+          if (!deeperNestedFilters[nestedAssoc]) {
+            deeperNestedFilters[nestedAssoc] = {};
+          }
+          const deepFilterKey = operator ? `${operator}${rest.join('.')}` : rest.join('.');
+          deeperNestedFilters[nestedAssoc][deepFilterKey] = filterValue;
+        } else {
+          // É um filtro direto para esta associação
+          directFilters[filterKey] = filterValue;
+        }
+      }
+      
+      // Constrói o objeto include para esta associação
+      let associationInclude: any = {};
+      
+      // Adiciona filtros diretos
+      if (Object.keys(directFilters).length > 0) {
+        associationInclude.where = parseFilterObject(directFilters);
+      }
+      
+      // Se há configuração específica em paramsIncludes
+      if (paramsIncludes[associationName] && typeof paramsIncludes[associationName] === 'object') {
+        // Mescla com configurações existentes
+        associationInclude = { ...paramsIncludes[associationName] };
+        
+        // Adiciona ou mescla os filtros where (só se não tiver select ou se é uma relação hasMany)
+        if (Object.keys(directFilters).length > 0 && !associationInclude.select) {
+          associationInclude.where = {
+            ...(associationInclude.where || {}),
+            ...parseFilterObject(directFilters)
+          };
+        }
+        
+        // Se há includes aninhados e filtros mais profundos
+        if (associationInclude.include && Object.keys(deeperNestedFilters).length > 0) {
+          associationInclude.include = applyFiltersToIncludes(
+            associationInclude.include,
+            deeperNestedFilters,
+            paramsIncludes[associationName].include || {}
+          );
+        }
+      } else if (Object.keys(directFilters).length > 0 || Object.keys(deeperNestedFilters).length > 0) {
+        // Se há filtros mas não há configuração em paramsIncludes
+        if (Object.keys(directFilters).length > 0) {
+          associationInclude.where = parseFilterObject(directFilters);
+        }
+        
+        if (Object.keys(deeperNestedFilters).length > 0) {
+          // Precisa criar includes aninhados
+          associationInclude.include = {};
+          for (const nestedAssoc of Object.keys(deeperNestedFilters)) {
+            associationInclude.include[nestedAssoc] = true;
+          }
+          associationInclude.include = applyFiltersToIncludes(
+            associationInclude.include,
+            deeperNestedFilters,
+            {}
+          );
+        }
+      }
+      
+      processedInclude[associationName] = Object.keys(associationInclude).length > 0 
+        ? associationInclude 
+        : (includeValue === true ? true : includeValue);
+    } else {
+      // Mantém o include original se não há filtros
+      processedInclude[associationName] = includeValue;
+    }
+  }
+  
+  return processedInclude;
 }
 
 @Injectable()
@@ -165,6 +417,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
     entity: entity,
     paramsIncludes = {},
     noCompany = false,
+    encryptionFields: string[] | boolean = false, // Pode ser array de campos ou boolean
   ): Promise<{ total: number; rows: TEntity[] }> {
     try {
       const params: any = {};
@@ -180,6 +433,14 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
         }
       }
 
+      // Processa filtros de associações aninhadas
+      const nestedFilters = processNestedFilters(filters, filters.includesToShow, paramsIncludes);
+      
+      // Aplica filtros nas associações One-to-Many (hasManyFilters)
+      if (Object.keys(nestedFilters.hasManyFilters).length > 0 && Object.keys(params.include).length > 0) {
+        params.include = applyFiltersToIncludes(params.include, nestedFilters.hasManyFilters, paramsIncludes);
+      }
+
       // Excluindo atributos
       params.omit = {};
 
@@ -192,17 +453,94 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       // Aplicando os filtros adicionais corretamente
       params.where = {};
 
+      // Aplica filtros de relações Many-to-One (belongsToFilters) no where principal
+      if (Object.keys(nestedFilters.belongsToFilters).length > 0) {
+        for (const [filterKey, filterValue] of Object.entries(nestedFilters.belongsToFilters)) {
+          // Converte o filtro de associação para o formato do Prisma
+          // Ex: like-trainee.name -> trainee: { name: { contains: ... } }
+          let operator = '';
+          let fieldPath = filterKey;
+          
+          if (filterKey.startsWith('like-')) {
+            operator = 'like';
+            fieldPath = filterKey.substring(5);
+          } else if (filterKey.startsWith('notlike-')) {
+            operator = 'notlike';
+            fieldPath = filterKey.substring(8);
+          } else if (filterKey.startsWith('in-')) {
+            operator = 'in';
+            fieldPath = filterKey.substring(3);
+          } else if (filterKey.startsWith('notin-')) {
+            operator = 'notin';
+            fieldPath = filterKey.substring(6);
+          } else if (filterKey.startsWith('not-')) {
+            operator = 'not';
+            fieldPath = filterKey.substring(4);
+          } else if (filterKey.startsWith('gt-')) {
+            operator = 'gt';
+            fieldPath = filterKey.substring(3);
+          } else if (filterKey.startsWith('lt-')) {
+            operator = 'lt';
+            fieldPath = filterKey.substring(3);
+          } else if (filterKey.startsWith('gte-')) {
+            operator = 'gte';
+            fieldPath = filterKey.substring(4);
+          } else if (filterKey.startsWith('lte-')) {
+            operator = 'lte';
+            fieldPath = filterKey.substring(4);
+          }
+          
+          const pathParts = fieldPath.split('.');
+          let currentLevel: any = params.where;
+          
+          // Navega pela estrutura aninhada
+          for (let i = 0; i < pathParts.length - 1; i++) {
+            if (!currentLevel[pathParts[i]]) {
+              currentLevel[pathParts[i]] = {};
+            }
+            currentLevel = currentLevel[pathParts[i]];
+          }
+          
+          // Aplica o operador no campo final
+          const finalField = pathParts[pathParts.length - 1];
+          
+          if (operator === 'like') {
+            currentLevel[finalField] = { contains: filterValue, mode: 'insensitive' };
+          } else if (operator === 'notlike') {
+            currentLevel[finalField] = { not: { contains: filterValue, mode: 'insensitive' } };
+          } else if (operator === 'in') {
+            const array = (filterValue as string).split(',').map((item: any) => ifNumberParseNumber(item));
+            currentLevel[finalField] = { in: array };
+          } else if (operator === 'notin') {
+            const array = (filterValue as string).split(',').map((item: any) => ifNumberParseNumber(item));
+            currentLevel[finalField] = { notIn: array };
+          } else if (operator === 'not') {
+            currentLevel[finalField] = { not: ifNumberParseNumber(filterValue) };
+          } else if (operator === 'gt') {
+            currentLevel[finalField] = { gt: ifNumberParseNumber(filterValue) };
+          } else if (operator === 'lt') {
+            currentLevel[finalField] = { lt: ifNumberParseNumber(filterValue) };
+          } else if (operator === 'gte') {
+            currentLevel[finalField] = { gte: ifNumberParseNumber(filterValue) };
+          } else if (operator === 'lte') {
+            currentLevel[finalField] = { lte: ifNumberParseNumber(filterValue) };
+          } else {
+            currentLevel[finalField] = ifNumberParseNumber(filterValue);
+          }
+        }
+      }
+
       // Suporte ao filtro OR
       if (filters.or && Array.isArray(filters.or)) {
         params.where.OR = filters.or.map((orFilter: any) =>
-          parseFilterObject(orFilter),
+          parseFilterObject(orFilter, true), // skipNestedFilters = true para OR
         );
         // Remove o filtro 'or' do objeto principal para não duplicar condições
         delete filters.or;
       }
 
-      // Filtros adicionais
-      Object.assign(params.where, parseFilterObject(filters));
+      // Filtros adicionais (pulando filtros de associações aninhadas)
+      Object.assign(params.where, parseFilterObject(filters, true));
 
       // Deleta Específicos
       delete params.where.includesToShow;
@@ -268,6 +606,13 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
           delete params.where[key];
         }
       });
+      
+      // Remove filtros de associações aninhadas (que contêm pontos)
+      Object.keys(params.where).forEach((key) => {
+        if (key.includes('.')) {
+          delete params.where[key];
+        }
+      });
 
       // Filtros específicos
       if (!noCompany) {
@@ -313,6 +658,42 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
           limit,
           orderBy,
         );
+      }
+
+      // Aplica encriptação se habilitada
+      if (encryptionFields) {
+        // Se for um array de campos específicos
+        if (Array.isArray(encryptionFields)) {
+          // Para resultado com paginação
+          if (result.rows) {
+            result.rows = applyDynamicEncryption(result.rows, encryptionFields);
+          } 
+          // Para resultado sem paginação (quando filters.all = true)
+          else if (Array.isArray(result)) {
+            result = applyDynamicEncryption(result, encryptionFields);
+          }
+        }
+        // Se for true, usa a configuração padrão
+        else if (encryptionFields === true && encryptionConfig[entity.model as string]) {
+          const config = encryptionConfig[entity.model as string];
+          
+          // Para resultado com paginação
+          if (result.rows) {
+            result.rows = applyEncryption(
+              result.rows,
+              config.fields || [],
+              config.relations
+            );
+          } 
+          // Para resultado sem paginação (quando filters.all = true)
+          else if (Array.isArray(result)) {
+            result = applyEncryption(
+              result,
+              config.fields || [],
+              config.relations
+            );
+          }
+        }
       }
 
       // Retornando a lista de usuários e a contagem total

@@ -70,10 +70,116 @@ Permite passar um array de condições, onde pelo menos uma deve ser satisfeita.
 - **orderBy**: ordenação (array de objetos)
   - Exemplo: `orderBy[0][id]=desc`
 
+## Filtros em Associações (Includes)
+
+O serviço genérico agora suporta filtros em associações aninhadas de forma exponencial. Você pode filtrar dados dentro de includes e até mesmo em includes de includes.
+
+### Como funciona
+
+Para aplicar filtros em associações, use a notação de ponto (`.`) para indicar o caminho até o campo desejado:
+
+- **Filtro em associação direta**: `operador-associacao.campo`
+  - Exemplo: `?like-trainee.name=João` (busca certificados onde o trainee tem "João" no nome)
+
+- **Filtro em associação aninhada**: `operador-associacao.subassociacao.campo`
+  - Exemplo: `?like-trainee.company.name=Acme` (busca certificados onde o trainee pertence à empresa "Acme")
+
+### Tipos de Relações e Comportamento
+
+O sistema detecta automaticamente o tipo de relação e aplica o filtro de forma apropriada:
+
+1. **Relações Many-to-One (belongsTo)**:
+   - Ex: Um certificado pertence a um trainee
+   - O filtro é aplicado no `where` principal da query
+   - Funciona mesmo quando há `select` definido
+   - Exemplo: `?like-trainee.name=João` gera:
+     ```javascript
+     where: {
+       trainee: {
+         name: { contains: "João", mode: "insensitive" }
+       }
+     }
+     ```
+
+2. **Relações One-to-Many ou Many-to-Many (hasMany)**:
+   - Ex: Um trainee tem muitos certificados
+   - O filtro é aplicado no `where` do include
+   - Não funciona com `select` (limitação do Prisma)
+   - Exemplo: `?like-certificates.title=Segurança` gera:
+     ```javascript
+     include: {
+       certificates: {
+         where: {
+           title: { contains: "Segurança", mode: "insensitive" }
+         }
+       }
+     }
+     ```
+
+### Operadores suportados em associações
+
+Todos os operadores do serviço genérico funcionam com associações:
+- `like-trainee.name=valor` - Contém (case insensitive)
+- `notlike-trainee.name=valor` - Não contém (case insensitive)
+- `in-trainee.id=1,2,3` - Está na lista
+- `notin-trainee.id=1,2,3` - Não está na lista
+- `not-trainee.status=ativo` - Diferente de
+- `gt-trainee.idade=18` - Maior que
+- `lt-trainee.idade=60` - Menor que
+- `gte-trainee.idade=18` - Maior ou igual
+- `lte-trainee.idade=60` - Menor ou igual
+- `trainee.active=true` - Igualdade simples
+
+### Exemplos práticos
+
+1. **Buscar certificados de trainees com nome específico**:
+   ```
+   ?show=trainee&like-trainee.name=João
+   ```
+
+2. **Buscar certificados de trainees de um estado específico**:
+   ```
+   ?show=trainee&like-trainee.estado.name=São Paulo
+   ```
+
+3. **Combinar múltiplos filtros em associações**:
+   ```
+   ?show=trainee,course&like-trainee.name=João&like-course.title=Segurança
+   ```
+
+4. **Filtros com múltiplos níveis de aninhamento**:
+   ```
+   ?show=trainee&like-trainee.company.city.name=Campinas
+   ```
+
+### Condições importantes
+
+1. **A associação deve estar incluída no `show`**: Para aplicar um filtro em uma associação, ela precisa estar listada no parâmetro `show` (includesToShow).
+   - ✅ Correto: `?show=trainee&like-trainee.name=João`
+   - ❌ Incorreto: `?like-trainee.name=João` (sem incluir trainee no show)
+
+2. **O campo deve estar definido em `paramsIncludes`**: As associações e seus campos devem estar configurados corretamente no `paramsIncludes` do controller.
+
+3. **Sem erros para condições não cumpridas**: Se as condições acima não forem cumpridas, o filtro é simplesmente ignorado (não gera erro).
+
+4. **Separação automática de filtros**: Os filtros de associações são automaticamente separados dos filtros da entidade principal, evitando conflitos.
+
+5. **Diferenças entre tipos de relações**:
+   - **Relações Many-to-One (belongsTo)**: 
+     - ✅ Filtros funcionam perfeitamente
+     - ✅ Mantém o `select` se configurado
+     - ✅ O filtro é aplicado no `where` principal
+   - **Relações One-to-Many/Many-to-Many (hasMany)**:
+     - ✅ Filtros funcionam
+     - ⚠️ Não pode ter `select` junto com `where` (limitação do Prisma)
+     - ✅ O filtro é aplicado no `where` do include
+
 ## Observações
 - Todos os filtros podem ser combinados.
 - O filtro `or` aceita todos os operadores acima.
 - Os filtros são processados automaticamente pelo serviço genérico.
+- Filtros de associações aninhadas são aplicados recursivamente.
+- Filtros não válidos (associação não incluída) são silenciosamente ignorados.
 
 ---
 

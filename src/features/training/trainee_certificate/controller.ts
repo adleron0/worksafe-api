@@ -40,6 +40,7 @@ import {
   omitAttributes,
   hooksCreate,
   hooksUpdate,
+  encryptFields,
 } from './rules';
 
 function UserPermission(permission: string) {
@@ -77,14 +78,17 @@ export class TraineeCertificateController extends GenericController<
     if (!query.omitAttributes) {
       query.omitAttributes = omitAttributes;
     }
-    return super.get(request, query, paramsIncludes, noCompany);
+
+    return super.get(request, query, paramsIncludes, noCompany, encryptFields);
   }
 
   @UserPermission(`create_${entity.permission}`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
   // @CacheEvictAll('trainee-certificate:*', 'cache:*/trainee-certificate*') // descomente para limpar cache
   @Post()
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('trainee_certificate-image')))
+  @UseInterceptors(
+    FileInterceptor('image', getMulterOptions('trainee_certificate-image')),
+  )
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async create(
     @Req() request: Request,
@@ -99,7 +103,9 @@ export class TraineeCertificateController extends GenericController<
   // @Public() // descomente para tornar publica
   // @CacheEvictAll('trainee-certificate:*', 'cache:*/trainee-certificate*') // descomente para limpar cache
   @Put(':id')
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('trainee_certificate-image')))
+  @UseInterceptors(
+    FileInterceptor('image', getMulterOptions('trainee_certificate-image')),
+  )
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async update(
     @Param('id') id: number,

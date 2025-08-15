@@ -33,10 +33,11 @@ type logParams = {
 
 export interface ICrudService<T> {
   get(
+    filters: any,
     entity: entity,
-    options?: any,
     paramsIncludes?: any,
     noCompany?: boolean,
+    encryptFields?: string[] | boolean,
   ): Promise<{ total: number; rows: any[] }>;
   create(
     data: any,
@@ -119,6 +120,7 @@ export class GenericController<
     @Query() query: any,
     paramsIncludes = {},
     noCompany = false,
+    encryptFields: string[] | boolean = false,
   ): Promise<{ total: number; rows: TEntity[] }> {
     let userId = null;
     let companyId = null;
@@ -161,7 +163,13 @@ export class GenericController<
       filters.id = userId;
     }
 
-    return this.service.get(filters, this.entity, paramsIncludes, noCompany);
+    return this.service.get(
+      filters,
+      this.entity,
+      paramsIncludes,
+      noCompany,
+      encryptFields,
+    );
   }
 
   @Post()
