@@ -30,13 +30,13 @@ export class ReviewsService extends GenericService<
     try {
       // Validar se o aluno pertence à turma
       if (CreateDto.traineeId && CreateDto.classId) {
-        const subscription = await this.prisma.selectOne(
+        const subscription = await this.prisma.selectFirst(
           'courseClassSubscription',
           {
             where: {
               traineeId: CreateDto.traineeId,
               classId: CreateDto.classId,
-              subscribeStatus: 'approved',
+              subscribeStatus: 'confirmed',
               inactiveAt: null,
             },
           },
@@ -50,7 +50,7 @@ export class ReviewsService extends GenericService<
       }
 
       // Verificar se já existe uma review deste aluno para esta turma
-      const existingReview = await this.prisma.selectOne('courseReview', {
+      const existingReview = await this.prisma.selectFirst('courseReview', {
         where: search,
       });
 
@@ -71,11 +71,13 @@ export class ReviewsService extends GenericService<
         throw new BadRequestException('Turma não encontrada');
       }
 
-      // Adicionar o courseId ao CreateDto
+      // Adicionar o courseId ao CreateDto e valores padrão para campos JSON obrigatórios
       const reviewData = {
         ...CreateDto,
         courseId: classInfo.courseId,
         companyId: classInfo.companyId,
+        courseReview: CreateDto.courseReview || {},
+        instructorReview: CreateDto.instructorReview || {},
       };
 
       const logParams = {

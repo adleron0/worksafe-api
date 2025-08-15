@@ -30,11 +30,11 @@ export class CreateDto {
   classId: number;
 
   @IsJSON()
-  @IsNotEmpty({ message: 'courseReview is required' })
+  @IsOptional()
   courseReview: JSON;
 
   @IsJSON()
-  @IsNotEmpty({ message: 'instructorReview is required' })
+  @IsOptional()
   instructorReview: JSON;
 
   @IsInt()
@@ -48,8 +48,8 @@ export class CreateDto {
 
   @IsBoolean()
   @Type(() => Boolean)
-  @IsNotEmpty({ message: 'autorizationExposeReview is required' })
-  autorizationExposeReview: boolean;
+  @IsNotEmpty({ message: 'authorizationExposeReview is required' })
+  authorizationExposeReview: boolean;
 
   @IsInt()
   @Type(() => Number)

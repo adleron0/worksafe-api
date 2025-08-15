@@ -30,6 +30,7 @@ import { SubscriptionModule } from './features/training/subscription/module';
 import { AlunosModule } from './features/training/alunos/module';
 import { ExamesModule } from './features/training/exames/module';
 import { TraineeCertificateModule } from './features/training/trainee_certificate/module';
+import { ReviewsModule } from './features/training/reviews/module';
 
 @Module({
   imports: [
@@ -61,6 +62,7 @@ import { TraineeCertificateModule } from './features/training/trainee_certificat
     AlunosModule,
     ExamesModule,
     TraineeCertificateModule,
+    ReviewsModule,
   ],
   controllers: [],
   providers: [

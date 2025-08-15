@@ -69,7 +69,7 @@ export class TraineeCertificateController extends GenericController<
   }
 
   @UserPermission(`list_${entity.permission}`) // comente para tirar permissao
-  // @Public() // descomente para tornar publica
+  @Public() // descomente para tornar publica
   // @Cache({ prefix: 'trainee-certificate', ttl: 3600 }) // descomente para usar cache (1 hora)
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
