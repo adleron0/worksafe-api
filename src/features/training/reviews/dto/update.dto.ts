@@ -53,7 +53,7 @@ export class UpdateDto {
   @IsBoolean()
   @Type(() => Boolean)
   @IsOptional()
-  autorizationExposeReview?: boolean;
+  authorizationExposeReview?: boolean;
 
   @IsInt()
   @Type(() => Number)

@@ -1,7 +1,7 @@
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Request } from 'express';
 
-export const noCompany = false;
+export const noCompany = true;
 export const omitAttributes: string[] = [];
 
 /*

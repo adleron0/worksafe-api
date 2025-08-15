@@ -7,11 +7,11 @@ model CourseReview {
   course   Course?   @relation(fields: [courseId], references: [id])
   classId Int
   class   CourseClass  @relation(fields: [classId], references: [id])
-  courseReview Json
-  instructorReview Json
+  courseReview Json?
+  instructorReview Json?
   generalRating Int
   opinionRating String?
-  autorizationExposeReview Boolean
+  authorizationExposeReview Boolean
   companyId Int
 
   createdAt DateTime  @default(now())

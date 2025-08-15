@@ -29,19 +29,19 @@ export function makeVariablesToReplace(
       };
     }
 
-    if (trainee.email) {
-      variables.aluno_email = {
-        type: 'string',
-        value: trainee.email,
-      };
-    }
+    // if (trainee.email) {
+    //   variables.aluno_email = {
+    //     type: 'string',
+    //     value: trainee.email,
+    //   };
+    // }
 
-    if (trainee.phone) {
-      variables.aluno_telefone = {
-        type: 'string',
-        value: trainee.phone,
-      };
-    }
+    // if (trainee.phone) {
+    //   variables.aluno_telefone = {
+    //     type: 'string',
+    //     value: trainee.phone,
+    //   };
+    // }
 
     if (trainee.birthDate) {
       try {
@@ -64,17 +64,17 @@ export function makeVariablesToReplace(
 
     // Endereço do aluno
     const enderecoParts = [];
-    if (trainee.address) enderecoParts.push(trainee.address);
-    if (trainee.addressNumber)
-      enderecoParts.push(`nº ${trainee.addressNumber}`);
-    if (trainee.complement) enderecoParts.push(trainee.complement);
+    // if (trainee.address) enderecoParts.push(trainee.address);
+    // if (trainee.addressNumber)
+    //   enderecoParts.push(`nº ${trainee.addressNumber}`);
+    // if (trainee.complement) enderecoParts.push(trainee.complement);
 
-    if (enderecoParts.length > 0) {
-      variables.aluno_endereco_completo = {
-        type: 'string',
-        value: enderecoParts.join(', '),
-      };
-    }
+    // if (enderecoParts.length > 0) {
+    //   variables.aluno_endereco_completo = {
+    //     type: 'string',
+    //     value: enderecoParts.join(', '),
+    //   };
+    // }
 
     if (trainee.city?.name) {
       variables.aluno_cidade = {
@@ -242,12 +242,12 @@ export function makeVariablesToReplace(
         };
       }
 
-      if (mainInstructor.email) {
-        variables.instrutor_email = {
-          type: 'string',
-          value: mainInstructor.email,
-        };
-      }
+      // if (mainInstructor.email) {
+      //   variables.instrutor_email = {
+      //     type: 'string',
+      //     value: mainInstructor.email,
+      //   };
+      // }
 
       if (mainInstructor.cpf) {
         variables.instrutor_cpf = {
