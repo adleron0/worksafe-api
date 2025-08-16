@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import {
   IsEmail,
   IsString,
@@ -45,6 +45,15 @@ export class CreateDto {
   @IsJSON()
   @IsOptional()
   variableToReplace?: JSON;
+
+  @IsBoolean()
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
+  @IsOptional()
+  showOnWebsiteConsent?: boolean;
 
   @IsString()
   @IsOptional()

@@ -225,7 +225,11 @@ function getValidatorsForType(
       break;
     case 'Boolean':
       validators.push('@IsBoolean()');
-      validators.push('@Type(() => Boolean)');
+      validators.push(`@Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })`);
       break;
     case 'DateTime':
       validators.push('@IsDate()');
@@ -1016,7 +1020,7 @@ export class ${entityNamePascal}Module {}
 `;
 
   // Generate create.dto.ts
-  let createDtoContent = `import { Type } from 'class-transformer';
+  let createDtoContent = `import { Type, Transform } from 'class-transformer';
 import {
   IsEmail,
   IsString,
@@ -1062,7 +1066,7 @@ export class CreateDto {
 `;
 
   // Generate update.dto.ts
-  let updateDtoContent = `import { Type } from 'class-transformer';
+  let updateDtoContent = `import { Type, Transform } from 'class-transformer';
 import {
   IsEmail,
   IsString,

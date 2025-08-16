@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import {
   IsEmail,
   IsString,
@@ -28,7 +28,11 @@ export class CreateDto {
   companyId: number;
 
   @IsBoolean()
-  @Type(() => Boolean)
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
   @IsOptional()
   active: boolean;
 

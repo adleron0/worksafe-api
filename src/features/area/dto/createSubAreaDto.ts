@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { IsString, IsNotEmpty, IsInt } from 'class-validator';
 
 export class CreateSubAreaDto {

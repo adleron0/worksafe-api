@@ -7,7 +7,7 @@ import {
   IsBoolean,
   Length,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { IsCnpj } from 'src/validators/is-cnpj.constraint';
 
 export class UpdateDto {

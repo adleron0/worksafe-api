@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import {
   IsEmail,
   IsString,
@@ -73,7 +73,11 @@ export class CreateDto {
 
   @IsBoolean()
   @IsOptional()
-  @Type(() => Boolean)
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
   openClass?: boolean;
 
   @IsString()
@@ -110,7 +114,11 @@ export class CreateDto {
 
   @IsBoolean()
   @IsOptional()
-  @Type(() => Boolean)
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
   active?: boolean;
 
   @IsJSON()
@@ -123,12 +131,20 @@ export class CreateDto {
 
   @IsBoolean()
   @IsOptional()
-  @Type(() => Boolean)
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
   allowExam?: boolean;
 
   @IsBoolean()
   @IsOptional()
-  @Type(() => Boolean)
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
   allowReview?: boolean;
 
   @IsOptional()

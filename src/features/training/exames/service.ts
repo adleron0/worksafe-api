@@ -160,6 +160,8 @@ export class ExamesService extends GenericService<
         traineeCertificateData['expirationDate'] = expirationDate;
         traineeCertificateData['variableToReplace'] = variablesToReplace;
         traineeCertificateData['companyId'] = confirmedSubscription.companyId;
+        traineeCertificateData['showOnWebsiteConsent'] =
+          dto.showOnWebsiteConsent;
 
         // Criar o certificado do trainee
         await this.prisma.insert(

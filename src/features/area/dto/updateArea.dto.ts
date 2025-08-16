@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { IsString, IsOptional, IsInt, IsUrl, MinLength } from 'class-validator';
 
 export class UpdateAreaDto {

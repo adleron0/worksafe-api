@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import {
   IsString,
   IsInt,
@@ -24,7 +24,11 @@ export class UpdateDto {
   name: string;
 
   @IsBoolean()
-  @Type(() => Boolean)
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
   @IsOptional()
   featured: boolean;
 
