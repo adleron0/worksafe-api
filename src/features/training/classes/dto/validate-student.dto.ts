@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { IsInt, IsNotEmpty, IsString, Length } from 'class-validator';
 import { IsCpf } from 'src/validators/is-cpf.constraint';
 

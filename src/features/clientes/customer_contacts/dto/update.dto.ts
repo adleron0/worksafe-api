@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { IsEmail, IsString, IsInt, IsOptional } from 'class-validator';
 
 export class UpdateDto {

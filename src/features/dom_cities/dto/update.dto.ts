@@ -1,5 +1,5 @@
 import { IsString, IsOptional, IsInt } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 
 export class UpdateDto {
   @IsString()

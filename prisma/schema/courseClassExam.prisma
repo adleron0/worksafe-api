@@ -7,6 +7,7 @@ model CourseClassExam {
   course   Course   @relation(fields: [courseId], references: [id])
   classId Int
   class   CourseClass  @relation(fields: [classId], references: [id])
+  showOnWebsiteConsent Boolean @default(true)
   examResponses Json
   result Boolean
   companyId Int

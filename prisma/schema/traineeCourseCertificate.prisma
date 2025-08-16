@@ -12,6 +12,7 @@ model TraineeCourseCertificate {
   fabricJsonFront    Json?  @map("fabric_json_front") @db.JsonB
   fabricJsonBack     Json?  @map("fabric_json_back") @db.JsonB
   variableToReplace  Json?  @map("variable_to_replace") @db.JsonB
+  showOnWebsiteConsent Boolean @default(true)
   pdfUrl String?   @db.VarChar(255)
 
   createdAt DateTime  @default(now())
