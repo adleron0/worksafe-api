@@ -110,7 +110,8 @@ async function hookPreUpdate(params: {
       email: dto.email || subscription.email,
       phone: dto.phone || subscription.phone,
       companyId: Number(dto.companyId || subscription.companyId),
-      // Adicione outros campos necessários para o trainee aqui
+      custumerId: dto.customerId || subscription.customerId,
+      occupation: dto.occupation || subscription.occupation,
     };
 
     // Busca ou cria o trainee
