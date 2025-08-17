@@ -9,17 +9,17 @@ import {
   IsBoolean,
   IsNumber,
   IsDate,
-  IsJSON,
+  Length,
 } from 'class-validator';
-
+import { IsCpf } from 'src/validators/is-cpf.constraint';
 export class CreateDto {
-
   @IsString()
   @IsNotEmpty({ message: 'name is required' })
   name: string;
 
   @IsString()
-  @IsNotEmpty({ message: 'cpf is required' })
+  @Length(11, 14) // opcional: obriga entre 11 e 14 caracteres (com ou sem pontuação)
+  @IsCpf({ message: 'CPF informado não é válido' })
   cpf: string;
 
   @IsString()
