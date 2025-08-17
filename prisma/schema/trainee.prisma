@@ -15,7 +15,9 @@ model Trainee {
   state    DOM_States?    @relation(fields: [stateId], references: [id])
   password String?   @db.VarChar(255)
   customerId Int?
+  customer   Customer?   @relation(fields: [customerId], references: [id])
   companyId Int
+  occupation String?    @db.VarChar(255)
   imageUrl String? @db.VarChar(255)
   active Boolean @default(true)
 

@@ -84,6 +84,38 @@ export class ClassesController extends GenericController<
           },
         },
       },
+      course: {
+        omit: {
+          exam: true,
+        },
+        include: {
+          reviews: {
+            select: {
+              generalRating: true,
+              opinionRating: true,
+              authorizationExposeReview: true,
+              trainee: {
+                select: {
+                  name: true,
+                  occupation: true,
+                  customer: {
+                    select: {
+                      name: true,
+                    },
+                  },
+                },
+              },
+            },
+            take: 5,
+            orderBy: {
+              generalRating: 'desc',
+            },
+            where: {
+              authorizationExposeReview: true,
+            },
+          },
+        },
+      },
       _count: {
         select: {
           subscriptions: {
@@ -127,7 +159,7 @@ export class ClassesController extends GenericController<
     @Body() UpdateDto: UpdateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
-    console.log("🚀 ~ ClassesController ~ update ~ UpdateDto:", UpdateDto)
+    console.log('🚀 ~ ClassesController ~ update ~ UpdateDto:', UpdateDto);
     if (!UpdateDto.price) UpdateDto.price = null;
     if (!UpdateDto.oldPrice) UpdateDto.oldPrice = null;
     return super.update(id, request, UpdateDto, file);
