@@ -120,6 +120,15 @@ export class UpdateDto {
   })
   active?: boolean;
 
+  @IsBoolean()
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
+  allowCheckout?: boolean;
+
   @IsJSON()
   @IsOptional()
   faq?: string;
