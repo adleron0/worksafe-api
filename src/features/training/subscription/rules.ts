@@ -1,5 +1,6 @@
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Request } from 'express';
+import { BadRequestException } from '@nestjs/common';
 
 export const noCompany = false;
 export const omitAttributes: string[] = [];
@@ -53,8 +54,73 @@ async function hookPreCreate(params: {
   prisma: PrismaService;
   logParams: any;
 }) {
-  const { dto, entity } = params;
-  // Personalize aqui se necessário
+  const { dto, entity, logParams, prisma } = params;
+  console.log('🚀 ~ hookPreCreate ~ dto:', dto);
+  // Pesquisa a turma
+  const limit = await prisma.selectFirst('courseClass', {
+    where: {
+      companyId: Number(logParams.companyId),
+      id: Number(dto.classId),
+    },
+    select: {
+      maxSubscriptions: true,
+      name: true,
+    },
+  });
+
+  // Verifica se o limite de inscrições foi atingido
+  const total = await prisma.select(entity.model, {
+    where: {
+      companyId: Number(logParams.companyId),
+      classId: Number(dto.classId),
+      subscribeStatus: 'confirmed',
+    },
+  });
+  if (total.length >= Number(limit?.maxSubscriptions)) {
+    throw new BadRequestException(
+      `O limite de inscrições para a turma ${limit?.name} foi atingido`,
+    );
+  }
+  // Verifica se está confirmando a inscrição e seleciona ou cria o trainee
+  if (dto.subscribeStatus === 'confirmed') {
+    // Condições para buscar o trainee existente
+    const whereTrainee = {
+      companyId: Number(logParams.companyId),
+      cpf: dto.cpf,
+    };
+
+    // Dados para criar o trainee se não existir
+    const dataTrainee = {
+      name: dto.name,
+      cpf: dto.cpf,
+      email: dto.email,
+      phone: dto.phone,
+      companyId: Number(logParams.companyId),
+      custumerId: dto.customerId,
+      occupation: dto.occupation,
+    };
+
+    // Busca ou cria o trainee
+    const traineeResult = await prisma.selectOrCreate(
+      'trainee',
+      whereTrainee,
+      dataTrainee,
+      logParams,
+    );
+
+    // Atualiza o DTO com o ID do trainee
+    dto.traineeId = traineeResult.data.id;
+
+    // Define a data de confirmação se ainda não estiver definida
+    if (!dto.confirmedAt) {
+      dto.confirmedAt = new Date();
+    }
+
+    console.log(
+      `Trainee ${traineeResult.created ? 'criado' : 'encontrado'} com ID:`,
+      traineeResult.data.id,
+    );
+  }
 }
 
 /*
