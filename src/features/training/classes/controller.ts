@@ -190,4 +190,19 @@ export class ClassesController extends GenericController<
     const { cpf, classCode, classId } = validateDto;
     return this.Service.validateStudent(cpf, classCode, classId);
   }
+
+  // ROTA PARA GERAR CERTIFICADOS PARA TODOS OS ALUNOS DE UMA TURMA
+  @UserPermission(`create_${entity.permission}`) // Requer permissão de criar
+  @CacheEvictAll('training-classes:*', 'cache:*/classes*')
+  @Post('generate-certificates/:id')
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
+  async generateCertificates(
+    @Param('id') id: number,
+    @Req() request: Request,
+  ): Promise<any> {
+    const userId = request.body.userId || request['userId'] || 0;
+    const companyId = request.body.companyId || request['companyId'] || 0;
+
+    return this.Service.generateCertificates(Number(id), userId, companyId);
+  }
 }

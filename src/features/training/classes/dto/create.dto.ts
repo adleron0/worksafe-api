@@ -80,6 +80,15 @@ export class CreateDto {
   })
   openClass?: boolean;
 
+  @IsBoolean()
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
+  allowCheckout?: boolean;
+
   @IsString()
   @IsOptional()
   gifts?: string;

@@ -35,7 +35,6 @@ export class UpdateDto {
   @IsOptional()
   active: boolean;
 
-  @IsUrl({}, { message: 'Invalid URL format for image' })
   @IsOptional()
   imageUrl?: string | null;
 

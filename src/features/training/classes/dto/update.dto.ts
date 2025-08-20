@@ -91,7 +91,6 @@ export class UpdateDto {
   @IsOptional()
   gradePracticle: string;
 
-  @IsUrl({}, { message: 'Invalid URL format for image' })
   @IsOptional()
   imageUrl?: string | null;
 
@@ -119,6 +118,15 @@ export class UpdateDto {
     return value;
   })
   active?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
+  allowCheckout?: boolean;
 
   @IsJSON()
   @IsOptional()

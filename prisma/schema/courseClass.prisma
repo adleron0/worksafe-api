@@ -33,6 +33,7 @@ model CourseClass {
   allowReview Boolean
   minimumQuorum Int?
   maxSubscriptions Int?
+  allowCheckout Boolean @default(false)
 
   certificates TraineeCourseCertificate[]
   exams CourseClassExam[]
