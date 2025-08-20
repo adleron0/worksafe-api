@@ -62,7 +62,6 @@ export class UpdateDto {
   @IsOptional()
   formationCode: string;
 
-  @IsUrl({}, { message: 'Invalid URL format for image' })
   @IsOptional()
   imageUrl?: string | null;
 

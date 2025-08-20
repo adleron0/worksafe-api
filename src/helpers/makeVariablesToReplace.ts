@@ -312,6 +312,13 @@ export function makeVariablesToReplace(
         };
       }
 
+      if (instructor?.curriculum) {
+        variables[`instrutor_curriculum_${index + 1}`] = {
+          type: 'string',
+          value: instructor.curriculum.replaceAll('#', ','), // troca # por ,
+        };
+      }
+
       if (instructor?.formation) {
         variables[`instrutor_formacao_${index + 1}`] = {
           type: 'string',
@@ -368,6 +375,12 @@ export function makeVariablesToReplace(
   variables.certificado_emissao_extenso = {
     type: 'string',
     value: format(today, "dd 'de' MMMM 'de' yyyy", { locale: ptBR }),
+  };
+
+  // ANO DO CERTIFICADO
+  variables.certificado_ano = {
+    type: 'string',
+    value: new Date().getFullYear(),
   };
 
   // Código único do certificado (pode ser gerado com base em IDs)

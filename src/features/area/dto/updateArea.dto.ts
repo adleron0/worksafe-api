@@ -6,7 +6,6 @@ export class UpdateAreaDto {
   @IsOptional()
   name?: string;
 
-  @IsUrl({}, { message: 'Invalid URL format for image' })
   @IsOptional()
   imageUrl?: string | null;
 

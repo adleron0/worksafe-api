@@ -90,7 +90,6 @@ export class UpdateDto {
   @IsOptional()
   media: number;
 
-  @IsUrl({}, { message: 'Invalid URL format for image' })
   @IsOptional()
   imageUrl?: string | null;
 

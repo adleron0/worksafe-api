@@ -91,7 +91,6 @@ export class UpdateDto {
   @IsOptional()
   gradePracticle: string;
 
-  @IsUrl({}, { message: 'Invalid URL format for image' })
   @IsOptional()
   imageUrl?: string | null;
 

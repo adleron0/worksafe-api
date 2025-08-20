@@ -44,7 +44,6 @@ export class UpdateDto {
   @Type(() => Number)
   profileId: number;
 
-  @IsUrl({}, { message: 'Invalid URL format for image' })
   @IsOptional()
   imageUrl?: string | null;
 

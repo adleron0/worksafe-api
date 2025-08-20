@@ -173,7 +173,7 @@ export class SubscriptionController extends GenericController<
     return super.inactivate(id, request);
   }
 
-  // ROTA ABERTA PARA INSCRIÇÃO SEM NECESSIDADE DE PERMISSÃO
+  // ROTA ABERTA PARA INSCRIÇÃO
   @Public()
   @Post('subscribe')
   @CacheEvictAll(
@@ -191,6 +191,7 @@ export class SubscriptionController extends GenericController<
     @Body() CreateDto: CreateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
+    CreateDto.subscribeStatus = 'pending'; // Define o status de inscrição como pendente para auto-inscrição
     const search = getSearchParams(request, CreateDto);
     return this.Service.subscription(search, entity, CreateDto);
   }
