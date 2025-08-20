@@ -31,6 +31,7 @@ import { AlunosModule } from './features/training/alunos/module';
 import { ExamesModule } from './features/training/exames/module';
 import { TraineeCertificateModule } from './features/training/trainee_certificate/module';
 import { ReviewsModule } from './features/training/reviews/module';
+import { CompanygatewaysModule } from './features/gateway/companygateways/module';
 
 @Module({
   imports: [
@@ -63,6 +64,7 @@ import { ReviewsModule } from './features/training/reviews/module';
     ExamesModule,
     TraineeCertificateModule,
     ReviewsModule,
+    CompanygatewaysModule,
   ],
   controllers: [],
   providers: [

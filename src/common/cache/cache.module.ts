@@ -1,5 +1,5 @@
 import { Module, Global } from '@nestjs/common';
-import { CacheService } from '../services/cache.service';
+import { CacheService } from './cache.service';
 import { CacheInterceptor } from './cache.interceptor';
 import { AuthCacheService } from './auth-cache.service';
 

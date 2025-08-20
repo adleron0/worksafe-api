@@ -31,4 +31,5 @@ model Customer {
   contacts    Customer_Contacts[]
   classes     CourseClass[]
   trainees    Trainee[]
+  financialRecords FinancialRecords[]
 }

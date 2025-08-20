@@ -7,3 +7,28 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URI")
 }
+// tipos de gateways
+enum gateways {
+  asaas
+  stripe
+  efi
+  mercadoPago
+  pagSeguro
+  paypal
+}
+
+enum paymentMethods {
+  cartaoCredito
+  boleto
+  pix
+}
+
+enum financialRecordsStatus {
+  processing
+  waiting
+  received
+  declined
+  chargeback
+  cancelled
+  overdue
+}
