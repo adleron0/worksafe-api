@@ -905,7 +905,7 @@ import { GenericController } from 'src/features/generic/generic.controller';
 import { Public } from 'src/auth/decorators/public.decorator';
 // Import cache
 import { Cache, CacheEvictAll } from 'src/common/cache';
-import { CacheService } from 'src/common/services/cache.service';
+import { CacheService } from 'src/common/cache/cache.service';
 // Import de configuraões
 import { paramsIncludes } from './associations';
 import {

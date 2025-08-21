@@ -5,6 +5,7 @@ import { CreateDto } from './dto/create.dto';
 import { UpdateDto } from './dto/update.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { UploadService } from 'src/features/upload/upload.service';
+import { AsaasService } from 'src/common/gateways/asaas/asaas.service';
 
 @Injectable()
 export class CompanygatewaysService extends GenericService<
@@ -15,6 +16,7 @@ export class CompanygatewaysService extends GenericService<
   constructor(
     protected prisma: PrismaService,
     protected uploadService: UploadService,
+    public asaasService: AsaasService,
   ) {
     super(prisma, uploadService);
   }

@@ -41,6 +41,8 @@ import {
   hooksCreate,
   hooksUpdate,
   encryptFields,
+  setAsaasService,
+  setCacheService,
 } from './rules';
 
 function UserPermission(permission: string) {
@@ -50,7 +52,7 @@ function UserPermission(permission: string) {
 const entity = {
   model: 'CompanyGateWays' as keyof PrismaClient,
   name: 'Companygateways',
-  route: 'company-gateway',
+  route: 'company-gateways',
   permission: 'financeiro',
 };
 
@@ -67,6 +69,11 @@ export class CompanygatewaysController extends GenericController<
     private readonly cacheService: CacheService,
   ) {
     super(Service, entity);
+    // Injeta os serviços nas rules
+    if (Service.asaasService) {
+      setAsaasService(Service.asaasService);
+    }
+    setCacheService(cacheService);
   }
 
   @UserPermission(`list_${entity.permission}`) // comente para tirar permissao

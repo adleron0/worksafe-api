@@ -15,7 +15,7 @@ model FinancialRecords {
   paymentMethod paymentMethods
   value       Decimal?   @db.Decimal(18, 2)
   dueDate    DateTime?
-  paiedAt    DateTime?
+  paidAt    DateTime?
   billUrl    String?   @db.VarChar(255)
   billNumber String?   @db.VarChar(255)
   pixUrl     String?   @db.VarChar(255)
