@@ -161,7 +161,7 @@ export class ClassesController extends GenericController<
   ) {
     console.log('🚀 ~ ClassesController ~ update ~ UpdateDto:', UpdateDto);
     if (!UpdateDto.price) UpdateDto.price = null;
-    if (!UpdateDto.oldPrice) UpdateDto.oldPrice = null;
+    if (!UpdateDto.discountPrice) UpdateDto.discountPrice = null;
     return super.update(id, request, UpdateDto, file);
   }
 

@@ -85,7 +85,8 @@ async function hookPreCreate(params: {
       try {
         // Primeiro salva o token no Redis para que o webhook possa ser configurado
         const cacheKey = `asaasToken:${logParams.companyId}`;
-        await cacheServiceInstance.set(cacheKey, payloadData.token, 3600);
+        // Armazena no cache para futuras requisições (TTL de 30 dias)
+        await cacheServiceInstance.set(cacheKey, payloadData.token, 2592000);
         console.log('📝 Token Asaas salvo no cache Redis');
 
         // Agora configura o webhook no Asaas
@@ -178,7 +179,8 @@ async function hookPreUpdate(params: {
       try {
         // Atualiza o token no Redis se foi alterado
         const cacheKey = `asaasToken:${logParams.companyId}`;
-        await cacheServiceInstance.set(cacheKey, payloadData.token, 3600);
+        // Armazena no cache para futuras requisições (TTL de 30 dias)
+        await cacheServiceInstance.set(cacheKey, payloadData.token, 2592000);
         console.log('📝 Token Asaas atualizado no cache Redis');
 
         // Configura ou atualiza o webhook no Asaas

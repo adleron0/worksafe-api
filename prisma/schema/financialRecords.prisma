@@ -1,7 +1,7 @@
 // Tabela Company
 model FinancialRecords {
   id                 Int       @id @default(autoincrement())
-  accrualDate        String    @db.VarChar(10)
+  accrualDate        String    @db.VarChar(10) //formato: YYYY-MM
   companyId          Int
   company       Company   @relation(fields: [companyId], references: [id])
   gateway            gateways
