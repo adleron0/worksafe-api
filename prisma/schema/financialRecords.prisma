@@ -1,0 +1,34 @@
+// Tabela Company
+model FinancialRecords {
+  id                 Int       @id @default(autoincrement())
+  accrualDate        String    @db.VarChar(10)
+  companyId          Int
+  company       Company   @relation(fields: [companyId], references: [id])
+  gateway            gateways
+  status             financialRecordsStatus @default(processing)
+  subscriptionId Int?
+  subscription   CourseClassSubscription?   @relation(fields: [subscriptionId], references: [id])
+  traineeId Int?
+  trainee   Trainee?   @relation(fields: [traineeId], references: [id])
+  customerId Int?
+  customer   Customer?   @relation(fields: [customerId], references: [id])
+  paymentMethod paymentMethods
+  value       Decimal?   @db.Decimal(18, 2)
+  dueDate    DateTime?
+  paidAt    DateTime?
+  billUrl    String?   @db.VarChar(255)
+  billNumber String?   @db.VarChar(255)
+  pixUrl     String?   @db.VarChar(255)
+  pixNumber  String?   @db.VarChar(255)
+  requestData Json?  @map("request_data") @db.JsonB // Dados do payload do gateway
+  responseData Json?  @map("response_data") @db.JsonB // Dados do payload do gateway
+  errorData Json?  @map("error_data") @db.JsonB // Dados do payload do gateway
+  observations String?   @db.VarChar(255)
+  description String?   @db.VarChar(255)
+  externalId String?   @db.VarChar(255) // ID externo do registro financeiro
+  key                String    @default(uuid())  // Definindo o campo 'key' como UUID auto gerado
+
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @default(now()) @updatedAt
+  inactiveAt         DateTime?
+}

@@ -29,6 +29,9 @@ model Company {
   images Image[] // Relacionamento com a tabela Image
   courseCertificates CouseCertificate[] // Relacionamento com a tabela CourseCertificate
   certificates TraineeCourseCertificate[] // Relacionamento com a tabela TraineeCourseCertificate
+  gateways CompanyGateWays[] // Relacionamento com a tabela CompanyGateWays
+  webhooks Webhooks[] // Relacionamento com a tabela Webhooks
+  financialRecords FinancialRecords[] // Relacionamento com a tabela FinancialRecords
 
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @default(now()) @updatedAt

@@ -96,21 +96,24 @@ function getUnifiedPrismaSchema(): string {
     .filter((file) => file.endsWith('.prisma'));
   let generator = '';
   let datasource = '';
+  let enums = '';
   let models = '';
   for (const file of files) {
     const content = fs.readFileSync(path.join(schemaDir, file), 'utf-8');
     if (file === 'schema.prisma') {
-      // Extrai apenas generator e datasource
+      // Extrai generator, datasource e enums
       const generatorMatch = content.match(/generator[\s\S]*?\}/g);
       const datasourceMatch = content.match(/datasource[\s\S]*?\}/g);
+      const enumMatches = content.match(/enum\s+\w+\s*\{[\s\S]*?\}/g);
       if (generatorMatch) generator = generatorMatch.join('\n');
       if (datasourceMatch) datasource = datasourceMatch.join('\n');
+      if (enumMatches) enums = enumMatches.join('\n');
     } else {
       // Adiciona modelos, enums, etc
       models += '\n' + content;
     }
   }
-  return `${generator}\n${datasource}\n${models}`;
+  return `${generator}\n${datasource}\n${enums}\n${models}`;
 }
 
 // Função para listar todos os modelos disponíveis no schema unificado
@@ -902,7 +905,7 @@ import { GenericController } from 'src/features/generic/generic.controller';
 import { Public } from 'src/auth/decorators/public.decorator';
 // Import cache
 import { Cache, CacheEvictAll } from 'src/common/cache';
-import { CacheService } from 'src/common/services/cache.service';
+import { CacheService } from 'src/common/cache/cache.service';
 // Import de configuraões
 import { paramsIncludes } from './associations';
 import {

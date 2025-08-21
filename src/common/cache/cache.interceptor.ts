@@ -8,7 +8,7 @@ import {
 import { Observable, of } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { Reflector } from '@nestjs/core';
-import { CacheService } from '../services/cache.service';
+import { CacheService } from './cache.service';
 import {
   CACHE_KEY_METADATA,
   CACHE_TTL_METADATA,

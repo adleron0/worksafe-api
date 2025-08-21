@@ -28,7 +28,7 @@ import { getMulterOptions } from '../../upload/upload.middleware';
 // Import generic controller
 import { GenericController } from 'src/features/generic/generic.controller';
 import { Cache, CacheEvictAll } from 'src/common/cache';
-import { CacheService } from 'src/common/services/cache.service';
+import { CacheService } from 'src/common/cache/cache.service';
 
 // Create a decorator factory for User controller permissions
 function UserPermission(permission: string) {
