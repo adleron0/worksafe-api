@@ -11,7 +11,7 @@ model CourseClass {
   categoryId Int?
   classCode String? @db.VarChar(50)
   price         Decimal?   @db.Decimal(18, 2)
-  oldPrice      Decimal?   @db.Decimal(18, 2)
+  discountPrice      Decimal?   @db.Decimal(18, 2)
   dividedIn Int?
   hoursDuration Int?
   openClass     Boolean?   @default(false)
@@ -34,6 +34,7 @@ model CourseClass {
   minimumQuorum Int?
   maxSubscriptions Int?
   allowCheckout Boolean @default(false)
+  paymentMethods paymentMethods[]
 
   certificates TraineeCourseCertificate[]
   exams CourseClassExam[]

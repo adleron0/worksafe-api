@@ -21,7 +21,7 @@ import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { CreateDto } from './dto/create.dto';
 import { UpdateDto } from './dto/update.dto';
 import { IEntity } from './interfaces/interface';
-import { CompanygatewaysService as Service } from './service';
+import { FinancialrecordsService as Service } from './service';
 // Import utils specifics
 import { FileInterceptor } from '@nestjs/platform-express';
 import { getMulterOptions } from '../../upload/upload.middleware';
@@ -41,9 +41,6 @@ import {
   hooksCreate,
   hooksUpdate,
   encryptFields,
-  setAsaasService,
-  setCacheService,
-  setGatewayFactory,
 } from './rules';
 
 function UserPermission(permission: string) {
@@ -51,14 +48,14 @@ function UserPermission(permission: string) {
 }
 
 const entity = {
-  model: 'CompanyGateWays' as keyof PrismaClient,
-  name: 'Companygateways',
-  route: 'company-gateways',
+  model: 'FinancialRecords' as keyof PrismaClient,
+  name: 'Financialrecords',
+  route: 'financial-records',
   permission: 'financeiro',
 };
 
 @Controller(entity.route)
-export class CompanygatewaysController extends GenericController<
+export class FinancialrecordsController extends GenericController<
   CreateDto,
   UpdateDto,
   IEntity,
@@ -70,16 +67,11 @@ export class CompanygatewaysController extends GenericController<
     private readonly cacheService: CacheService,
   ) {
     super(Service, entity);
-    // Injeta os serviços nas rules
-    if (Service.asaasService) {
-      setAsaasService(Service.asaasService);
-    }
-    setCacheService(cacheService);
   }
 
   @UserPermission(`list_${entity.permission}`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
-  @Cache({ prefix: 'company-gateway', ttl: 604800 })
+  // @Cache({ prefix: 'financial-records', ttl: 3600 }) // descomente para usar cache (1 hora)
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
     // Adiciona omitAttributes aos filtros se não estiver presente
@@ -91,9 +83,9 @@ export class CompanygatewaysController extends GenericController<
 
   @UserPermission(`create_${entity.permission}`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
-  @CacheEvictAll('company-gateway:*', 'cache:*/company-gateway*')
+  // @CacheEvictAll('financial-records:*', 'cache:*/financial-records*') // descomente para limpar cache
   @Post()
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('companygateways-image')))
+  @UseInterceptors(FileInterceptor('image', getMulterOptions('financialrecords-image')))
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async create(
     @Req() request: Request,
@@ -106,9 +98,9 @@ export class CompanygatewaysController extends GenericController<
 
   @UserPermission(`update_${entity.permission}`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
-  @CacheEvictAll('company-gateway:*', 'cache:*/company-gateway*')
+  // @CacheEvictAll('financial-records:*', 'cache:*/financial-records*') // descomente para limpar cache
   @Put(':id')
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('companygateways-image')))
+  @UseInterceptors(FileInterceptor('image', getMulterOptions('financialrecords-image')))
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async update(
     @Param('id') id: number,
@@ -122,7 +114,7 @@ export class CompanygatewaysController extends GenericController<
 
   @UserPermission(`activate_${entity.permission}`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
-  @CacheEvictAll('company-gateway:*', 'cache:*/company-gateway*')
+  // @CacheEvictAll('financial-records:*', 'cache:*/financial-records*') // descomente para limpar cache
   @Patch('active/:id')
   async activate(@Param('id') id: number, @Req() request: Request) {
     return super.activate(id, request);
@@ -130,7 +122,7 @@ export class CompanygatewaysController extends GenericController<
 
   @UserPermission(`inactive_${entity.permission}`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
-  @CacheEvictAll('company-gateway:*', 'cache:*/company-gateway*')
+  // @CacheEvictAll('financial-records:*', 'cache:*/financial-records*') // descomente para limpar cache
   @Patch('inactive/:id')
   async inactivate(@Param('id') id: number, @Req() request: Request) {
     return super.inactivate(id, request);

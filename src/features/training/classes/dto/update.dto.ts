@@ -9,7 +9,10 @@ import {
   IsNumber,
   IsDate,
   IsJSON,
+  IsEnum,
+  IsArray,
 } from 'class-validator';
+import { paymentMethods } from '@prisma/client';
 
 export class UpdateDto {
   @IsString()
@@ -58,7 +61,7 @@ export class UpdateDto {
   @IsNumber()
   @IsOptional()
   @Type(() => Number)
-  oldPrice?: number;
+  discountPrice?: number;
 
   @IsNumber()
   @IsOptional()
@@ -170,4 +173,15 @@ export class UpdateDto {
   @IsString()
   @IsOptional()
   classCode?: string;
+
+  @IsArray()
+  @IsEnum(paymentMethods, { each: true })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+      return value.split(',').map((item) => item.trim());
+    }
+    return value;
+  })
+  paymentMethods?: paymentMethods[];
 }

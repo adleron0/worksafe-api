@@ -13,6 +13,7 @@ import {
   ValidationPipe,
   Query,
   applyDecorators,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { Request } from 'express';
@@ -173,7 +174,7 @@ export class SubscriptionController extends GenericController<
     return super.inactivate(id, request);
   }
 
-  // ROTA ABERTA PARA INSCRIÇÃO
+  // ROTA ABERTA PARA INSCRIÇÃO (com checkout integrado quando allowCheckout = true)
   @Public()
   @Post('subscribe')
   @CacheEvictAll(
@@ -195,4 +196,5 @@ export class SubscriptionController extends GenericController<
     const search = getSearchParams(request, CreateDto);
     return this.Service.subscription(search, entity, CreateDto);
   }
+
 }

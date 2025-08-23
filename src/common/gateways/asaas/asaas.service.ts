@@ -145,8 +145,8 @@ export class AsaasService {
         );
       }
 
-      // Armazena no cache para futuras requisições (TTL de 1 hora)
-      await this.cacheService.set(cacheKey, token, 3600);
+      // Armazena no cache para futuras requisições (TTL de 30 dias)
+      await this.cacheService.set(cacheKey, token, 2592000);
 
       return token;
     } catch (error) {
@@ -236,6 +236,21 @@ export class AsaasService {
       throw new Error('Cliente não encontrado');
     } catch {
       return this.createCustomer(customer, companyId);
+    }
+  }
+
+  async getOrCreateCustomer(customer: CustomerData, companyId: number) {
+    try {
+      // Primeiro tenta buscar o cliente pelo CPF
+      const existingCustomer = await this.getCustomerByCpf(customer.document, companyId);
+      if (existingCustomer) {
+        return existingCustomer;
+      }
+      // Se não encontrar, cria um novo
+      return await this.createCustomer(customer, companyId);
+    } catch (error) {
+      // Se houver erro na busca, tenta criar
+      return await this.createCustomer(customer, companyId);
     }
   }
 
@@ -531,7 +546,8 @@ export class AsaasService {
     const { baseUrl, token } = await this.getConfig(companyId);
     const headers = this.getHeaders(token);
     const webhookUrl =
-      this.configService.get('WEBHOOK_URL') || 'https://api.worksafe.com.br';
+      this.configService.get('WEBHOOK_URL') ||
+      'https://api.worksafebrasil.com.br';
 
     const data = {
       name: 'WorkSafe Webhooks',
@@ -562,7 +578,7 @@ export class AsaasService {
     }
   }
 
-  async processWebhook(companyId: number, webhookData: WebhookData) {
+  async processWebhook(webhookData: WebhookData, companyId: number) {
     try {
       const payment = webhookData.payment;
       if (!payment) {
@@ -662,40 +678,6 @@ export class AsaasService {
         'Erro ao salvar pagamento no banco de dados',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
-    }
-  }
-
-  async createWebhookRecord(webhookData: any, companyId: number) {
-    try {
-      const webhook = await this.prisma.webhooks.create({
-        data: {
-          companyId,
-          gateway: 'asaas',
-          payload: webhookData,
-        },
-      });
-
-      return webhook;
-    } catch (error) {
-      console.error('Erro ao criar registro de webhook:', error);
-      throw new HttpException(
-        'Erro ao criar registro de webhook',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  async markWebhookAsProcessed(webhookId: number, error?: string) {
-    try {
-      await this.prisma.webhooks.update({
-        where: { id: webhookId },
-        data: {
-          processedAt: new Date(),
-          error: error || null,
-        },
-      });
-    } catch (error) {
-      console.error('Erro ao marcar webhook como processado:', error);
     }
   }
 }
