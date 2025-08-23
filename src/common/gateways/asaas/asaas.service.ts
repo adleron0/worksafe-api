@@ -239,6 +239,21 @@ export class AsaasService {
     }
   }
 
+  async getOrCreateCustomer(customer: CustomerData, companyId: number) {
+    try {
+      // Primeiro tenta buscar o cliente pelo CPF
+      const existingCustomer = await this.getCustomerByCpf(customer.document, companyId);
+      if (existingCustomer) {
+        return existingCustomer;
+      }
+      // Se não encontrar, cria um novo
+      return await this.createCustomer(customer, companyId);
+    } catch (error) {
+      // Se houver erro na busca, tenta criar
+      return await this.createCustomer(customer, companyId);
+    }
+  }
+
   async getCustomerById(customerId: string, companyId: number) {
     const { baseUrl, token } = await this.getConfig(companyId);
     const headers = this.getHeaders(token);
@@ -563,7 +578,7 @@ export class AsaasService {
     }
   }
 
-  async processWebhook(companyId: number, webhookData: WebhookData) {
+  async processWebhook(webhookData: WebhookData, companyId: number) {
     try {
       const payment = webhookData.payment;
       if (!payment) {

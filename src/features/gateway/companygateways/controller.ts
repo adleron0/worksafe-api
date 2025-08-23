@@ -43,6 +43,7 @@ import {
   encryptFields,
   setAsaasService,
   setCacheService,
+  setGatewayFactory,
 } from './rules';
 
 function UserPermission(permission: string) {

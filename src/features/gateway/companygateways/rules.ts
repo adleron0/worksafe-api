@@ -3,6 +3,8 @@ import { Request } from 'express';
 import { BadRequestException } from '@nestjs/common';
 import { AsaasService } from 'src/common/gateways/asaas/asaas.service';
 import { CacheService } from 'src/common/cache/cache.service';
+import { GatewayFactory } from 'src/common/gateways/gateway.factory';
+import { gateways } from '@prisma/client';
 
 export const noCompany = false;
 export const omitAttributes: string[] = [];
@@ -13,6 +15,7 @@ export const encryptFields: string[] = [];
 // Variáveis para armazenar os serviços
 let asaasServiceInstance: AsaasService;
 let cacheServiceInstance: CacheService;
+let gatewayFactoryInstance: GatewayFactory;
 
 // Funções para configurar os serviços (serão chamadas pelo controller)
 export function setAsaasService(service: AsaasService) {
@@ -21,6 +24,10 @@ export function setAsaasService(service: AsaasService) {
 
 export function setCacheService(service: CacheService) {
   cacheServiceInstance = service;
+}
+
+export function setGatewayFactory(factory: GatewayFactory) {
+  gatewayFactoryInstance = factory;
 }
 
 /*
@@ -67,8 +74,9 @@ async function hookPreCreate(params: {
   logParams: any;
 }) {
   const { dto, entity, prisma, logParams } = params;
-  // Se for gateway Asaas e tiver payload com token
-  if (dto.gateway === 'asaas' && dto.payload) {
+  
+  // Processa o payload se existir
+  if (dto.payload) {
     let payloadData = dto.payload;
 
     // Se payload for string, fazer parse
@@ -80,35 +88,79 @@ async function hookPreCreate(params: {
       }
     }
 
-    // Se tiver token e o serviço Asaas estiver disponível, configurar webhook
-    if (payloadData.token && asaasServiceInstance && cacheServiceInstance) {
-      try {
-        // Primeiro salva o token no Redis para que o webhook possa ser configurado
-        const cacheKey = `asaasToken:${logParams.companyId}`;
-        // Armazena no cache para futuras requisições (TTL de 30 dias)
-        await cacheServiceInstance.set(cacheKey, payloadData.token, 2592000);
-        console.log('📝 Token Asaas salvo no cache Redis');
+    // Configuração específica por gateway
+    await configureGatewayWebhook({
+      gateway: dto.gateway as gateways,
+      payloadData,
+      companyId: Number(logParams.companyId),
+      dto,
+      isUpdate: false,
+    });
+  }
+}
 
-        // Agora configura o webhook no Asaas
-        const webhookData = await asaasServiceInstance.configureWebhooks(
-          Number(logParams.companyId),
-          payloadData.webhookId || null,
-        );
+/**
+ * Configura webhook de acordo com o gateway
+ */
+async function configureGatewayWebhook(params: {
+  gateway: gateways;
+  payloadData: any;
+  companyId: number;
+  dto: any;
+  isUpdate: boolean;
+  currentWebhookId?: string;
+}) {
+  const { gateway, payloadData, companyId, dto, isUpdate, currentWebhookId } = params;
 
-        // Atualiza o payload com o ID do webhook criado
-        if (webhookData && webhookData.id) {
-          payloadData.webhookId = webhookData.id;
-          dto.payload = payloadData;
-          console.log(
-            '✅ Webhook Asaas configurado com sucesso:',
-            webhookData.id,
+  switch (gateway) {
+    case 'asaas':
+      if (payloadData.token && asaasServiceInstance && cacheServiceInstance) {
+        try {
+          // Salva o token no Redis
+          const cacheKey = `asaasToken:${companyId}`;
+          await cacheServiceInstance.set(cacheKey, payloadData.token, 2592000);
+          console.log(`📝 Token ${gateway} salvo no cache Redis`);
+
+          // Configura o webhook
+          const webhookData = await asaasServiceInstance.configureWebhooks(
+            companyId,
+            currentWebhookId || payloadData.webhookId || null,
           );
+
+          // Atualiza o payload com o ID do webhook
+          if (webhookData && webhookData.id) {
+            payloadData.webhookId = webhookData.id;
+            dto.payload = payloadData;
+            console.log(
+              `✅ Webhook ${gateway} ${isUpdate ? 'atualizado' : 'configurado'} com sucesso:`,
+              webhookData.id,
+            );
+          }
+        } catch (error) {
+          console.error(`❌ Erro ao configurar webhook ${gateway}:`, error);
         }
-      } catch (error) {
-        console.error('❌ Erro ao configurar webhook Asaas:', error);
-        // Não bloqueia a criação, apenas loga o erro
       }
-    }
+      break;
+
+    case 'stripe':
+      // Futura implementação para Stripe
+      if (payloadData.secretKey) {
+        // TODO: Implementar configuração de webhook Stripe
+        console.log('Stripe webhook configuration not yet implemented');
+      }
+      break;
+
+    case 'mercadoPago':
+      // Futura implementação para Mercado Pago
+      if (payloadData.accessToken) {
+        // TODO: Implementar configuração de webhook Mercado Pago
+        console.log('Mercado Pago webhook configuration not yet implemented');
+      }
+      break;
+
+    // Adicionar outros gateways conforme necessário
+    default:
+      console.log(`Gateway ${gateway} não possui configuração de webhook implementada`);
   }
 }
 
@@ -151,8 +203,8 @@ async function hookPreUpdate(params: {
     throw new BadRequestException('Gateway não encontrada');
   }
 
-  // Se for gateway Asaas e tiver payload com token
-  if (currentRecord.gateway === 'asaas' && dto.payload) {
+  // Processa o payload se existir
+  if (dto.payload) {
     let payloadData = dto.payload;
     let currentPayload = currentRecord.payload || {};
 
@@ -174,35 +226,15 @@ async function hookPreUpdate(params: {
       }
     }
 
-    // Se tiver token e o serviço Asaas estiver disponível, atualizar ou criar webhook
-    if (payloadData.token && asaasServiceInstance && cacheServiceInstance) {
-      try {
-        // Atualiza o token no Redis se foi alterado
-        const cacheKey = `asaasToken:${logParams.companyId}`;
-        // Armazena no cache para futuras requisições (TTL de 30 dias)
-        await cacheServiceInstance.set(cacheKey, payloadData.token, 2592000);
-        console.log('📝 Token Asaas atualizado no cache Redis');
-
-        // Configura ou atualiza o webhook no Asaas
-        const webhookData = await asaasServiceInstance.configureWebhooks(
-          Number(logParams.companyId),
-          currentPayload.webhookId || payloadData.webhookId || null,
-        );
-
-        // Atualiza o payload com o ID do webhook
-        if (webhookData && webhookData.id) {
-          payloadData.webhookId = webhookData.id;
-          dto.payload = payloadData;
-          console.log(
-            '✅ Webhook Asaas atualizado com sucesso:',
-            webhookData.id,
-          );
-        }
-      } catch (error) {
-        console.error('❌ Erro ao atualizar webhook Asaas:', error);
-        // Não bloqueia a atualização, apenas loga o erro
-      }
-    }
+    // Configuração específica por gateway
+    await configureGatewayWebhook({
+      gateway: currentRecord.gateway as gateways,
+      payloadData,
+      companyId: Number(logParams.companyId),
+      dto,
+      isUpdate: true,
+      currentWebhookId: currentPayload.webhookId,
+    });
   }
 
   // Se estiver desativando (active = false), adiciona inactiveAt
