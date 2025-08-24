@@ -9,5 +9,6 @@ import { CheckoutModule } from 'src/features/gateway/checkout/checkout.module';
   controllers: [Controller],
   providers: [Service],
   imports: [UploadModule, CacheModule, forwardRef(() => CheckoutModule)],
+  exports: [Service], // Exporta o service para outros módulos poderem usar
 })
 export class SubscriptionModule {}

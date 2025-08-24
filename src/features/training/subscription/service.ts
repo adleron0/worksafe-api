@@ -101,7 +101,7 @@ export class SubscriptionService extends GenericService<
     dto: CreateDto,
     courseClass: any,
   ) {
-    // SEGUNDO: Busca ou cria o Trainee usando o companyId da turma
+    // SEGUNDO: Busca trainee existente (mas NÃO cria ainda)
     let trainee = await this.prisma.selectFirst('trainee', {
       where: {
         cpf: dto.cpf,
@@ -109,41 +109,10 @@ export class SubscriptionService extends GenericService<
       },
     });
 
-    if (!trainee) {
-      // Cria o trainee se não existir
-      const traineeData: any = {
-        name: dto.name,
-        cpf: dto.cpf,
-        email: dto.email,
-        phone: dto.phone,
-        companyId: courseClass.companyId,
-        occupation: dto.occupation,
-        address: dto.address,
-        addressNumber: dto.addressNumber ? Number(dto.addressNumber) : null,
-        complement: dto.addressComplement,
-        zipCode: dto.zipCode,
-      };
-
-      const traineeLogParams = {
-        userId: 1, // Usar userId 1 como sistema/admin por enquanto
-        companyId: courseClass.companyId,
-      };
-
-      trainee = await this.prisma.insert(
-        'trainee',
-        traineeData,
-        traineeLogParams,
-        tx,
-      );
-      console.log('Trainee criado:', trainee);
-    } else {
-      console.log('Trainee encontrado:', trainee);
-    }
-
-    // TERCEIRO: Verifica se já existe inscrição para este trainee nesta turma
+    // TERCEIRO: Verifica se já existe inscrição para este CPF nesta turma
     const existingSubscription = await this.prisma.selectFirst(entity.model, {
       where: {
-        traineeId: trainee.id,
+        cpf: dto.cpf,
         classId: Number(search.classId),
       },
     });
@@ -173,8 +142,8 @@ export class SubscriptionService extends GenericService<
       );
     }
 
-    // Adiciona o traineeId ao DTO
-    dto.traineeId = trainee.id;
+    // Se existe trainee, adiciona o traineeId ao DTO (mas só será usado se o pagamento for confirmado)
+    dto.traineeId = trainee?.id || null;
 
     // Verifica se o limite de inscrições foi atingido
     if (courseClass && courseClass.maxSubscriptions) {
@@ -210,7 +179,10 @@ export class SubscriptionService extends GenericService<
         }
 
         // Validação para garantir que creditCard não é string [object Object]
-        if (typeof dto.creditCard === 'string' && dto.creditCard === '[object Object]') {
+        if (
+          typeof dto.creditCard === 'string' &&
+          dto.creditCard === '[object Object]'
+        ) {
           throw new BadRequestException(
             'Dados do cartão foram enviados incorretamente. Por favor, envie como JSON string.',
           );
@@ -245,10 +217,8 @@ export class SubscriptionService extends GenericService<
       }
     }
 
-    const logParams = {
-      userId: 1, // Usar userId 1 como sistema/admin por enquanto
-      companyId: courseClass.companyId, // Usa o companyId da turma
-    };
+    // Usa logParams vazio para evitar problemas com o sistema de logs
+    const logParams = {};
 
     // Remove campos de pagamento e endereço do DTO antes de criar a inscrição
     const { paymentMethod, creditCard, customerData } = dto;
@@ -259,10 +229,20 @@ export class SubscriptionService extends GenericService<
       cpf: dto.cpf,
       email: dto.email,
       phone: dto.phone,
-      traineeId: trainee.id,
+      traineeId: trainee?.id || null, // Só vincula se já existir trainee
       classId: Number(search.classId),
       companyId: courseClass.companyId,
       subscribeStatus: dto.subscribeStatus || 'pending',
+      // Salva dados de endereço na inscrição
+      address: dto.address,
+      addressNumber: dto.addressNumber,
+      addressComplement: dto.addressComplement,
+      neighborhood: dto.neighborhood,
+      city: dto.city,
+      state: dto.state,
+      zipCode: dto.zipCode,
+      occupation: dto.occupation,
+      workedAt: dto.workedAt,
     };
 
     const created = await this.prisma.insert(
@@ -285,21 +265,15 @@ export class SubscriptionService extends GenericService<
           courseClass.companyId,
         );
 
-        // Se for cartão e foi aprovado, atualiza status da inscrição
+        // Se for cartão e foi aprovado, confirma inscrição e cria trainee
         if (
           paymentMethod === 'cartaoCredito' &&
           checkoutResult.payment?.status === 'CONFIRMED'
         ) {
-          await this.prisma.update(
-            entity.model,
-            {
-              subscribeStatus: 'confirmed',
-              confirmedAt: new Date(),
-            },
-            logParams,
-            null,
+          // Usa o método centralizado de confirmação
+          await this.confirmSubscriptionPayment(
             created.id,
-            null, // Sem transação aqui
+            checkoutResult.payment,
           );
         }
 
@@ -313,10 +287,10 @@ export class SubscriptionService extends GenericService<
       } catch (paymentError) {
         // Se o pagamento falhar, ainda retorna a inscrição criada
         console.error('Erro no processamento do checkout:', paymentError);
-        
+
         // Mantém a inscrição como pendente já que o pagamento falhou
         // O status 'pending' já está definido, então não precisa atualizar
-        
+
         return {
           ...created,
           paymentError: paymentError.message || 'Erro ao processar pagamento',
@@ -338,182 +312,256 @@ export class SubscriptionService extends GenericService<
   ) {
     console.log('=== REPROCESSANDO PAGAMENTO ===');
     console.log('Inscrição existente:', subscription.id);
-    console.log('Método atual:', dto.paymentMethod);
-
-    // Busca o registro financeiro existente
-    const existingFinancialRecord = await this.prisma.selectFirst(
-      'financialRecords',
-      {
-        where: {
-          subscriptionId: subscription.id,
-        },
-        orderBy: { id: 'desc' }, // Pega o mais recente
-      },
-    );
 
     const { paymentMethod, creditCard, customerData } = dto;
 
-    // Se tem registro financeiro existente
-    if (existingFinancialRecord) {
-      console.log('Registro financeiro encontrado:', existingFinancialRecord.id);
-      console.log('Status atual:', existingFinancialRecord.status);
-      console.log('Método anterior no BD:', existingFinancialRecord.paymentMethod);
-      console.log('Novo método solicitado:', paymentMethod);
-      console.log('Métodos são diferentes?', existingFinancialRecord.paymentMethod !== paymentMethod);
+    // Busca o registro financeiro mais recente
+    const existingFinancialRecord = await this.prisma.selectFirst(
+      'financialRecords',
+      {
+        where: { subscriptionId: subscription.id },
+        orderBy: { id: 'desc' },
+      },
+    );
 
-      // Se o pagamento já foi recebido, não permite reprocessar
-      if (existingFinancialRecord.status === 'received') {
-        throw new BadRequestException(
-          'O pagamento desta inscrição já foi confirmado',
-        );
-      }
+    // Valida se pode reprocessar
+    if (existingFinancialRecord?.status === 'received') {
+      throw new BadRequestException(
+        'O pagamento desta inscrição já foi confirmado',
+      );
+    }
 
-      // Se está mudando o método de pagamento ou reprocessando
-      if (existingFinancialRecord.paymentMethod !== paymentMethod || 
-          (paymentMethod === 'cartaoCredito' && creditCard)) {
-        console.log('Processando pagamento com novo método ou dados...');
-        console.log('Motivo: mudança de método ou reprocessamento de cartão');
-        
-        // Processa o pagamento (vai atualizar o registro financeiro existente)
-        try {
-          const checkoutResult = await this.checkoutService.processCheckout(
-            {
-              subscriptionId: subscription.id,
-              paymentMethod,
-              creditCard,
-              customerData,
-              financialRecordId: existingFinancialRecord.id, // Passa o ID do registro existente
-            },
-            courseClass.companyId,
-          );
+    // Determina se deve processar novo pagamento
+    const shouldProcessPayment = !existingFinancialRecord ||
+      existingFinancialRecord.paymentMethod !== paymentMethod ||
+      (paymentMethod === 'cartaoCredito' && creditCard);
 
-          // Se for cartão e foi aprovado, atualiza status da inscrição
-          if (
-            paymentMethod === 'cartaoCredito' &&
-            checkoutResult.payment?.status === 'CONFIRMED'
-          ) {
-            await this.prisma.update(
-              entity.model,
-              {
-                subscribeStatus: 'confirmed',
-                confirmedAt: new Date(),
-              },
-              { userId: 1, companyId: courseClass.companyId },
-              null,
-              subscription.id,
-              null,
-            );
-          }
-
-          // Retorna a inscrição com os novos dados
-          return {
-            ...subscription,
-            payment: checkoutResult.payment,
-            financialRecordId: checkoutResult.financialRecordId,
-            financialRecord: checkoutResult.financialRecord,
-          };
-        } catch (error) {
-          console.error('Erro ao processar pagamento:', error);
-          throw new BadRequestException(
-            error.message || 'Erro ao processar pagamento',
-          );
-        }
-      } else {
-        // Para PIX/Boleto com mesmo método, retorna os dados existentes
-        console.log('Retornando dados existentes de PIX/Boleto...');
-        
-        // Busca os dados completos do registro financeiro
-        const financialRecordData = await this.prisma.selectFirst(
-          'financialRecords',
-          {
-            where: { id: existingFinancialRecord.id },
-            select: {
-              id: true,
-              status: true,
-              paymentMethod: true,
-              value: true,
-              dueDate: true,
-              paidAt: true,
-              billUrl: true,
-              billNumber: true,
-              pixUrl: true,
-              pixNumber: true,
-              externalId: true,
-              key: true,
-              responseData: true,
-            },
-          },
-        );
-
-        // Formata a resposta do payment baseado no responseData
-        const paymentData = financialRecordData.responseData || {};
-        
-        return {
-          ...subscription,
-          payment: paymentData,
-          financialRecordId: financialRecordData.id,
-          financialRecord: {
-            id: financialRecordData.id,
-            status: financialRecordData.status,
-            paymentMethod: financialRecordData.paymentMethod,
-            value: financialRecordData.value,
-            dueDate: financialRecordData.dueDate,
-            paidAt: financialRecordData.paidAt,
-            billUrl: financialRecordData.billUrl,
-            billNumber: financialRecordData.billNumber,
-            pixUrl: financialRecordData.pixUrl,
-            pixNumber: financialRecordData.pixNumber,
-            externalId: financialRecordData.externalId,
-            key: financialRecordData.key,
-          },
-        };
-      }
+    if (shouldProcessPayment) {
+      return await this.processNewPayment(
+        subscription,
+        { paymentMethod, creditCard, customerData },
+        courseClass.companyId,
+        existingFinancialRecord?.id,
+      );
     } else {
-      // Não tem registro financeiro, cria novo pagamento
-      console.log('Sem registro financeiro, criando novo pagamento...');
-      
-      try {
-        const checkoutResult = await this.checkoutService.processCheckout(
-          {
-            subscriptionId: subscription.id,
-            paymentMethod,
-            creditCard,
-            customerData,
-          },
-          courseClass.companyId,
-        );
-
-        // Se for cartão e foi aprovado, atualiza status
-        if (
-          paymentMethod === 'cartaoCredito' &&
-          checkoutResult.payment?.status === 'CONFIRMED'
-        ) {
-          await this.prisma.update(
-            entity.model,
-            {
-              subscribeStatus: 'confirmed',
-              confirmedAt: new Date(),
-            },
-            { userId: 1, companyId: courseClass.companyId },
-            null,
-            subscription.id,
-            null,
-          );
-        }
-
-        return {
-          ...subscription,
-          payment: checkoutResult.payment,
-          financialRecordId: checkoutResult.financialRecordId,
-          financialRecord: checkoutResult.financialRecord,
-        };
-      } catch (error) {
-        console.error('Erro ao criar novo pagamento:', error);
-        throw new BadRequestException(
-          error.message || 'Erro ao processar pagamento',
-        );
-      }
+      // Retorna dados existentes de PIX/Boleto
+      return await this.getExistingPaymentData(
+        subscription,
+        existingFinancialRecord.id,
+      );
     }
   }
 
+  /**
+   * Processa um novo pagamento ou reprocessa com novo método
+   */
+  private async processNewPayment(
+    subscription: any,
+    paymentData: { paymentMethod: any; creditCard?: any; customerData?: any },
+    companyId: number,
+    financialRecordId?: number,
+  ): Promise<any> {
+    try {
+      const checkoutResult = await this.checkoutService.processCheckout(
+        {
+          subscriptionId: subscription.id,
+          ...paymentData,
+          financialRecordId, // Usa registro existente se houver
+        },
+        companyId,
+      );
+
+      // Confirma inscrição se cartão foi aprovado
+      if (
+        paymentData.paymentMethod === 'cartaoCredito' &&
+        checkoutResult.payment?.status === 'CONFIRMED'
+      ) {
+        await this.confirmSubscriptionPayment(
+          subscription.id,
+          checkoutResult.payment,
+        );
+      }
+
+      return {
+        ...subscription,
+        payment: checkoutResult.payment,
+        financialRecordId: checkoutResult.financialRecordId,
+        financialRecord: checkoutResult.financialRecord,
+      };
+    } catch (error) {
+      console.error('Erro ao processar pagamento:', error);
+      throw new BadRequestException(
+        error.message || 'Erro ao processar pagamento',
+      );
+    }
+  }
+
+  /**
+   * Retorna dados de pagamento existente
+   */
+  private async getExistingPaymentData(
+    subscription: any,
+    financialRecordId: number,
+  ): Promise<any> {
+    const financialRecord = await this.prisma.selectFirst('financialRecords', {
+      where: { id: financialRecordId },
+      select: {
+        id: true,
+        status: true,
+        paymentMethod: true,
+        value: true,
+        dueDate: true,
+        paidAt: true,
+        billUrl: true,
+        billNumber: true,
+        pixUrl: true,
+        pixNumber: true,
+        externalId: true,
+        key: true,
+        responseData: true,
+      },
+    });
+
+    return {
+      ...subscription,
+      payment: financialRecord.responseData || {},
+      financialRecordId: financialRecord.id,
+      financialRecord: {
+        id: financialRecord.id,
+        status: financialRecord.status,
+        paymentMethod: financialRecord.paymentMethod,
+        value: financialRecord.value,
+        dueDate: financialRecord.dueDate,
+        paidAt: financialRecord.paidAt,
+        billUrl: financialRecord.billUrl,
+        billNumber: financialRecord.billNumber,
+        pixUrl: financialRecord.pixUrl,
+        pixNumber: financialRecord.pixNumber,
+        externalId: financialRecord.externalId,
+        key: financialRecord.key,
+      },
+    };
+  }
+
+  /**
+   * Busca ou cria um trainee com base nos dados da inscrição
+   * Usado quando o pagamento é confirmado
+   */
+  private async findOrCreateTrainee(
+    subscriptionData: any,
+    companyId: number,
+    subscriptionId?: number,
+  ): Promise<number> {
+    // Usa selectOrCreate para buscar ou criar o trainee
+    // NOTA: trainee não tem campos neighborhood, city, state como strings
+    // Esses campos ficam apenas na subscription
+    const traineeData = {
+      name: subscriptionData.name,
+      cpf: subscriptionData.cpf,
+      email: subscriptionData.email,
+      phone: subscriptionData.phone,
+      companyId: companyId,
+      occupation: subscriptionData.occupation || null,
+      address: subscriptionData.address || null,
+      addressNumber: subscriptionData.addressNumber
+        ? String(subscriptionData.addressNumber)
+        : null,
+      complement:
+        subscriptionData.addressComplement || subscriptionData.complement || null,
+      zipCode: subscriptionData.zipCode || null,
+    };
+
+    // Corrigindo a estrutura para selectOrCreate
+    const whereCondition = {
+      cpf: subscriptionData.cpf,
+      companyId: companyId,
+    };
+    
+    const trainee = await this.prisma.selectOrCreate(
+      'trainee',
+      whereCondition,
+      traineeData,
+      {}, // logParams vazio - operação interna do sistema
+    );
+
+    if (trainee.created) {
+      console.log(
+        `Trainee criado após confirmação de pagamento: ${trainee.data.id} - ${trainee.data.name}`,
+      );
+    } else {
+      console.log(
+        `Trainee existente encontrado: ${trainee.data.id} - ${trainee.data.name}`,
+      );
+    }
+
+    return trainee.data.id;
+  }
+
+  /**
+   * Confirma uma inscrição após webhook de pagamento
+   * Cria o trainee se necessário e atualiza o status
+   */
+  async confirmSubscriptionPayment(
+    subscriptionId: number,
+    paymentData?: any,
+  ): Promise<any> {
+    try {
+      // Busca a inscrição com os dados necessários
+      const subscription = await this.prisma.selectFirst(
+        'courseClassSubscription',
+        {
+          where: { id: subscriptionId },
+          include: {
+            class: true,
+          },
+        },
+      );
+
+      if (!subscription) {
+        throw new BadRequestException('Inscrição não encontrada');
+      }
+
+      // SEMPRE verifica e cria o trainee se não existir
+      // (mesmo que a inscrição já esteja confirmada)
+      let traineeId = subscription.traineeId;
+      
+      if (!traineeId) {
+        console.log(`Inscrição ${subscriptionId} sem trainee, criando...`);
+        traineeId = await this.findOrCreateTrainee(
+          subscription,
+          subscription.companyId,
+          subscriptionId,
+        );
+      } else {
+        console.log(`Inscrição ${subscriptionId} já tem trainee: ${traineeId}`);
+      }
+
+      // Só atualiza se não estava confirmada ou se não tinha trainee
+      if (subscription.subscribeStatus !== 'confirmed' || !subscription.traineeId) {
+        const updatedSubscription = await this.prisma.update(
+          'courseClassSubscription',
+          {
+            subscribeStatus: 'confirmed',
+            confirmedAt: subscription.confirmedAt || new Date(),
+            traineeId: traineeId,
+          },
+          {}, // logParams vazio - operação do webhook
+          null,
+          subscriptionId,
+        );
+
+        console.log(
+          `Inscrição ${subscriptionId} atualizada com trainee ${traineeId}`,
+        );
+        
+        return updatedSubscription;
+      }
+
+      console.log(`Inscrição ${subscriptionId} já estava completa`);
+      return subscription;
+    } catch (error) {
+      console.error('Erro ao confirmar inscrição:', error);
+      throw error;
+    }
+  }
 }

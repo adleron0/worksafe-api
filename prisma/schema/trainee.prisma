@@ -7,7 +7,7 @@ model Trainee {
   birthDate DateTime?
   zipCode  String?   @db.VarChar(10)
   address  String?   @db.VarChar(255)
-  addressNumber Int?
+  addressNumber String?   @db.VarChar(255)
   complement String? @db.VarChar(100)
   cityId   Int?
   city     DOM_Cities?     @relation(fields: [cityId], references: [id])

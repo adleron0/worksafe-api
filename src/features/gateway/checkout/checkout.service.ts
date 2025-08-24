@@ -3,9 +3,12 @@ import {
   BadRequestException,
   HttpException,
   HttpStatus,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { AsaasService } from 'src/common/gateways/asaas/asaas.service';
+import { SubscriptionService } from 'src/features/training/subscription/service';
 import { paymentMethods, gateways } from '@prisma/client';
 import {
   CreditCardData,
@@ -38,6 +41,8 @@ export class CheckoutService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly asaasService: AsaasService,
+    @Inject(forwardRef(() => SubscriptionService))
+    private readonly subscriptionService: SubscriptionService,
   ) {}
 
   /**
@@ -215,6 +220,7 @@ export class CheckoutService {
             paidAt: true,
             createdAt: true,
             updatedAt: true,
+            key: true,
           },
         },
       );
@@ -373,9 +379,9 @@ export class CheckoutService {
       );
     }
 
-    // Prepara os dados do cliente
+    // Prepara os dados do cliente (usa dados da inscrição se não tiver trainee ainda)
     const customerData = this.prepareCustomerData(
-      subscription.trainee,
+      subscription.trainee || subscription, // Passa a própria inscrição se não tiver trainee
       checkoutData.customerData,
     );
 
@@ -543,22 +549,31 @@ export class CheckoutService {
 
   /**
    * Prepara os dados do cliente
+   * Pode receber um trainee ou uma inscrição (quando trainee ainda não foi criado)
    */
   private prepareCustomerData(
-    trainee: any,
+    traineeOrSubscription: any,
     additionalData?: CustomerData,
   ): any {
+    // Se não tem dados e nem trainee/inscrição, retorna erro
+    if (!traineeOrSubscription && !additionalData) {
+      throw new BadRequestException('Dados do cliente não fornecidos');
+    }
+    
     // Retorna um objeto com os campos obrigatórios para o Asaas
+    // Usa CPF ou documento para identificar se é trainee ou inscrição
+    const data = traineeOrSubscription || {};
+    
     return {
-      name: additionalData?.name || trainee.name || 'Não informado',
-      document: additionalData?.document || trainee.cpf || '',
-      email: additionalData?.email || trainee.email || '',
-      phone: additionalData?.phone || trainee.phone || '',
-      address: additionalData?.address || trainee.address || '',
-      number: additionalData?.number || String(trainee.addressNumber || ''),
-      complement: additionalData?.complement || trainee.complement || '',
-      neighborhood: additionalData?.neighborhood || trainee.neighborhood || '',
-      zipCode: additionalData?.zipCode || trainee.zipCode || '',
+      name: additionalData?.name || data.name || 'Não informado',
+      document: additionalData?.document || data.cpf || '',
+      email: additionalData?.email || data.email || '',
+      phone: additionalData?.phone || data.phone || '',
+      address: additionalData?.address || data.address || '',
+      number: additionalData?.number || String(data.addressNumber || ''),
+      complement: additionalData?.complement || data.addressComplement || data.complement || '',
+      neighborhood: additionalData?.neighborhood || data.neighborhood || '',
+      zipCode: additionalData?.zipCode || data.zipCode || '',
     };
   }
 
@@ -782,18 +797,15 @@ export class CheckoutService {
     // Se o pagamento foi confirmado
     if (['RECEIVED', 'CONFIRMED'].includes(webhookPayment.status)) {
       console.log(
-        `Pagamento confirmado! Atualizando inscrição ${subscriptionId}`,
+        `Pagamento confirmado! Confirmando inscrição ${subscriptionId} e criando trainee...`,
       );
-      await this.prisma.update(
-        'courseClassSubscription',
-        {
-          subscribeStatus: 'confirmed',
-          confirmedAt: new Date(),
-        },
-        {}, // logParams vazio - operação interna do webhook
-        null,
+      
+      // Usa o método do SubscriptionService que cria o trainee e confirma a inscrição
+      await this.subscriptionService.confirmSubscriptionPayment(
         subscriptionId,
+        webhookPayment,
       );
+      
       console.log(`Inscrição ${subscriptionId} confirmada com sucesso!`);
     }
   }
