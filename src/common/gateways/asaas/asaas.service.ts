@@ -1,4 +1,9 @@
-import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import {
+  Injectable,
+  HttpException,
+  HttpStatus,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
@@ -70,6 +75,7 @@ interface CreditCardData {
   expiryDate: string;
   cvv: string;
   token?: string;
+  installments?: string | number;
 }
 
 interface WebhookData {
@@ -120,7 +126,7 @@ export class AsaasService {
       }
 
       // Se não encontrou no cache, busca no banco de dados
-      const companyGateway = await this.prisma.companyGateWays.findFirst({
+      const companyGateway = await this.prisma.selectFirst('companyGateWays', {
         where: {
           companyId,
           gateway: 'asaas',
@@ -242,13 +248,16 @@ export class AsaasService {
   async getOrCreateCustomer(customer: CustomerData, companyId: number) {
     try {
       // Primeiro tenta buscar o cliente pelo CPF
-      const existingCustomer = await this.getCustomerByCpf(customer.document, companyId);
+      const existingCustomer = await this.getCustomerByCpf(
+        customer.document,
+        companyId,
+      );
       if (existingCustomer) {
         return existingCustomer;
       }
       // Se não encontrar, cria um novo
       return await this.createCustomer(customer, companyId);
-    } catch (error) {
+    } catch {
       // Se houver erro na busca, tenta criar
       return await this.createCustomer(customer, companyId);
     }
@@ -290,14 +299,20 @@ export class AsaasService {
 
   private prepareCreditCardData(creditCardData: CreditCardData) {
     const { cardName, cardNumber, expiryDate, cvv } = creditCardData;
+
+    // Validação básica dos dados
+    if (!expiryDate) {
+      throw new BadRequestException('Data de validade do cartão é obrigatória');
+    }
+
     const [expiryMonth, expiryYear] = expiryDate.split('/');
 
     return {
-      holderName: cardName,
-      number: cardNumber.replace(/\s/g, ''),
-      expiryMonth,
-      expiryYear,
-      ccv: cvv,
+      holderName: cardName || 'Titular do Cartão',
+      number: cardNumber?.replace(/\s/g, '') || '',
+      expiryMonth: expiryMonth || '',
+      expiryYear: expiryYear || '',
+      ccv: cvv || '',
     };
   }
 
@@ -346,7 +361,27 @@ export class AsaasService {
           paymentData.creditCardHolderInfo,
         );
       }
+
+      // Adiciona suporte a parcelamento
+      if (paymentData.creditCard.installments) {
+        const installments = Number(paymentData.creditCard.installments);
+        if (installments > 1) {
+          data.installmentCount = installments;
+          // Calcula o valor de cada parcela
+          data.installmentValue = Number(
+            (paymentData.value / installments).toFixed(2),
+          );
+          console.log(
+            `Pagamento parcelado em ${installments}x de R$ ${data.installmentValue}`,
+          );
+        }
+      }
     }
+
+    console.log('=== DADOS ENVIADOS PARA ASAAS ===');
+    console.log('URL:', url);
+    console.log('Payload:', JSON.stringify(data, null, 2));
+    console.log('=== FIM DADOS ASAAS ===');
 
     try {
       const response = await axios.post(url, data, headers);
@@ -409,8 +444,13 @@ export class AsaasService {
 
     try {
       const response = await axios.get(url, headers);
+      console.log('=== PIX DATA RETORNADO ===');
+      console.log('QR Code disponível:', !!response.data?.encodedImage);
+      console.log('Payload disponível:', !!response.data?.payload);
+      console.log('=== FIM PIX DATA ===');
       return response.data;
     } catch (error) {
+      console.error('Erro ao buscar dados do PIX:', error);
       throw this.handleAsaasError(error);
     }
   }
@@ -455,14 +495,75 @@ export class AsaasService {
       data.billingType = PAYMENT_TYPES[updateData.paymentType];
     }
 
+    // Se está mudando para cartão e tem dados do cartão, adiciona
+    if (updateData.paymentType === 'cartao' && updateData.creditCard) {
+      data.creditCard = this.prepareCreditCardData(updateData.creditCard);
+      if (updateData.creditCardHolderInfo) {
+        data.creditCardHolderInfo = this.prepareCreditCardHolderInfo(
+          updateData.creditCardHolderInfo,
+        );
+      }
+
+      // Adiciona suporte a parcelamento no update
+      if (updateData.creditCard.installments) {
+        const installments = Number(updateData.creditCard.installments);
+        if (installments > 1) {
+          data.installmentCount = installments;
+          // Calcula o valor de cada parcela
+          data.installmentValue = Number(
+            (updateData.value / installments).toFixed(2),
+          );
+          console.log(
+            `Atualizando pagamento para parcelado: ${installments}x de R$ ${data.installmentValue}`,
+          );
+        }
+      }
+    }
+
+    console.log('=== ATUALIZANDO PAGAMENTO NO ASAAS ===');
+    console.log('URL:', url);
+    console.log('Payload:', JSON.stringify(data, null, 2));
+    console.log('=== FIM DADOS UPDATE ASAAS ===');
+
     try {
       const response = await axios.put(url, data, headers);
+      console.log('Resposta do Asaas:', response.data.status);
       return response.data;
     } catch (error) {
       throw new HttpException(
         this.handleAsaasError(error),
         HttpStatus.BAD_REQUEST,
       );
+    }
+  }
+
+  /**
+   * Tenta processar um pagamento existente com cartão de crédito
+   * NOTA: Este método pode não funcionar dependendo das regras do Asaas
+   */
+  async processExistingPaymentWithCard(
+    paymentId: string,
+    creditCard: CreditCardData,
+    creditCardHolderInfo: CustomerData,
+    companyId: number,
+  ) {
+    try {
+      // Tenta atualizar o pagamento incluindo os dados do cartão
+      const updateData: any = {
+        paymentType: 'cartao',
+        creditCard,
+        creditCardHolderInfo,
+      };
+
+      const result = await this.updatePayment(paymentId, updateData, companyId);
+
+      // Busca os detalhes atualizados
+      const payment = await this.getPaymentDetails(paymentId, companyId);
+
+      return payment;
+    } catch (error) {
+      console.error('Erro ao processar cartão em pagamento existente:', error);
+      throw error;
     }
   }
 
@@ -585,7 +686,65 @@ export class AsaasService {
         return { success: false, message: 'Payment data not found' };
       }
 
-      const existingRecord = await this.prisma.financialRecords.findFirst({
+      // Verifica se o pagamento foi deletado
+      console.log('=== VERIFICANDO DELETED NO WEBHOOK ===');
+      console.log('payment.deleted:', payment.deleted);
+      console.log('payment.deleted === true:', payment.deleted === true);
+      console.log('typeof payment.deleted:', typeof payment.deleted);
+
+      if (payment.deleted === true) {
+        console.log(`Webhook: Pagamento ${payment.id} foi deletado no Asaas`);
+
+        // Se existe registro, marca como cancelado
+        const existingRecord = await this.prisma.selectFirst('financialRecords', {
+          where: {
+            externalId: payment.id,
+            companyId,
+          },
+        });
+
+        console.log('Registro existente encontrado:', existingRecord?.id);
+
+        if (existingRecord) {
+          console.log('Status atual do registro:', existingRecord.status);
+          console.log('Tentando atualizar para cancelled...');
+
+          try {
+            // Força o status para cancelled, ignorando o status do Asaas
+            const updatedRecord = await this.prisma.update(
+              'financialRecords',
+              {
+                status: 'cancelled' as const,
+                observations: 'Pagamento cancelado/deletado pelo gateway',
+                responseData: payment, // Salva o payload completo para histórico
+              },
+              {}, // logParams vazio - operação interna do webhook
+              null,
+              existingRecord.id,
+            );
+            console.log(
+              `Registro ${existingRecord.id} marcado como cancelled (deletado no Asaas)`,
+            );
+            console.log('Status após update:', updatedRecord.status);
+            return { success: true, record: updatedRecord };
+          } catch (error) {
+            console.error('Erro ao atualizar registro:', error);
+            throw error;
+          }
+        }
+
+        // Se não existe registro, não cria (pois foi deletado)
+        console.log('Pagamento deletado não tem registro, ignorando...');
+        return {
+          success: true,
+          message: 'Payment deleted, no record to update',
+        };
+      }
+
+      // IMPORTANTE: Se o pagamento foi deletado, já processamos acima e retornamos
+      // Não deve continuar para o código abaixo
+
+      const existingRecord = await this.prisma.selectFirst('financialRecords', {
         where: {
           externalId: payment.id,
           companyId,
@@ -596,10 +755,28 @@ export class AsaasService {
         const dueDate = new Date(payment.dueDate);
         const accrualDate = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}`;
 
-        const newRecord = await this.prisma.financialRecords.create({
-          data: {
+        // Extrai o subscriptionId do externalReference (remove "sub_" do início)
+        let subscriptionId = null;
+        if (
+          payment.externalReference &&
+          payment.externalReference.startsWith('sub_')
+        ) {
+          subscriptionId = parseInt(
+            payment.externalReference.replace('sub_', ''),
+          );
+        }
+
+        // Para pagamentos parcelados, verifica se já existe o registro da primeira parcela
+        // Se for parcela 2 ou maior, cria novo registro
+        const isInstallment =
+          payment.installmentNumber && payment.installmentNumber > 1;
+
+        const newRecord = await this.prisma.insert(
+          'financialRecords',
+          {
             accrualDate,
             companyId,
+            subscriptionId,
             externalId: payment.id,
             gateway: 'asaas',
             status: this.mapPaymentStatus(payment.status),
@@ -610,20 +787,50 @@ export class AsaasService {
               : null,
             paymentMethod: (INVERT_PAYMENT_TYPES[payment.billingType] ||
               'pix') as 'cartaoCredito' | 'boleto' | 'pix',
+            observations: isInstallment
+              ? `Registro criado via webhook - Parcela ${payment.installmentNumber} de ${payment.description}`
+              : 'Registro criado via webhook',
+            responseData: payment,
           },
+          {}, // logParams vazio - operação interna do webhook
+        );
+
+        console.log('Novo registro financeiro criado via webhook:', {
+          id: newRecord.id,
+          subscriptionId,
+          installmentNumber: payment.installmentNumber,
+          value: payment.value,
         });
+
         return { success: true, record: newRecord };
       }
 
-      const updatedRecord = await this.prisma.financialRecords.update({
-        where: { id: existingRecord.id },
-        data: {
-          status: this.mapPaymentStatus(payment.status),
+      // VERIFICAÇÃO ADICIONAL: Se deleted, não deveria chegar aqui
+      if (payment.deleted === true) {
+        console.error('ERRO: Código não deveria chegar aqui com deleted=true!');
+        // Força retorno para evitar update incorreto
+        return {
+          success: true,
+          message: 'Payment already processed as deleted',
+        };
+      }
+
+      // Se o pagamento está deletado, força status cancelled
+      const statusToUpdate = this.mapPaymentStatus(payment.status);
+
+      const updatedRecord = await this.prisma.update(
+        'financialRecords',
+        {
+          status: statusToUpdate,
           paidAt: payment.confirmedDate
             ? new Date(payment.confirmedDate)
             : null,
+          responseData: payment,
         },
-      });
+        {}, // logParams vazio - operação interna do webhook
+        null,
+        existingRecord.id,
+      );
 
       return { success: true, record: updatedRecord };
     } catch (error) {
@@ -650,8 +857,9 @@ export class AsaasService {
       const dueDate = new Date(paymentData.dueDate);
       const accrualDate = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}`;
 
-      const financialRecord = await this.prisma.financialRecords.create({
-        data: {
+      const financialRecord = await this.prisma.insert(
+        'financialRecords',
+        {
           accrualDate,
           companyId,
           externalId: paymentData.id,
@@ -669,7 +877,8 @@ export class AsaasService {
           billUrl: paymentData.boletoData?.bankSlipUrl || null,
           billNumber: paymentData.boletoData?.identificationField || null,
         },
-      });
+        {}, // logParams vazio - operação interna
+      );
 
       return financialRecord;
     } catch (error) {

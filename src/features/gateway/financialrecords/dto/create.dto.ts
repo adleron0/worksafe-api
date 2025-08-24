@@ -13,7 +13,6 @@ import {
 } from 'class-validator';
 
 export class CreateDto {
-
   @IsString()
   @IsNotEmpty({ message: 'accrualDate is required' })
   accrualDate: string;

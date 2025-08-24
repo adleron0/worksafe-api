@@ -95,7 +95,9 @@ export function CacheEvictAll(...patterns: string[]): MethodDecorator {
             await Promise.all(
               patterns.map((pattern) => cacheService.reset(pattern)),
             );
-            console.log(`Cache evicted BEFORE execution: ${patterns.join(', ')}`);
+            console.log(
+              `Cache evicted BEFORE execution: ${patterns.join(', ')}`,
+            );
           }
         } catch (error) {
           console.error('Cache eviction error:', error);
@@ -111,7 +113,9 @@ export function CacheEvictAll(...patterns: string[]): MethodDecorator {
             await Promise.all(
               patterns.map((pattern) => cacheService.reset(pattern)),
             );
-            console.log(`Cache evicted AFTER execution: ${patterns.join(', ')}`);
+            console.log(
+              `Cache evicted AFTER execution: ${patterns.join(', ')}`,
+            );
           }
         } catch (error) {
           console.error('Cache eviction error:', error);
@@ -123,27 +127,29 @@ export function CacheEvictAll(...patterns: string[]): MethodDecorator {
       descriptor.value = function (...args: any[]) {
         // Versão síncrona (se houver)
         const result = originalMethod.call(this, ...args);
-        
+
         // Tentar invalidar cache de forma assíncrona
         const cacheService = (this as any).cacheService;
         if (cacheService) {
-          Promise.all(
-            patterns.map((pattern) => cacheService.reset(pattern)),
-          ).then(() => {
-            console.log(`Cache evicted: ${patterns.join(', ')}`);
-          }).catch((error) => {
-            console.error('Cache eviction error:', error);
-          });
+          Promise.all(patterns.map((pattern) => cacheService.reset(pattern)))
+            .then(() => {
+              console.log(`Cache evicted: ${patterns.join(', ')}`);
+            })
+            .catch((error) => {
+              console.error('Cache eviction error:', error);
+            });
         }
-        
+
         return result;
       };
     }
 
     // Preservar metadados do método original
     Object.setPrototypeOf(descriptor.value, originalMethod);
-    Object.defineProperty(descriptor.value, 'name', { value: originalMethod.name });
-    
+    Object.defineProperty(descriptor.value, 'name', {
+      value: originalMethod.name,
+    });
+
     return descriptor;
   };
 }

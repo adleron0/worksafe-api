@@ -15,12 +15,16 @@ type logParams = {
  * Crie com os parametros de busca pré-criaão
  */
 export function getSearchParams(request: Request, CreateDto: any) {
-  // Exemplo de search usando companyId do request e campos do dto
-  // PERSONALIZE ESTA FUNÇÃO conforme as necessidades da sua entidade
+  // Para rotas públicas, usa o companyId do DTO ou busca pela turma
+  // Para rotas autenticadas, usa o companyId do usuário
   const search = {
-    companyId: Number(request.user?.companyId) || CreateDto.companyId,
+    companyId: request.user?.companyId
+      ? Number(request.user.companyId)
+      : CreateDto.companyId
+        ? Number(CreateDto.companyId)
+        : undefined,
     cpf: CreateDto.cpf,
-    classId: CreateDto.classId,
+    classId: Number(CreateDto.classId),
   };
 
   return search;

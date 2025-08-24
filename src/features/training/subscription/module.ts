@@ -8,10 +8,6 @@ import { CheckoutModule } from 'src/features/gateway/checkout/checkout.module';
 @Module({
   controllers: [Controller],
   providers: [Service],
-  imports: [
-    UploadModule,
-    CacheModule,
-    forwardRef(() => CheckoutModule),
-  ],
+  imports: [UploadModule, CacheModule, forwardRef(() => CheckoutModule)],
 })
 export class SubscriptionModule {}

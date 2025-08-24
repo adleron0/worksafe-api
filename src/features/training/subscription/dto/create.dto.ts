@@ -113,80 +113,9 @@ export class CreateDto {
   @IsOptional()
   paymentMethod?: paymentMethods;
 
-  @ValidateIf((o) => o.paymentMethod === paymentMethods.cartaoCredito)
-  @IsObject()
-  @ValidateNested()
-  @Type(() => CreditCardDto)
   @IsOptional()
   creditCard?: any;
 
-  @IsObject()
-  @ValidateNested()
-  @Type(() => CustomerDto)
   @IsOptional()
   customerData?: any;
-}
-
-// DTOs para checkout integrado
-class CreditCardDto {
-  @IsString()
-  @IsNotEmpty({ message: 'Nome do titular é obrigatório' })
-  cardName: string;
-
-  @IsString()
-  @IsNotEmpty({ message: 'Número do cartão é obrigatório' })
-  @Transform(({ value }) => value?.replace(/\s/g, ''))
-  cardNumber: string;
-
-  @IsString()
-  @IsNotEmpty({ message: 'Data de validade é obrigatória' })
-  expiryDate: string;
-
-  @IsString()
-  @IsNotEmpty({ message: 'CVV é obrigatório' })
-  cvv: string;
-
-  @IsString()
-  @IsOptional()
-  token?: string;
-}
-
-class CustomerDto {
-  @IsString()
-  @IsOptional()
-  name?: string;
-
-  @IsString()
-  @IsOptional()
-  @Transform(({ value }) => value?.replace(/[^\d]/g, ''))
-  document?: string;
-
-  @IsString()
-  @IsOptional()
-  email?: string;
-
-  @IsString()
-  @IsOptional()
-  phone?: string;
-
-  @IsString()
-  @IsOptional()
-  address?: string;
-
-  @IsString()
-  @IsOptional()
-  number?: string;
-
-  @IsString()
-  @IsOptional()
-  complement?: string;
-
-  @IsString()
-  @IsOptional()
-  neighborhood?: string;
-
-  @IsString()
-  @IsOptional()
-  @Transform(({ value }) => value?.replace(/[^\d]/g, ''))
-  zipCode?: string;
 }

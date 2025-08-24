@@ -93,7 +93,9 @@ export class CompanygatewaysController extends GenericController<
   // @Public() // descomente para tornar publica
   @CacheEvictAll('company-gateway:*', 'cache:*/company-gateway*')
   @Post()
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('companygateways-image')))
+  @UseInterceptors(
+    FileInterceptor('image', getMulterOptions('companygateways-image')),
+  )
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async create(
     @Req() request: Request,
@@ -108,7 +110,9 @@ export class CompanygatewaysController extends GenericController<
   // @Public() // descomente para tornar publica
   @CacheEvictAll('company-gateway:*', 'cache:*/company-gateway*')
   @Put(':id')
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('companygateways-image')))
+  @UseInterceptors(
+    FileInterceptor('image', getMulterOptions('companygateways-image')),
+  )
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async update(
     @Param('id') id: number,
