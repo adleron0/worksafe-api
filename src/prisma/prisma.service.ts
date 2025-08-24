@@ -144,14 +144,14 @@ export class PrismaService
    * insert: Insere um novo registro no banco
    * @param model Model do prisma
    * @param data Dados do registro
-   * @param logParams Parametros para o log
+   * @param logParams Parametros para o log (opcional)
    * @param tx Transação
    * @returns Retorna o resultado da inserção
    */
   async insert<Model extends keyof PrismaClient>(
     model: Model,
     data: any,
-    logParams: any,
+    logParams?: any,
     tx?: any,
   ) {
     const use = tx ? tx : this;
@@ -159,7 +159,7 @@ export class PrismaService
       const result = await use[model][this.methods.create]({
         data,
       });
-      if (result) {
+      if (result && logParams) {
         use.system_Logs
           .create({
             data: {
@@ -213,7 +213,7 @@ export class PrismaService
    * update: Atualiza um registro no banco
    * @param model Model do prisma
    * @param data Dados do registro
-   * @param logParams Parametros para o log
+   * @param logParams Parametros para o log (opcional)
    * @param params Parametros para a consulta
    * @param id ID do registro a ser atualizado
    * @param tx Transação
@@ -222,7 +222,7 @@ export class PrismaService
   async update<Model extends keyof PrismaClient>(
     model: Model,
     data: any,
-    logParams: any,
+    logParams?: any,
     params?: any,
     id?: any,
     tx?: any,
@@ -244,7 +244,7 @@ export class PrismaService
 
       const changes = getChanges(oldValues, result);
 
-      if (result && changes.length > 0) {
+      if (result && changes.length > 0 && logParams) {
         use.system_Logs
           .createMany({
             data: changes.map((change) => ({
@@ -273,7 +273,7 @@ export class PrismaService
    * @param model Model do prisma
    * @param where Condições para buscar o registro
    * @param data Dados para criar o registro se não existir
-   * @param logParams Parametros para o log
+   * @param logParams Parametros para o log (opcional)
    * @param tx Transação
    * @returns Retorna o registro encontrado ou criado
    */
@@ -281,7 +281,7 @@ export class PrismaService
     model: Model,
     where: any,
     data: any,
-    logParams: any,
+    logParams?: any,
     tx?: any,
   ) {
     const use = tx ? tx : this;
@@ -305,7 +305,7 @@ export class PrismaService
       });
 
       // Log da criação
-      if (result) {
+      if (result && logParams) {
         use.system_Logs
           .create({
             data: {
@@ -338,7 +338,7 @@ export class PrismaService
    * @param model Model do prisma
    * @param data Dados do registro
    * @param params Parametros para a consulta
-   * @param logParams Parametros para o log
+   * @param logParams Parametros para o log (opcional)
    * @param tx Transação
    * @returns Retorna o resultado da inserção
    */
@@ -346,7 +346,7 @@ export class PrismaService
     model: Model,
     data: any,
     params: any,
-    logParams: any,
+    logParams?: any,
     tx?: any,
   ) {
     const use = tx ? tx : this;
@@ -364,7 +364,7 @@ export class PrismaService
 
         const changes = getChanges(verifyExist, result);
 
-        if (result && changes.length > 0) {
+        if (result && changes.length > 0 && logParams) {
           use.system_Logs
             .createMany({
               data: changes.map((change) => ({
@@ -387,7 +387,7 @@ export class PrismaService
           data,
         });
 
-        if (result) {
+        if (result && logParams) {
           use.system_Logs
             .create({
               data: {
@@ -406,6 +406,7 @@ export class PrismaService
             });
         }
       }
+      return result;
     } catch (error) {
       throw new BadRequestException(error);
     }
@@ -415,14 +416,14 @@ export class PrismaService
    * erase: Faz um Soft_Delete ou Hard_Delete de um registro no banco
    * @param model Model do prisma
    * @param params Parametros para a consulta
-   * @param logParams Parametros para o log
+   * @param logParams Parametros para o log (opcional)
    * @param virtual Virtual flag para soft_delete ou hard_delete
    * @param tx Transaction
    */
   async erase<Model extends keyof PrismaClient>(
     model: Model,
     params: any,
-    logParams: any,
+    logParams?: any,
     virtual?: boolean,
     tx?: any,
   ) {
@@ -449,7 +450,7 @@ export class PrismaService
           ...params,
           data: { ...formDeteleteData },
         });
-        if (result) {
+        if (result && logParams) {
           use.system_Logs
             .create({
               data: {
@@ -471,7 +472,7 @@ export class PrismaService
         result = await use[model][this.methods.delete]({
           ...params,
         });
-        if (result) {
+        if (result && logParams) {
           use.system_Logs
             .create({
               data: {

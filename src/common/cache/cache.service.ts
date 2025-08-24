@@ -127,7 +127,10 @@ export class CacheService implements OnModuleDestroy {
     try {
       if (pattern) {
         const keys = await this.redis.keys(pattern);
-        console.log(`Found ${keys.length} keys matching pattern "${pattern}":`, keys);
+        console.log(
+          `Found ${keys.length} keys matching pattern "${pattern}":`,
+          keys,
+        );
         if (keys.length > 0) {
           await this.redis.del(...keys);
           console.log(`Deleted ${keys.length} cache keys`);

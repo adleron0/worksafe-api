@@ -18,6 +18,7 @@ export interface CreditCardData {
   expiryDate: string; // MM/YYYY
   cvv: string;
   token?: string;
+  installments?: string | number; // Número de parcelas
 }
 
 export interface PaymentData {
@@ -43,9 +44,15 @@ export interface PaymentResponse {
   transactionReceiptUrl?: string;
   invoiceUrl?: string;
   bankSlipUrl?: string;
+  nossoNumero?: string;
+  identificationField?: string;
+  barCode?: string;
+  digitableLine?: string;
   pixQrCode?: string;
   pixQrCodeBase64?: string;
   pixCopyPaste?: string;
+  installmentNumber?: number; // Número da parcela (1, 2, 3...)
+  installmentCount?: number; // Total de parcelas
   error?: string;
 }
 

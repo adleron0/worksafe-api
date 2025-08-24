@@ -85,7 +85,9 @@ export class FinancialrecordsController extends GenericController<
   // @Public() // descomente para tornar publica
   // @CacheEvictAll('financial-records:*', 'cache:*/financial-records*') // descomente para limpar cache
   @Post()
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('financialrecords-image')))
+  @UseInterceptors(
+    FileInterceptor('image', getMulterOptions('financialrecords-image')),
+  )
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async create(
     @Req() request: Request,
@@ -100,7 +102,9 @@ export class FinancialrecordsController extends GenericController<
   // @Public() // descomente para tornar publica
   // @CacheEvictAll('financial-records:*', 'cache:*/financial-records*') // descomente para limpar cache
   @Put(':id')
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('financialrecords-image')))
+  @UseInterceptors(
+    FileInterceptor('image', getMulterOptions('financialrecords-image')),
+  )
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async update(
     @Param('id') id: number,
@@ -126,5 +130,15 @@ export class FinancialrecordsController extends GenericController<
   @Patch('inactive/:id')
   async inactivate(@Param('id') id: number, @Req() request: Request) {
     return super.inactivate(id, request);
+  }
+
+  /**
+   * Busca um registro financeiro pela key (UUID)
+   * Rota pública para permitir consultas externas
+   */
+  @Public()
+  @Get('key/:key')
+  async getByKey(@Param('key') key: string) {
+    return this.Service.getFinancialRecordByKey(key);
   }
 }

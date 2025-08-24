@@ -189,12 +189,46 @@ export class SubscriptionController extends GenericController<
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async subscription(
     @Req() request: Request,
-    @Body() CreateDto: CreateDto,
+    @Body() body: any,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
-    CreateDto.subscribeStatus = 'pending'; // Define o status de inscrição como pendente para auto-inscrição
+    // Converte strings JSON para objetos quando vem do FormData
+    if (typeof body.creditCard === 'string') {
+      if (body.creditCard === '[object Object]' || body.creditCard === '' || body.creditCard === 'undefined') {
+        // Se for string vazia ou inválida, remove o campo
+        delete body.creditCard;
+      } else {
+        try {
+          body.creditCard = JSON.parse(body.creditCard);
+        } catch (e) {
+          console.error('Erro ao fazer parse de creditCard:', e);
+          console.error('String recebida:', body.creditCard);
+          delete body.creditCard; // Remove se não conseguir fazer parse
+        }
+      }
+    }
+    
+    if (typeof body.customerData === 'string') {
+      try {
+        body.customerData = JSON.parse(body.customerData);
+      } catch (e) {
+        // Ignora erro, deixa como undefined
+        body.customerData = undefined;
+      }
+    }
+    
+    // Converte campos numéricos se necessário
+    if (body.classId) {
+      body.classId = Number(body.classId);
+    }
+    
+    if (body.companyId) {
+      body.companyId = Number(body.companyId);
+    }
+    
+    const CreateDto = body as CreateDto;
+    CreateDto.subscribeStatus = 'pending';
     const search = getSearchParams(request, CreateDto);
     return this.Service.subscription(search, entity, CreateDto);
   }
-
 }

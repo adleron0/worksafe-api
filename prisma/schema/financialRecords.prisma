@@ -16,9 +16,9 @@ model FinancialRecords {
   value       Decimal?   @db.Decimal(18, 2)
   dueDate    DateTime?
   paidAt    DateTime?
-  billUrl    String?   @db.VarChar(255)
+  billUrl    String?   @db.Text
   billNumber String?   @db.VarChar(255)
-  pixUrl     String?   @db.VarChar(255)
+  pixUrl     String?   @db.Text
   pixNumber  String?   @db.VarChar(255)
   requestData Json?  @map("request_data") @db.JsonB // Dados do payload do gateway
   responseData Json?  @map("response_data") @db.JsonB // Dados do payload do gateway

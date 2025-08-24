@@ -1,11 +1,16 @@
 import { GenericService } from 'src/features/generic/generic.service';
-import { BadRequestException, Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
 import { IEntity } from './interfaces/interface';
 import { CreateDto } from './dto/create.dto';
 import { UpdateDto } from './dto/update.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { UploadService } from 'src/features/upload/upload.service';
-import { paymentMethods, financialRecordsStatus } from '@prisma/client';
+import { financialRecordsStatus } from '@prisma/client';
 
 @Injectable()
 export class FinancialrecordsService extends GenericService<
@@ -20,101 +25,46 @@ export class FinancialrecordsService extends GenericService<
     super(prisma, uploadService);
   }
 
-  /**
-   * Cria um registro financeiro para uma inscrição
-   */
-  async createFinancialRecord(params: {
-    subscriptionId: number;
-    traineeId: number;
-    customerId?: number;
-    companyId: number;
-    classId: number;
-    paymentMethod: paymentMethods;
-    value: number;
-    gateway: string;
-    description?: string;
-  }): Promise<any> {
-    try {
-      const currentDate = new Date();
-      const accrualDate = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
-      
-      // Adiciona 1 dia ao vencimento
-      const dueDate = new Date();
-      dueDate.setDate(dueDate.getDate() + 1);
-
-      const financialRecord = await this.prisma.financialRecords.create({
-        data: {
-          accrualDate,
-          companyId: params.companyId,
-          gateway: params.gateway as any,
-          status: financialRecordsStatus.processing,
-          subscriptionId: params.subscriptionId,
-          traineeId: params.traineeId,
-          customerId: params.customerId,
-          paymentMethod: params.paymentMethod,
-          value: params.value,
-          dueDate,
-          description: params.description || `Inscrição no curso - Turma ${params.classId}`,
-        },
-      });
-
-      return financialRecord;
-    } catch (error) {
-      console.error('Erro ao criar registro financeiro:', error);
-      throw new BadRequestException('Erro ao criar registro financeiro');
-    }
-  }
+  // Métodos removidos - usar PrismaService diretamente:
+  // - createFinancialRecord: usar prisma.insert('financialRecords', ...)
+  // - updateFinancialRecord: usar prisma.update('financialRecords', ...)
+  // - getFinancialRecordById: usar prisma.selectOne('financialRecords', ...)
+  // - getFinancialRecordSummary: usar prisma.selectOne('financialRecords', { select: {...} })
 
   /**
-   * Atualiza um registro financeiro com os dados de resposta do gateway
+   * Busca um registro financeiro pela key (UUID)
    */
-  async updateFinancialRecord(
-    id: number,
-    data: {
-      status?: financialRecordsStatus;
-      externalId?: string;
-      billUrl?: string;
-      billNumber?: string;
-      pixUrl?: string;
-      pixNumber?: string;
-      responseData?: any;
-      errorData?: any;
-      paidAt?: Date;
-    },
-  ): Promise<any> {
+  async getFinancialRecordByKey(key: string): Promise<any> {
+    console.log("🚀 ~ FinancialrecordsService ~ getFinancialRecordByKey ~ key:", key)
     try {
-      const updated = await this.prisma.financialRecords.update({
-        where: { id },
-        data,
-      });
-      return updated;
-    } catch (error) {
-      console.error('Erro ao atualizar registro financeiro:', error);
-      throw new BadRequestException('Erro ao atualizar registro financeiro');
-    }
-  }
-
-  /**
-   * Busca um registro financeiro pelo ID
-   */
-  async getFinancialRecordById(id: number): Promise<any> {
-    try {
-      const record = await this.prisma.financialRecords.findFirst({
-        where: { id },
-        include: {
-          subscription: true,
-          trainee: true,
-          customer: true,
-          company: true,
+      const record = await this.prisma.selectFirst('financialRecords', {
+        where: { key },
+        select: {
+          id: true,
+          status: true,
+          paymentMethod: true,
+          value: true,
+          dueDate: true,
+          paidAt: true,
+          billUrl: true,
+          billNumber: true,
+          pixUrl: true,
+          pixNumber: true,
+          externalId: true,
+          key: true,
         },
       });
 
       if (!record) {
-        throw new HttpException('Registro financeiro não encontrado', HttpStatus.NOT_FOUND);
+        throw new HttpException(
+          'Registro financeiro não encontrado',
+          HttpStatus.NOT_FOUND,
+        );
       }
 
       return record;
     } catch (error) {
+      console.log("🚀 ~ FinancialrecordsService ~ getFinancialRecordByKey ~ error:", error)
       if (error instanceof HttpException) throw error;
       throw new BadRequestException('Erro ao buscar registro financeiro');
     }
@@ -124,35 +74,39 @@ export class FinancialrecordsService extends GenericService<
    * Marca um registro financeiro como pago
    */
   async markAsPaid(id: number, externalData?: any): Promise<any> {
-    try {
-      const updateData: any = {
-        status: financialRecordsStatus.received,
-        paidAt: new Date(),
-      };
+    const updateData: any = {
+      status: financialRecordsStatus.received,
+      paidAt: new Date(),
+    };
 
-      if (externalData) {
-        updateData.responseData = externalData;
-      }
-
-      return await this.updateFinancialRecord(id, updateData);
-    } catch (error) {
-      throw new BadRequestException('Erro ao marcar registro como pago');
+    if (externalData) {
+      updateData.responseData = externalData;
     }
+
+    return await this.prisma.update(
+      'financialRecords',
+      updateData,
+      {}, // logParams
+      null,
+      id,
+    );
   }
 
   /**
    * Marca um registro financeiro como cancelado
    */
   async markAsCancelled(id: number, reason?: string): Promise<any> {
-    try {
-      const updateData: any = {
-        status: financialRecordsStatus.cancelled,
-        observations: reason,
-      };
+    const updateData: any = {
+      status: financialRecordsStatus.cancelled,
+      observations: reason,
+    };
 
-      return await this.updateFinancialRecord(id, updateData);
-    } catch (error) {
-      throw new BadRequestException('Erro ao cancelar registro financeiro');
-    }
+    return await this.prisma.update(
+      'financialRecords',
+      updateData,
+      {}, // logParams
+      null,
+      id,
+    );
   }
 }

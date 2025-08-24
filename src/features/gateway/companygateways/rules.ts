@@ -74,7 +74,7 @@ async function hookPreCreate(params: {
   logParams: any;
 }) {
   const { dto, entity, prisma, logParams } = params;
-  
+
   // Processa o payload se existir
   if (dto.payload) {
     let payloadData = dto.payload;
@@ -110,7 +110,8 @@ async function configureGatewayWebhook(params: {
   isUpdate: boolean;
   currentWebhookId?: string;
 }) {
-  const { gateway, payloadData, companyId, dto, isUpdate, currentWebhookId } = params;
+  const { gateway, payloadData, companyId, dto, isUpdate, currentWebhookId } =
+    params;
 
   switch (gateway) {
     case 'asaas':
@@ -160,7 +161,9 @@ async function configureGatewayWebhook(params: {
 
     // Adicionar outros gateways conforme necessário
     default:
-      console.log(`Gateway ${gateway} não possui configuração de webhook implementada`);
+      console.log(
+        `Gateway ${gateway} não possui configuração de webhook implementada`,
+      );
   }
 }
 
