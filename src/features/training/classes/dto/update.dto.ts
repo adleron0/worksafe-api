@@ -178,6 +178,7 @@ export class UpdateDto {
   @IsEnum(paymentMethods, { each: true })
   @IsOptional()
   @Transform(({ value }) => {
+    if (!value) return [];
     if (typeof value === 'string') {
       return value.split(',').map((item) => item.trim());
     }
