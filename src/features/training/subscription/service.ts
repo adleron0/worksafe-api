@@ -102,7 +102,7 @@ export class SubscriptionService extends GenericService<
     courseClass: any,
   ) {
     // SEGUNDO: Busca trainee existente (mas NÃO cria ainda)
-    let trainee = await this.prisma.selectFirst('trainee', {
+    const trainee = await this.prisma.selectFirst('trainee', {
       where: {
         cpf: dto.cpf,
         companyId: courseClass.companyId,
@@ -332,7 +332,8 @@ export class SubscriptionService extends GenericService<
     }
 
     // Determina se deve processar novo pagamento
-    const shouldProcessPayment = !existingFinancialRecord ||
+    const shouldProcessPayment =
+      !existingFinancialRecord ||
       existingFinancialRecord.paymentMethod !== paymentMethod ||
       (paymentMethod === 'cartaoCredito' && creditCard);
 
@@ -467,7 +468,9 @@ export class SubscriptionService extends GenericService<
         ? String(subscriptionData.addressNumber)
         : null,
       complement:
-        subscriptionData.addressComplement || subscriptionData.complement || null,
+        subscriptionData.addressComplement ||
+        subscriptionData.complement ||
+        null,
       zipCode: subscriptionData.zipCode || null,
     };
 
@@ -476,7 +479,7 @@ export class SubscriptionService extends GenericService<
       cpf: subscriptionData.cpf,
       companyId: companyId,
     };
-    
+
     const trainee = await this.prisma.selectOrCreate(
       'trainee',
       whereCondition,
@@ -524,7 +527,7 @@ export class SubscriptionService extends GenericService<
       // SEMPRE verifica e cria o trainee se não existir
       // (mesmo que a inscrição já esteja confirmada)
       let traineeId = subscription.traineeId;
-      
+
       if (!traineeId) {
         console.log(`Inscrição ${subscriptionId} sem trainee, criando...`);
         traineeId = await this.findOrCreateTrainee(
@@ -537,7 +540,10 @@ export class SubscriptionService extends GenericService<
       }
 
       // Só atualiza se não estava confirmada ou se não tinha trainee
-      if (subscription.subscribeStatus !== 'confirmed' || !subscription.traineeId) {
+      if (
+        subscription.subscribeStatus !== 'confirmed' ||
+        !subscription.traineeId
+      ) {
         const updatedSubscription = await this.prisma.update(
           'courseClassSubscription',
           {
@@ -553,7 +559,7 @@ export class SubscriptionService extends GenericService<
         console.log(
           `Inscrição ${subscriptionId} atualizada com trainee ${traineeId}`,
         );
-        
+
         return updatedSubscription;
       }
 

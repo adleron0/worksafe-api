@@ -194,7 +194,11 @@ export class SubscriptionController extends GenericController<
   ) {
     // Converte strings JSON para objetos quando vem do FormData
     if (typeof body.creditCard === 'string') {
-      if (body.creditCard === '[object Object]' || body.creditCard === '' || body.creditCard === 'undefined') {
+      if (
+        body.creditCard === '[object Object]' ||
+        body.creditCard === '' ||
+        body.creditCard === 'undefined'
+      ) {
         // Se for string vazia ou inválida, remove o campo
         delete body.creditCard;
       } else {
@@ -207,7 +211,7 @@ export class SubscriptionController extends GenericController<
         }
       }
     }
-    
+
     if (typeof body.customerData === 'string') {
       try {
         body.customerData = JSON.parse(body.customerData);
@@ -216,16 +220,16 @@ export class SubscriptionController extends GenericController<
         body.customerData = undefined;
       }
     }
-    
+
     // Converte campos numéricos se necessário
     if (body.classId) {
       body.classId = Number(body.classId);
     }
-    
+
     if (body.companyId) {
       body.companyId = Number(body.companyId);
     }
-    
+
     const CreateDto = body as CreateDto;
     CreateDto.subscribeStatus = 'pending';
     const search = getSearchParams(request, CreateDto);

@@ -696,12 +696,15 @@ export class AsaasService {
         console.log(`Webhook: Pagamento ${payment.id} foi deletado no Asaas`);
 
         // Se existe registro, marca como cancelado
-        const existingRecord = await this.prisma.selectFirst('financialRecords', {
-          where: {
-            externalId: payment.id,
-            companyId,
+        const existingRecord = await this.prisma.selectFirst(
+          'financialRecords',
+          {
+            where: {
+              externalId: payment.id,
+              companyId,
+            },
           },
-        });
+        );
 
         console.log('Registro existente encontrado:', existingRecord?.id);
 

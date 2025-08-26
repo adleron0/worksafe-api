@@ -87,8 +87,16 @@ export class ClassAttendanceListController extends GenericController<
   // @Public() // descomente para tornar publica
   // @CacheEvictAll('attendance-list:*', 'cache:*/attendance-list*') // descomente para limpar cache
   @Post()
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('class_attendance_list-image')))
-  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+  @UseInterceptors(
+    FileInterceptor('image', getMulterOptions('class_attendance_list-image')),
+  )
+  @UsePipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  )
   async create(
     @Req() request: Request,
     @Body() CreateDto: CreateDto,
@@ -102,8 +110,16 @@ export class ClassAttendanceListController extends GenericController<
   // @Public() // descomente para tornar publica
   // @CacheEvictAll('attendance-list:*', 'cache:*/attendance-list*') // descomente para limpar cache
   @Put(':id')
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('class_attendance_list-image')))
-  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+  @UseInterceptors(
+    FileInterceptor('image', getMulterOptions('class_attendance_list-image')),
+  )
+  @UsePipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  )
   async update(
     @Param('id') id: number,
     @Req() request: Request,
@@ -134,15 +150,23 @@ export class ClassAttendanceListController extends GenericController<
   // @Public() // descomente para tornar publica
   // @CacheEvictAll('attendance-list:*', 'cache:*/attendance-list*') // descomente para limpar cache
   @Post('upsert')
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('class_attendance_list-image')))
-  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+  @UseInterceptors(
+    FileInterceptor('image', getMulterOptions('class_attendance_list-image')),
+  )
+  @UsePipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  )
   async upsert(
     @Req() request: Request,
     @Body() upsertDto: CreateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
     const whereCondition = getUpsertWhereCondition(request, upsertDto);
-    
+
     return super.upsert(request, upsertDto, file, whereCondition, hooksUpsert);
   }
 }
