@@ -14,6 +14,7 @@ model CourseClass {
   discountPrice      Decimal?   @db.Decimal(18, 2)
   dividedIn Int?
   hoursDuration Int?
+  daysDuration Int?
   openClass     Boolean?   @default(false)
   gifts String?
   description String?
@@ -41,6 +42,7 @@ model CourseClass {
   instructors CourseClassInstructor[]
   reviews CourseReview[]
   subscriptions CourseClassSubscription[]
+  attendanceLists CourseClassAttendanceList[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @default(now()) @updatedAt

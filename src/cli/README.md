@@ -30,6 +30,7 @@ O script é **interativo** e guiará você através do processo de criação da 
 ### 4. **Configurações Adicionais**
 - **Campo de Imagem**: Pergunta se deve incluir suporte a upload de imagem
 - **CompanyId**: Pergunta se a rota exige `companyId` do token
+- **Rota Upsert**: Pergunta se deve incluir rota de upsert (create/update em uma única operação)
 
 ### 5. **Revisão e Confirmação**
 - Mostra os campos que serão incluídos nos DTOs
@@ -96,7 +97,8 @@ export const omitAttributes: string[] = [];
 ### ⚙️ **Regras Automáticas**
 - **emptyUpdates**: Processa campos booleanos automaticamente
 - **getSearchParams**: Template para critérios de unicidade
-- **Hooks**: Estrutura para lógicas customizadas
+- **getUpsertWhereCondition**: Condições para identificar registros no upsert (quando habilitado)
+- **Hooks**: Estrutura para lógicas customizadas incluindo hooks de upsert
 
 ## 📝 Exemplos de Uso
 
@@ -109,10 +111,11 @@ Digite o nome da feature (ex: user, product): product
 Digite o nome do modelo (ou número da lista): 15
 Deseja incluir campo de imagem? (s/n): n
 A rota exige companyId do token? (s/n): n
+Deseja incluir rota de upsert? (s/n): n
 Deseja gerar a entidade com esses campos? (s/n): s
 ```
 
-### Exemplo 2: Entidade em Grupo
+### Exemplo 2: Entidade em Grupo com Upsert
 ```bash
 $ npx ts-node src/cli/generate-entity.ts
 
@@ -122,6 +125,7 @@ Digite o nome da feature (ex: user, product): contact
 Digite o nome do modelo (ou número da lista): customer_contacts
 Deseja incluir campo de imagem? (s/n): s
 A rota exige companyId do token? (s/n): s
+Deseja incluir rota de upsert? (s/n): s
 Deseja gerar a entidade com esses campos? (s/n): s
 ```
 
@@ -169,6 +173,20 @@ export function emptyUpdates(UpdateDto: any) {
   if (UpdateDto.status === undefined) UpdateDto.status = false;
   return UpdateDto;
 }
+
+// Configure condições para upsert (quando habilitado)
+export function getUpsertWhereCondition(request: Request, dto: any) {
+  // Defina os campos únicos para identificar registros existentes
+  return {
+    companyId: Number(request.user?.companyId),
+    email: dto.email, // Exemplo: use campo único
+    // OU use combinação de campos para unicidade composta
+    // AND: [
+    //   { companyId: Number(request.user?.companyId) },
+    //   { name: dto.name }
+    // ]
+  };
+}
 ```
 
 #### **Hooks Personalizados**
@@ -189,6 +207,27 @@ export async function hookPosCreate(params: {
   logParams: any 
 }, created: any) {
   // Lógica após a criação
+}
+
+// Hooks para upsert (quando habilitado)
+export async function hookPreUpsert(params: { 
+  dto: any; 
+  whereCondition: any;
+  entity: any; 
+  prisma: PrismaService; 
+  logParams: any 
+}) {
+  // Lógica antes do upsert
+}
+
+export async function hookPosUpsert(params: { 
+  dto: any; 
+  whereCondition: any;
+  entity: any; 
+  prisma: PrismaService; 
+  logParams: any 
+}, upserted: any) {
+  // Lógica após o upsert
 }
 ```
 
@@ -226,6 +265,23 @@ export async function hookPosCreate(params: {
 ```typescript
 // Configuração automática no controller
 @UseInterceptors(FileInterceptor('image', getMulterOptions('entity-name-image')))
+```
+
+### Rota Upsert
+```typescript
+// Rota gerada automaticamente quando habilitada
+// Usa a mesma permissão do create
+@UserPermission(`create_${entity.permission}`)
+@Post('upsert')
+async upsert(
+  @Req() request: Request,
+  @Body() upsertDto: CreateDto,
+  @UploadedFile() file?: Express.MulterS3.File,
+) {
+  const whereCondition = getUpsertWhereCondition(request, upsertDto);
+  
+  return super.upsert(request, upsertDto, file, whereCondition, hooksUpsert);
+}
 ```
 
 ### Filtros Customizados

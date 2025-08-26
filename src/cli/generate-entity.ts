@@ -520,7 +520,16 @@ async function main() {
       noCompanyAnswer.toLowerCase() === 'não' ||
       noCompanyAnswer.toLowerCase() === 'nao';
 
-    // 10. Perguntar sobre cache
+    // 10. Perguntar sobre upsert
+    const hasUpsertAnswer = await askQuestion(
+      rl,
+      '\n🔄 Deseja incluir rota de upsert? (s/n): ',
+    );
+    const hasUpsert =
+      hasUpsertAnswer.toLowerCase() === 's' ||
+      hasUpsertAnswer.toLowerCase() === 'sim';
+
+    // 11. Perguntar sobre cache
     const useCacheAnswer = await askQuestion(
       rl,
       '\n💾 Deseja usar cache nas rotas? (s/n): ',
@@ -562,7 +571,7 @@ async function main() {
       );
     }
 
-    // 11. Mostrar campos que serão incluídos nos DTOs
+    // 12. Mostrar campos que serão incluídos nos DTOs
     console.log('\n📝 Campos que serão incluídos nos DTOs:');
 
     console.log('\n✅ DTO de Criação (CreateDto):');
@@ -591,7 +600,7 @@ async function main() {
       console.log('   🖼️  image?: any');
     }
 
-    // 12. Confirmar geração
+    // 13. Confirmar geração
     console.log('\n' + '='.repeat(50));
     console.log('🚀 RESUMO DA GERAÇÃO');
     console.log('='.repeat(50));
@@ -601,6 +610,7 @@ async function main() {
     console.log(`🗃️  Modelo: ${selectedModel}`);
     console.log(`🖼️  Imagem: ${hasImage ? 'Sim' : 'Não'}`);
     console.log(`🏢 CompanyId: ${noCompany ? 'Não exige' : 'Exige'}`);
+    console.log(`🔄 Upsert: ${hasUpsert ? 'Sim' : 'Não'}`);
     console.log(
       `💾 Cache: ${useCache ? `Sim (${formatSecondsToReadable(cacheTTLSeconds)})` : 'Não'}`,
     );
@@ -620,7 +630,7 @@ async function main() {
       return;
     }
 
-    // 13. Gerar a entidade
+    // 14. Gerar a entidade
     console.log('\n🚀 Iniciando geração da entidade...');
     await generateEntity(
       featureName,
@@ -632,6 +642,7 @@ async function main() {
       groupName,
       routeName,
       permissionName,
+      hasUpsert,
       useCache,
       cacheTTLSeconds,
     );
@@ -653,6 +664,7 @@ async function generateEntity(
   groupName: string,
   routeName: string,
   permissionName: string,
+  hasUpsert: boolean,
   useCache: boolean,
   cacheTTLSeconds: number,
 ) {
@@ -749,7 +761,28 @@ export function formaterPreUpdate(UpdateDto: any) {
   // if (UpdateDto.objectField === undefined) UpdateDto.objectField = {};
   
   return UpdateDto;
-}
+}${hasUpsert ? `
+
+/*
+ * Função para definir whereCondition do upsert
+ * Define campos únicos para identificar registro existente
+ */
+export function getUpsertWhereCondition(request: Request, dto: any) {
+  // PERSONALIZE ESTA FUNÇÃO conforme as necessidades da sua entidade
+  // Defina os campos únicos para identificar registros existentes
+  
+  return {
+    companyId: Number(request.user?.companyId),
+    // Adicione aqui o campo único ou combinação de campos
+    // Exemplo: email: dto.email,
+    // Exemplo: code: dto.code,
+    // Para unicidade composta, use:
+    // AND: [
+    //   { companyId: Number(request.user?.companyId) },
+    //   { fieldName: dto.fieldName }
+    // ]
+  };
+}` : ''}
 
 // HOOKS DE PRÉ E PÓS CREATE/UPDATE
 
@@ -821,7 +854,43 @@ export const hooksCreate = {
 export const hooksUpdate = {
   hookPreUpdate,
   hookPosUpdate,
-};
+};${hasUpsert ? `
+
+/*
+ * Hook de pré upsert
+ */
+async function hookPreUpsert(params: { 
+  id: number;
+  dto: any; 
+  entity: any; 
+  prisma: PrismaService; 
+  logParams: any 
+}) {
+  const { id, dto, entity } = params;
+  // Personalize aqui se necessário
+}
+
+/*
+ * Hook de pós upsert
+ */
+async function hookPosUpsert(
+  params: { 
+    id: number;
+    dto: any; 
+    entity: any; 
+    prisma: PrismaService; 
+    logParams: any 
+  }, 
+  upserted: any
+) {
+  const { id, dto, entity } = params;
+  // Personalize aqui se necessário
+}
+
+export const hooksUpsert = {
+  hookPreUpsert,
+  hookPosUpsert,
+};` : ''}
 `;
 
   // Generate service.ts
@@ -914,7 +983,9 @@ import {
   formaterPreUpdate,
   omitAttributes,
   hooksCreate,
-  hooksUpdate,
+  hooksUpdate,${hasUpsert ? `
+  getUpsertWhereCondition,
+  hooksUpsert,` : ''}
   encryptFields,
 } from './rules';
 
@@ -961,7 +1032,7 @@ export class ${entityNamePascal}Controller extends GenericController<
   ${cacheEvictDecorator}
   @Post()
   @UseInterceptors(FileInterceptor('image', getMulterOptions('${entityName}-image')))
-  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
   async create(
     @Req() request: Request,
     @Body() CreateDto: CreateDto,
@@ -976,7 +1047,7 @@ export class ${entityNamePascal}Controller extends GenericController<
   ${cacheEvictDecorator}
   @Put(':id')
   @UseInterceptors(FileInterceptor('image', getMulterOptions('${entityName}-image')))
-  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
   async update(
     @Param('id') id: number,
     @Req() request: Request,
@@ -1001,7 +1072,23 @@ export class ${entityNamePascal}Controller extends GenericController<
   @Patch('inactive/:id')
   async inactivate(@Param('id') id: number, @Req() request: Request) {
     return super.inactivate(id, request);
-  }
+  }${hasUpsert ? `
+
+  @UserPermission(\`create_\${entity.permission}\`) // mesma permissao do create
+  // @Public() // descomente para tornar publica
+  ${cacheEvictDecorator}
+  @Post('upsert')
+  @UseInterceptors(FileInterceptor('image', getMulterOptions('${entityName}-image')))
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+  async upsert(
+    @Req() request: Request,
+    @Body() upsertDto: CreateDto,
+    @UploadedFile() file?: Express.MulterS3.File,
+  ) {
+    const whereCondition = getUpsertWhereCondition(request, upsertDto);
+    
+    return super.upsert(request, upsertDto, file, whereCondition, hooksUpsert);
+  }` : ''}
 }
 `;
 

@@ -908,4 +908,83 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       throw new BadRequestException(error);
     }
   }
+
+  async upsert(
+    dto: TCreateDto | TUpdateDto,
+    whereCondition: any,
+    logParams: logParams,
+    entity: entity,
+    file?: Express.MulterS3.File,
+    hooks?: {
+      hookPreUpsert?: (params: {
+        id: number;
+        dto: TCreateDto | TUpdateDto;
+        entity: entity;
+        prisma: PrismaService;
+        logParams: logParams;
+      }) => Promise<void> | void;
+      hookPosUpsert?: (
+        params: {
+          id: number;
+          dto: TCreateDto | TUpdateDto;
+          entity: entity;
+          prisma: PrismaService;
+          logParams: logParams;
+        },
+        upserted: TEntity,
+      ) => Promise<void> | void;
+    },
+  ): Promise<TEntity> {
+    try {
+      // Busca o registro existente para obter o ID
+      const existingRecord = await this.prisma.selectFirst(entity.model, {
+        where: whereCondition,
+      });
+
+      const recordId = existingRecord?.id || 0;
+
+      if (hooks?.hookPreUpsert) {
+        await hooks.hookPreUpsert({
+          id: recordId,
+          dto,
+          entity,
+          prisma: this.prisma,
+          logParams,
+        });
+      }
+
+      // Se houver file, define a URL da imageUrl
+      if (file) {
+        dto['imageUrl'] = file.location;
+      }
+
+      // Se `dto.password` existir, criptografa-a
+      if (dto['password']) {
+        const saltRounds = 10;
+        const passwordHashed = await hash(dto['password'], saltRounds);
+        dto['password'] = passwordHashed;
+      }
+
+      const upserted = await this.prisma.upsert(
+        entity.model,
+        dto,
+        {
+          where: whereCondition,
+        },
+        logParams,
+      );
+
+      if (hooks?.hookPosUpsert) {
+        await hooks.hookPosUpsert(
+          { id: upserted.id, dto, entity, prisma: this.prisma, logParams },
+          upserted,
+        );
+      }
+
+      return upserted;
+    } catch (error) {
+      console.log('🚀 ~ GenericService<TCreateDto, ~ error:', error);
+      throw new BadRequestException(error);
+    }
+  }
 }

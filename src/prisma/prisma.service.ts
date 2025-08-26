@@ -351,14 +351,14 @@ export class PrismaService
   ) {
     const use = tx ? tx : this;
     try {
-      const verifyExist = await use[model][this.methods.findUnique]({
+      const verifyExist = await use[model][this.methods.findFirst]({
         ...params,
       });
 
       let result;
       if (verifyExist) {
         result = await use[model][this.methods.update]({
-          ...params,
+          where: { id: verifyExist.id },
           data,
         });
 

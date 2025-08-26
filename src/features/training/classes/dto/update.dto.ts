@@ -73,6 +73,11 @@ export class UpdateDto {
   @Type(() => Number)
   hoursDuration?: number;
 
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  daysDuration?: number;
+
   @IsBoolean()
   @IsOptional()
   @Transform(({ value }) => {
