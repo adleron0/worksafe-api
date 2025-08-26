@@ -1,0 +1,15 @@
+// Tabela Course
+model CourseClassAttendanceList {
+  id       Int       @id @default(autoincrement())
+  day Int
+  IsPresent Boolean @default(false)
+  traineeId Int
+  trainee   Trainee   @relation(fields: [traineeId], references: [id])
+  classId Int
+  class   CourseClass  @relation(fields: [classId], references: [id])
+  companyId Int
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+}

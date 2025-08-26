@@ -95,6 +95,32 @@ export interface ICrudService<T> {
     logParams: logParams,
     entity: entity,
   ): Promise<T>;
+  upsert(
+    data: any,
+    whereCondition: any,
+    logParams: logParams,
+    entity: entity,
+    file?: Express.MulterS3.File,
+    hooks?: {
+      hookPreUpsert?: (params: {
+        id: number;
+        dto: any;
+        entity: entity;
+        prisma: PrismaService;
+        logParams: logParams;
+      }) => Promise<void> | void;
+      hookPosUpsert?: (
+        params: {
+          id: number;
+          dto: any;
+          entity: entity;
+          prisma: PrismaService;
+          logParams: logParams;
+        },
+        upserted: T,
+      ) => Promise<void> | void;
+    },
+  ): Promise<T>;
 }
 
 // Helper function to create permission decorators
@@ -262,6 +288,43 @@ export class GenericController<
       'inactive',
       logParams,
       this.entity,
+    );
+  }
+
+  @Post('upsert')
+  @HttpCode(200)
+  @ApiOkResponse({ description: 'Registro criado ou atualizado com sucesso' })
+  async upsert(
+    @Req() request: Request,
+    @Body() upsertDto: TCreateDto | TUpdateDto,
+    @UploadedFile() file?: Express.MulterS3.File,
+    whereCondition?: any,
+    entityHooks?: any,
+  ): Promise<TEntity> {
+    const { sub: userId, companyId } = request.user;
+    const logParams = {
+      userId,
+      companyId,
+    };
+    
+    // Se não foi passado whereCondition, usa a chave única ou campo específico do DTO
+    // Pode ser customizado em cada controller específico
+    const where = whereCondition || {};
+    
+    // Adiciona companyId se não estiver presente no DTO
+    if (!upsertDto['companyId']) {
+      upsertDto['companyId'] = Number(companyId);
+    }
+    
+    const hooks = entityHooks || {};
+    
+    return this.service.upsert(
+      upsertDto,
+      where,
+      logParams,
+      this.entity,
+      file,
+      hooks,
     );
   }
 }
