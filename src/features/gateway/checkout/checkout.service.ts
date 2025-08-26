@@ -559,11 +559,11 @@ export class CheckoutService {
     if (!traineeOrSubscription && !additionalData) {
       throw new BadRequestException('Dados do cliente não fornecidos');
     }
-    
+
     // Retorna um objeto com os campos obrigatórios para o Asaas
     // Usa CPF ou documento para identificar se é trainee ou inscrição
     const data = traineeOrSubscription || {};
-    
+
     return {
       name: additionalData?.name || data.name || 'Não informado',
       document: additionalData?.document || data.cpf || '',
@@ -571,7 +571,11 @@ export class CheckoutService {
       phone: additionalData?.phone || data.phone || '',
       address: additionalData?.address || data.address || '',
       number: additionalData?.number || String(data.addressNumber || ''),
-      complement: additionalData?.complement || data.addressComplement || data.complement || '',
+      complement:
+        additionalData?.complement ||
+        data.addressComplement ||
+        data.complement ||
+        '',
       neighborhood: additionalData?.neighborhood || data.neighborhood || '',
       zipCode: additionalData?.zipCode || data.zipCode || '',
     };
@@ -799,13 +803,13 @@ export class CheckoutService {
       console.log(
         `Pagamento confirmado! Confirmando inscrição ${subscriptionId} e criando trainee...`,
       );
-      
+
       // Usa o método do SubscriptionService que cria o trainee e confirma a inscrição
       await this.subscriptionService.confirmSubscriptionPayment(
         subscriptionId,
         webhookPayment,
       );
-      
+
       console.log(`Inscrição ${subscriptionId} confirmada com sucesso!`);
     }
   }
@@ -908,7 +912,8 @@ export class CheckoutService {
                 value: payment.value,
                 dueDate,
                 description:
-                  payment.description || `Parcela - Inscrição ${subscriptionId}`,
+                  payment.description ||
+                  `Parcela - Inscrição ${subscriptionId}`,
                 externalId: payment.id,
                 ...updateData,
               },

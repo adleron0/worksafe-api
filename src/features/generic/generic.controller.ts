@@ -306,18 +306,18 @@ export class GenericController<
       userId,
       companyId,
     };
-    
+
     // Se não foi passado whereCondition, usa a chave única ou campo específico do DTO
     // Pode ser customizado em cada controller específico
     const where = whereCondition || {};
-    
+
     // Adiciona companyId se não estiver presente no DTO
     if (!upsertDto['companyId']) {
       upsertDto['companyId'] = Number(companyId);
     }
-    
+
     const hooks = entityHooks || {};
-    
+
     return this.service.upsert(
       upsertDto,
       where,

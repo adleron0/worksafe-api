@@ -35,7 +35,10 @@ export class FinancialrecordsService extends GenericService<
    * Busca um registro financeiro pela key (UUID)
    */
   async getFinancialRecordByKey(key: string): Promise<any> {
-    console.log("🚀 ~ FinancialrecordsService ~ getFinancialRecordByKey ~ key:", key)
+    console.log(
+      '🚀 ~ FinancialrecordsService ~ getFinancialRecordByKey ~ key:',
+      key,
+    );
     try {
       const record = await this.prisma.selectFirst('financialRecords', {
         where: { key },
@@ -64,7 +67,10 @@ export class FinancialrecordsService extends GenericService<
 
       return record;
     } catch (error) {
-      console.log("🚀 ~ FinancialrecordsService ~ getFinancialRecordByKey ~ error:", error)
+      console.log(
+        '🚀 ~ FinancialrecordsService ~ getFinancialRecordByKey ~ error:',
+        error,
+      );
       if (error instanceof HttpException) throw error;
       throw new BadRequestException('Erro ao buscar registro financeiro');
     }

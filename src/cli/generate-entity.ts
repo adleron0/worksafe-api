@@ -761,7 +761,9 @@ export function formaterPreUpdate(UpdateDto: any) {
   // if (UpdateDto.objectField === undefined) UpdateDto.objectField = {};
   
   return UpdateDto;
-}${hasUpsert ? `
+}${
+    hasUpsert
+      ? `
 
 /*
  * Função para definir whereCondition do upsert
@@ -782,7 +784,9 @@ export function getUpsertWhereCondition(request: Request, dto: any) {
     //   { fieldName: dto.fieldName }
     // ]
   };
-}` : ''}
+}`
+      : ''
+  }
 
 // HOOKS DE PRÉ E PÓS CREATE/UPDATE
 
@@ -854,7 +858,9 @@ export const hooksCreate = {
 export const hooksUpdate = {
   hookPreUpdate,
   hookPosUpdate,
-};${hasUpsert ? `
+};${
+    hasUpsert
+      ? `
 
 /*
  * Hook de pré upsert
@@ -890,7 +896,9 @@ async function hookPosUpsert(
 export const hooksUpsert = {
   hookPreUpsert,
   hookPosUpsert,
-};` : ''}
+};`
+      : ''
+  }
 `;
 
   // Generate service.ts
@@ -983,9 +991,13 @@ import {
   formaterPreUpdate,
   omitAttributes,
   hooksCreate,
-  hooksUpdate,${hasUpsert ? `
+  hooksUpdate,${
+    hasUpsert
+      ? `
   getUpsertWhereCondition,
-  hooksUpsert,` : ''}
+  hooksUpsert,`
+      : ''
+  }
   encryptFields,
 } from './rules';
 
@@ -1072,7 +1084,9 @@ export class ${entityNamePascal}Controller extends GenericController<
   @Patch('inactive/:id')
   async inactivate(@Param('id') id: number, @Req() request: Request) {
     return super.inactivate(id, request);
-  }${hasUpsert ? `
+  }${
+    hasUpsert
+      ? `
 
   @UserPermission(\`create_\${entity.permission}\`) // mesma permissao do create
   // @Public() // descomente para tornar publica
@@ -1088,7 +1102,9 @@ export class ${entityNamePascal}Controller extends GenericController<
     const whereCondition = getUpsertWhereCondition(request, upsertDto);
     
     return super.upsert(request, upsertDto, file, whereCondition, hooksUpsert);
-  }` : ''}
+  }`
+      : ''
+  }
 }
 `;
 
