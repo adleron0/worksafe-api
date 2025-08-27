@@ -200,8 +200,8 @@ export class ClassesController extends GenericController<
     @Param('id') id: number,
     @Req() request: Request,
   ): Promise<any> {
-    const userId = request.body.userId || request['userId'] || 0;
-    const companyId = request.body.companyId || request['companyId'] || 0;
+    const userId = request.user.sub || 0;
+    const companyId = request.user.companyId || 0;
 
     return this.Service.generateCertificates(Number(id), userId, companyId);
   }

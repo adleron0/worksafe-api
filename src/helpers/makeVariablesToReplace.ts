@@ -336,32 +336,34 @@ export function makeVariablesToReplace(
   }
 
   // Data de Validade do Certificado
-  if (expirationDate) {
-    try {
-      const expDate =
-        typeof expirationDate === 'string'
-          ? new Date(expirationDate)
-          : expirationDate;
+  try {
+    const expDate =
+      typeof expirationDate === 'string'
+        ? new Date(expirationDate)
+        : expirationDate;
 
-      variables.certificado_validade = {
-        type: 'string',
-        value: format(expDate, 'dd/MM/yyyy', { locale: ptBR }),
-      };
+    variables.certificado_validade = {
+      type: 'string',
+      value: expirationDate
+        ? format(expDate, 'dd/MM/yyyy', { locale: ptBR })
+        : 'sem validade',
+    };
 
-      variables.certificado_validade_extenso = {
-        type: 'string',
-        value: format(expDate, "dd 'de' MMMM 'de' yyyy", { locale: ptBR }),
-      };
-    } catch (e) {
-      variables.certificado_validade = {
-        type: 'string',
-        value: '',
-      };
-      variables.certificado_validade_extenso = {
-        type: 'string',
-        value: '',
-      };
-    }
+    variables.certificado_validade_extenso = {
+      type: 'string',
+      value: expirationDate
+        ? format(expDate, "dd 'de' MMMM 'de' yyyy", { locale: ptBR })
+        : 'sem validade',
+    };
+  } catch (e) {
+    variables.certificado_validade = {
+      type: 'string',
+      value: 'sem validade',
+    };
+    variables.certificado_validade_extenso = {
+      type: 'string',
+      value: 'sem validade',
+    };
   }
 
   // Data de Emissão (hoje)

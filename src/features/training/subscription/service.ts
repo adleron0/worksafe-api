@@ -11,6 +11,7 @@ import { CreateDto } from './dto/create.dto';
 import { UpdateDto } from './dto/update.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CheckoutService } from 'src/features/gateway/checkout/checkout.service';
+import { CacheService } from 'src/common/cache/cache.service';
 
 type entity = {
   model: keyof PrismaClient;
@@ -29,6 +30,7 @@ export class SubscriptionService extends GenericService<
     protected prisma: PrismaService,
     @Inject(forwardRef(() => CheckoutService))
     private checkoutService: CheckoutService,
+    private cacheService: CacheService,
   ) {
     super(prisma, null);
   }
@@ -561,6 +563,21 @@ export class SubscriptionService extends GenericService<
         );
 
         return updatedSubscription;
+      }
+
+      // Invalida o cache da turma após confirmar a inscrição
+      if (subscription.classId) {
+        const cachePatterns = [
+          `training-classes:*classId=${subscription.classId}*`,
+          `cache:*/classes?*classId=${subscription.classId}*`,
+          `training-classes:*id=${subscription.classId}*`,
+          `cache:*/classes?*id=${subscription.classId}*`,
+        ];
+
+        for (const pattern of cachePatterns) {
+          await this.cacheService.reset(pattern);
+          console.log(`Cache invalidado para pattern: ${pattern}`);
+        }
       }
 
       console.log(`Inscrição ${subscriptionId} já estava completa`);

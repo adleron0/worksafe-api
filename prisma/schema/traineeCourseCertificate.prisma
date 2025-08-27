@@ -14,6 +14,7 @@ model TraineeCourseCertificate {
   variableToReplace  Json?  @map("variable_to_replace") @db.JsonB
   showOnWebsiteConsent Boolean @default(true)
   pdfUrl String?   @db.VarChar(255)
+  key                String    @default(uuid())  // Definindo o campo 'key' como UUID auto gerado
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @default(now()) @updatedAt
