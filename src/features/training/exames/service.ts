@@ -9,9 +9,8 @@ import { CreateDto } from './dto/create.dto';
 import { UpdateDto } from './dto/update.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { PrismaClient } from '@prisma/client';
-import { getExpirationDate } from 'src/utils/dataFunctions';
-import { makeVariablesToReplace } from 'src/helpers/makeVariablesToReplace';
 import { correctExam } from 'src/helpers/exameHelper';
+import { TraineeCertificateService } from '../trainee_certificate/service';
 
 type entity = {
   model: keyof PrismaClient;
@@ -26,7 +25,10 @@ export class ExamesService extends GenericService<
   UpdateDto,
   IEntity
 > {
-  constructor(protected prisma: PrismaService) {
+  constructor(
+    protected prisma: PrismaService,
+    protected traineeCertificateService: TraineeCertificateService,
+  ) {
     super(prisma, null);
   }
 
@@ -138,36 +140,11 @@ export class ExamesService extends GenericService<
 
       // Se o aluno foi aprovado, cria o certificado
       if (examResult.passed) {
-        const traineeCertificateData = {};
-
-        const certificate = confirmedSubscription.class.certificate;
-        const course = confirmedSubscription.class.course;
-
-        // Calcular data de vencimento
-        const expirationDate = getExpirationDate(course.yearOfValidation);
-
-        // Gerar variáveis para substituição
-        const variablesToReplace = makeVariablesToReplace(
-          confirmedSubscription,
-          expirationDate,
-        );
-
-        traineeCertificateData['fabricJsonFront'] = certificate.fabricJsonFront;
-        traineeCertificateData['fabricJsonBack'] = certificate.fabricJsonBack;
-        traineeCertificateData['courseId'] = dto.courseId;
-        traineeCertificateData['traineeId'] = dto.traineeId;
-        traineeCertificateData['classId'] = dto.classId;
-        traineeCertificateData['expirationDate'] = expirationDate;
-        traineeCertificateData['variableToReplace'] = variablesToReplace;
-        traineeCertificateData['companyId'] = confirmedSubscription.companyId;
-        traineeCertificateData['showOnWebsiteConsent'] =
-          dto.showOnWebsiteConsent;
-
-        // Criar o certificado do trainee
-        await this.prisma.insert(
-          'traineeCourseCertificate',
-          traineeCertificateData,
-          logParams,
+        // Usar o serviço centralizado para gerar o certificado passando o ID da subscription
+        await this.traineeCertificateService.generateCertificates(
+          confirmedSubscription.classId,
+          confirmedSubscription.companyId,
+          confirmedSubscription.id,
         );
       }
 
