@@ -931,7 +931,7 @@ export class CheckoutService {
       await this.prisma.update(
         'financialRecords',
         updateData,
-        {}, // logParams vazio - operação interna do webhook
+        null, // logParams vazio - operação interna do webhook
         null,
         financialRecord.id,
       );

@@ -830,7 +830,7 @@ export class AsaasService {
             : null,
           responseData: payment,
         },
-        {}, // logParams vazio - operação interna do webhook
+        null, // logParams vazio - operação interna do webhook
         null,
         existingRecord.id,
       );

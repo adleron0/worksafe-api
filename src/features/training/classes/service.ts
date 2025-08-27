@@ -235,7 +235,7 @@ export class ClassesService extends GenericService<
 
         // Calcular data de vencimento
         const expirationDate = getExpirationDate(
-          classData.course.yearOfValidation || 1,
+          classData.course.yearOfValidation,
         );
 
         // Preparar dados da subscription com estrutura completa
