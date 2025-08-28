@@ -48,4 +48,32 @@ export class ImageService extends GenericService<
       throw new BadRequestException('Erro ao deletar imagem: ' + error.message);
     }
   }
+
+  /**
+   * Upload de imagem para o S3
+   * @param file Arquivo enviado via multer
+   * @returns URL da imagem no S3
+   */
+  async uploadToS3(file: Express.MulterS3.File): Promise<{ url: string }> {
+    try {
+      if (!file) {
+        throw new BadRequestException('Nenhum arquivo foi enviado');
+      }
+
+      if (!file.location) {
+        throw new BadRequestException('Erro ao fazer upload do arquivo');
+      }
+
+      return {
+        url: file.location,
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(
+        'Erro ao fazer upload da imagem: ' + error.message,
+      );
+    }
+  }
 }

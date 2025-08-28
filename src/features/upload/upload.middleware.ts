@@ -1,5 +1,6 @@
 // upload.middleware.ts
 import * as multerS3 from 'multer-s3';
+import * as multer from 'multer';
 import { S3Client } from '@aws-sdk/client-s3';
 import { Request as ExpressRequest } from 'express';
 
@@ -34,6 +35,22 @@ export const getMulterOptions = (folder: string) => ({
       cb(null, true);
     } else {
       cb(null, false); // Ignora o arquivo se não for imagem
+    }
+  },
+});
+
+// Nova função para usar com otimização
+export const getOptimizedMulterOptions = (folder?: string) => ({
+  storage: multer.memoryStorage(), // Armazena em memória para processar
+  limits: {
+    fileSize: 20 * 1024 * 1024, // Limite de 20MB por arquivo
+  },
+  fileFilter: (_req, file, cb) => {
+    // Apenas processa arquivos de imagem
+    if (file && file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Apenas imagens são permitidas'), false);
     }
   },
 });
