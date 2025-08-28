@@ -25,7 +25,8 @@ import { IEntity } from './interfaces/interface';
 import { ClassesService as Service } from './service';
 // Import utils specifics
 import { FileInterceptor } from '@nestjs/platform-express';
-import { getMulterOptions } from '../../upload/upload.middleware';
+import { getMulterOptions, getOptimizedMulterOptions } from '../../upload/upload.middleware';
+import { ImageOptimizationInterceptor } from '../../upload/image-optimization.interceptor';
 // Import generic controller
 import { GenericController } from 'src/features/generic/generic.controller';
 import { Public } from 'src/auth/decorators/public.decorator';
@@ -133,7 +134,10 @@ export class ClassesController extends GenericController<
   @UserPermission(`create_${entity.permission}`) // Permissão para rota genérica
   @CacheEvictAll('training-classes:*', 'cache:*/classes*')
   @Post()
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('classes-image')))
+  @UseInterceptors(
+    FileInterceptor('image', getOptimizedMulterOptions()),
+    ImageOptimizationInterceptor,
+  )
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async create(
     @Req() request: Request,
@@ -151,7 +155,10 @@ export class ClassesController extends GenericController<
   @UserPermission(`update_${entity.permission}`) // Permissão para rota genérica
   @CacheEvictAll('training-classes:*', 'cache:*/classes*')
   @Put(':id')
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('classes-image')))
+  @UseInterceptors(
+    FileInterceptor('image', getOptimizedMulterOptions()),
+    ImageOptimizationInterceptor,
+  )
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async update(
     @Param('id') id: number,

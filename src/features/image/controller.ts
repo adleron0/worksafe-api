@@ -27,7 +27,8 @@ import { IEntity } from './interfaces/interface';
 import { ImageService as Service } from './service';
 // Import utils specifics
 import { FileInterceptor } from '@nestjs/platform-express';
-import { getMulterOptions } from '../upload/upload.middleware';
+import { getMulterOptions, getOptimizedMulterOptions } from '../upload/upload.middleware';
+import { ImageOptimizationInterceptor } from '../upload/image-optimization.interceptor';
 // Import generic controller
 import { GenericController } from 'src/features/generic/generic.controller';
 import { Public } from 'src/auth/decorators/public.decorator';
@@ -88,6 +89,35 @@ export class ImageController extends GenericController<
     console.log('🚀 ~ ImageController ~ create ~ CreateDto:', CreateDto);
     const search = getSearchParams(request, CreateDto);
     return super.create(request, CreateDto, file, search, hooksCreate);
+  }
+
+  // Rota de teste com otimização
+  @Post('optimized')
+  @UseInterceptors(
+    FileInterceptor('image', getOptimizedMulterOptions()),
+    ImageOptimizationInterceptor,
+  )
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
+  async createOptimized(
+    @Req() request: Request,
+    @Body() CreateDto: CreateDto,
+    @UploadedFile() file?: Express.MulterS3.File,
+  ) {
+    console.log('🚀 ~ ImageController ~ createOptimized ~ CreateDto:', CreateDto);
+    const search = getSearchParams(request, CreateDto);
+    
+    // O interceptor já processou o arquivo e adicionou as informações de otimização
+    const result = await super.create(request, CreateDto, file, search, hooksCreate);
+    
+    // Adiciona informações de otimização na resposta
+    if (request['imageOptimization']) {
+      return {
+        ...result,
+        optimization: request['imageOptimization'],
+      };
+    }
+    
+    return result;
   }
 
   // @UserPermission(`update_${entity.permission}`) // comente para tirar permissao
