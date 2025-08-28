@@ -140,10 +140,15 @@ export class ImageController extends GenericController<
     res.status(200).send();
   }
 
+  @Post('s3')
+  @UseInterceptors(FileInterceptor('image', getMulterOptions('uploads')))
+  async uploadToS3(@UploadedFile() file: Express.MulterS3.File) {
+    return this.Service.uploadToS3(file);
+  }
+
   @Public()
   @Get('proxy')
   async proxyImage(@Query('url') url: string, @Res() res: Response) {
-    console.log('🚀 ~ ImageController ~ proxyImage ~ url:', url);
     try {
       if (!url) {
         res.status(400).json({ error: 'URL é obrigatória' });
