@@ -32,6 +32,7 @@ async function bootstrap() {
       },
       standardHeaders: true,
       legacyHeaders: false,
+      trustProxy: trustProxyHops === 'true' ? true : parseInt(trustProxyHops, 10), // Configuração segura
       skip: (req) => {
         // Skip rate limit para IPs confiáveis (se necessário)
         const trustedIps = process.env.TRUSTED_IPS?.split(',') || [];
@@ -83,6 +84,9 @@ async function bootstrap() {
           error: 'Too Many Requests',
           message: 'Taxa de requisições excedida. Tente novamente em breve.',
         },
+        standardHeaders: true,
+        legacyHeaders: false,
+        trustProxy: trustProxyHops === 'true' ? true : parseInt(trustProxyHops, 10), // Configuração segura
       });
 
       app.use(globalLimiter);
@@ -96,8 +100,11 @@ async function bootstrap() {
       allowedHeaders: ['Content-Type', 'Authorization'],
     });
 
-    // Trust proxy (importante para obter IP real em produção)
-    app.getHttpAdapter().getInstance().set('trust proxy', true);
+    // Trust proxy configuração segura para produção
+    // Define quantos proxies confiáveis existem antes do servidor
+    // Use 1 se estiver atrás de um único proxy (nginx, cloudflare, etc)
+    const trustProxyHops = process.env.TRUST_PROXY_HOPS || '1';
+    app.getHttpAdapter().getInstance().set('trust proxy', trustProxyHops);
 
     const server = await app.listen(PORT);
     const { port: actualPort } = server.address();
