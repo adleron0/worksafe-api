@@ -27,9 +27,16 @@ export class AttackDetectionMiddleware implements NestMiddleware {
         statusCode,
         message: reason || 'Acesso negado',
         error: 'Forbidden',
-        retryAfter: statusCode === 429 ? 300 : undefined, // 5 minutos para retry se for rate limit
+        retryAfter: statusCode === 429 ? 60 : undefined, // 1 minuto para retry se for rate limit
       });
     }
+
+    // Registra erros de resposta para permitir retentativas
+    res.on('finish', () => {
+      if (res.statusCode >= 400 && res.statusCode < 500) {
+        this.securityService.registerFailedRequest(req);
+      }
+    });
 
     // Se permitido, continua
     next();

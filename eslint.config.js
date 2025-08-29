@@ -29,7 +29,7 @@ export default typescriptEslint.config(
     languageOptions: {
       parserOptions: {
         project: './tsconfig.json',
-        tsconfigRootDir: '.',
+        tsconfigRootDir: import.meta.dirname || process.cwd(),
       },
     },
   },
