@@ -12,6 +12,11 @@ async function bootstrap() {
   try {
     const app = await NestFactory.create(AppModule);
     
+    // Trust proxy configuração segura para produção
+    // Define quantos proxies confiáveis existem antes do servidor
+    // Use 1 se estiver atrás de um único proxy (nginx, cloudflare, etc)
+    const trustProxyHops = process.env.TRUST_PROXY_HOPS || '1';
+    
     // Cookie parser (movido para cá para evitar erro)
     app.use(cookieParser());
     
@@ -32,7 +37,6 @@ async function bootstrap() {
       },
       standardHeaders: true,
       legacyHeaders: false,
-      trustProxy: trustProxyHops === 'true' ? true : parseInt(trustProxyHops, 10), // Configuração segura
       skip: (req) => {
         // Skip rate limit para IPs confiáveis (se necessário)
         const trustedIps = process.env.TRUSTED_IPS?.split(',') || [];
@@ -86,7 +90,6 @@ async function bootstrap() {
         },
         standardHeaders: true,
         legacyHeaders: false,
-        trustProxy: trustProxyHops === 'true' ? true : parseInt(trustProxyHops, 10), // Configuração segura
       });
 
       app.use(globalLimiter);
@@ -100,11 +103,8 @@ async function bootstrap() {
       allowedHeaders: ['Content-Type', 'Authorization'],
     });
 
-    // Trust proxy configuração segura para produção
-    // Define quantos proxies confiáveis existem antes do servidor
-    // Use 1 se estiver atrás de um único proxy (nginx, cloudflare, etc)
-    const trustProxyHops = process.env.TRUST_PROXY_HOPS || '1';
-    app.getHttpAdapter().getInstance().set('trust proxy', trustProxyHops);
+    // Configura trust proxy de forma segura
+    app.getHttpAdapter().getInstance().set('trust proxy', parseInt(trustProxyHops, 10));
 
     const server = await app.listen(PORT);
     const { port: actualPort } = server.address();
