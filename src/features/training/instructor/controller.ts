@@ -24,7 +24,8 @@ import { IEntity } from './interfaces/interface';
 import { InstructorService as Service } from './service';
 // Import utils specifics
 import { FileInterceptor } from '@nestjs/platform-express';
-import { getMulterOptions } from '../../upload/upload.middleware';
+import { getMulterOptions, getOptimizedMulterOptions } from '../../upload/upload.middleware';
+import { ImageOptimizationInterceptor } from '../../upload/image-optimization.interceptor';
 // Import generic controller
 import { GenericController } from 'src/features/generic/generic.controller';
 
@@ -65,7 +66,8 @@ export class InstructorController extends GenericController<
   @UserPermission(`create_${entity.permission}`) // Permissão para rota genérica
   @Post()
   @UseInterceptors(
-    FileInterceptor('image', getMulterOptions('instructor-image')),
+    FileInterceptor('image', getOptimizedMulterOptions()),
+    ImageOptimizationInterceptor,
   )
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async create(
@@ -83,7 +85,8 @@ export class InstructorController extends GenericController<
   @UserPermission(`update_${entity.permission}`) // Permissão para rota genérica
   @Put(':id')
   @UseInterceptors(
-    FileInterceptor('image', getMulterOptions('instructor-image')),
+    FileInterceptor('image', getOptimizedMulterOptions()),
+    ImageOptimizationInterceptor,
   )
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async update(
