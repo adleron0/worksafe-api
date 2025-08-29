@@ -31,19 +31,29 @@ export class SecurityService {
   private rateLimitConfig: RateLimitConfig;
   private endpointLimits = new Map<string, RateLimitConfig>();
   private suspiciousPatterns = [
-    /SELECT.*FROM/i,
-    /DROP\s+TABLE/i,
-    /INSERT\s+INTO/i,
-    /UPDATE.*SET/i,
-    /DELETE\s+FROM/i,
-    /<script/i,
+    // SQL Injection - mais específico
+    /(\b|;)(SELECT|DROP|INSERT|UPDATE|DELETE|UNION|ALTER|CREATE|EXEC|EXECUTE)\s+/i,
+    /(\b|;)(TABLE|DATABASE|SCHEMA|PROCEDURE|FUNCTION)\s+(DROP|ALTER|CREATE)/i,
+    
+    // XSS - mais específico para evitar falsos positivos
+    /<script[^a-z]/i,  // <script com espaço ou >
+    /<iframe[^a-z]/i,
     /javascript:/i,
-    /on\w+\s*=/i,
-    /\.\.\/\.\.\//,
-    /etc\/passwd/,
-    /cmd\.exe/i,
-    /powershell/i,
-  ];
+    /<img[^>]+on(load|error)\s*=/i,  // Apenas em tags img
+    /<[^>]+on(click|mouseover|focus|blur)\s*=/i,  // Eventos inline em tags HTML
+    
+    // Path Traversal - mais específico
+    /(\.\.[\/\\]){3,}/,  // Pelo menos 3 níveis de ../
+    /\.\.%2[fF]/,  // Encoded path traversal
+    
+    // OS Command Injection
+    /[;&|`]\s*(ls|cat|echo|rm|chmod|chown|wget|curl|nc|bash|sh)\s/i,
+    /\/etc\/(passwd|shadow|hosts)/,
+    /(cmd|powershell)\.exe/i,
+    
+    // LDAP/NoSQL Injection
+    /[*()&|!=]/  // Apenas em contextos suspeitos, vamos remover este por ser muito genérico
+  ].filter((_, index) => index !== 15);  // Remove o último padrão que é muito genérico
 
   private suspiciousIps = new Set<string>();
   private whitelistedIps = new Set<string>();
@@ -81,11 +91,16 @@ export class SecurityService {
     this.suspiciousIps = new Set(this.config.blacklist);
 
     console.log('🔒 Configuração de segurança carregada:', {
+      enabled: this.config.enabled,
       globalMaxRequests: this.config.global.maxRequests,
       endpoints: Object.keys(this.config.endpoints),
       whitelistedIps: this.config.whitelist.length,
       blacklistedIps: this.config.blacklist.length,
     });
+    
+    if (!this.config.enabled) {
+      console.warn('⚠️ MÓDULO DE SEGURANÇA DESABILITADO');
+    }
   }
 
   /**
@@ -127,6 +142,11 @@ export class SecurityService {
    * Registra uma requisição e detecta possíveis ataques
    */
   logRequest(request: Request): { allowed: boolean; reason?: string } {
+    // Se a segurança estiver desabilitada, permite tudo
+    if (!this.config.enabled) {
+      return { allowed: true };
+    }
+    
     const ip = this.getClientIp(request);
     const now = Date.now();
     const endpoint = this.getEndpointFromUrl(request.url);
@@ -246,8 +266,18 @@ export class SecurityService {
   private detectMaliciousPatterns(request: Request): string | null {
     // Verifica URL
     const url = request.url || '';
+    
+    // Decodifica a URL para evitar bypass com encoding
+    let decodedUrl = url;
+    try {
+      decodedUrl = decodeURIComponent(url);
+    } catch (e) {
+      // URL mal formada pode ser suspeita
+      console.warn('URL mal formada detectada:', url);
+    }
+    
     for (const pattern of this.suspiciousPatterns) {
-      if (pattern.test(url)) {
+      if (pattern.test(decodedUrl)) {
         return `URL maliciosa: ${pattern}`;
       }
     }

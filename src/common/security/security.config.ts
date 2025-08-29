@@ -1,4 +1,5 @@
 export interface SecurityConfig {
+  enabled: boolean;
   global: {
     windowMs: number;
     maxRequests: number;
@@ -21,6 +22,7 @@ export interface SecurityConfig {
 }
 
 export const defaultSecurityConfig: SecurityConfig = {
+  enabled: true,
   global: {
     windowMs: 60000,
     maxRequests: 200,
@@ -66,8 +68,7 @@ export const defaultSecurityConfig: SecurityConfig = {
     'localhost',
   ],
   blacklist: [
-    '100.64.0.11',
-    '100.64.0.14',
+    // Adicione IPs maliciosos conhecidos aqui
   ],
   suspiciousScoreThreshold: 10,
   enableNotifications: true,
@@ -75,6 +76,11 @@ export const defaultSecurityConfig: SecurityConfig = {
 
 export function getSecurityConfigFromEnv(): Partial<SecurityConfig> {
   const config: Partial<SecurityConfig> = {};
+  
+  // Permite desabilitar completamente o módulo de segurança
+  if (process.env.SECURITY_ENABLED !== undefined) {
+    config.enabled = process.env.SECURITY_ENABLED === 'true';
+  }
   
   if (process.env.SECURITY_MAX_REQUESTS) {
     config.global = {
