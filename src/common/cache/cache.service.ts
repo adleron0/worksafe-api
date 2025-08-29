@@ -1,8 +1,8 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import Redis from 'ioredis';
 
 @Injectable()
-export class CacheService implements OnModuleDestroy {
+export class CacheService implements OnModuleDestroy, OnModuleInit {
   private redis: Redis;
 
   constructor() {
@@ -224,6 +224,71 @@ export class CacheService implements OnModuleDestroy {
     } catch (error) {
       console.error(`Error getting all hash fields from key ${key}:`, error);
       return {};
+    }
+  }
+
+  async onModuleInit() {
+    // Sempre limpa todo o cache Redis ao iniciar a aplicação
+    try {
+      // Primeiro obtém informações do cache antes de limpar
+      const keyCountBefore = await this.redis.dbsize();
+      const infoBefore = await this.redis.info('memory');
+      const memoryBefore = infoBefore.match(/used_memory_human:(.+)/)?.[1]?.trim() || 'N/A';
+      
+      console.log('═══════════════════════════════════════════════════');
+      console.log('🔄 LIMPEZA DE CACHE REDIS NA INICIALIZAÇÃO');
+      console.log('═══════════════════════════════════════════════════');
+      console.log(`📊 Estado anterior do cache:`);
+      console.log(`   - Total de chaves: ${keyCountBefore}`);
+      console.log(`   - Memória utilizada: ${memoryBefore}`);
+      console.log('───────────────────────────────────────────────────');
+      console.log('🗑️  Executando limpeza completa do Redis...');
+      
+      await this.redis.flushall();
+      
+      // Verifica se limpou corretamente
+      const keyCountAfter = await this.redis.dbsize();
+      
+      console.log('✅ CACHE REDIS LIMPO COM SUCESSO!');
+      console.log(`📊 Estado atual do cache:`);
+      console.log(`   - Total de chaves: ${keyCountAfter}`);
+      console.log(`   - Chaves removidas: ${keyCountBefore}`);
+      console.log('═══════════════════════════════════════════════════');
+      console.log('');
+    } catch (error) {
+      console.error('═══════════════════════════════════════════════════');
+      console.error('❌ ERRO AO LIMPAR CACHE REDIS NA INICIALIZAÇÃO');
+      console.error('═══════════════════════════════════════════════════');
+      console.error('Detalhes do erro:', error);
+      console.error('═══════════════════════════════════════════════════');
+      console.error('');
+    }
+  }
+
+  async clearAllCache(): Promise<void> {
+    try {
+      console.log('🔄 Limpando todo o cache Redis...');
+      await this.redis.flushall();
+      console.log('✅ Cache Redis limpo com sucesso!');
+    } catch (error) {
+      console.error('❌ Erro ao limpar cache Redis:', error);
+      throw error;
+    }
+  }
+
+  async getCacheInfo(): Promise<{ keyCount: number; memoryUsage: string }> {
+    try {
+      const keyCount = await this.redis.dbsize();
+      const info = await this.redis.info('memory');
+      const memoryUsed = info.match(/used_memory_human:(.+)/)?.[1] || 'N/A';
+      
+      return {
+        keyCount,
+        memoryUsage: memoryUsed.trim(),
+      };
+    } catch (error) {
+      console.error('❌ Erro ao obter informações do cache:', error);
+      return { keyCount: 0, memoryUsage: 'N/A' };
     }
   }
 
