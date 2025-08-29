@@ -50,10 +50,7 @@ export class SecurityService {
     /[;&|`]\s*(ls|cat|echo|rm|chmod|chown|wget|curl|nc|bash|sh)\s/i,
     /\/etc\/(passwd|shadow|hosts)/,
     /(cmd|powershell)\.exe/i,
-    
-    // LDAP/NoSQL Injection
-    /[*()&|!=]/  // Apenas em contextos suspeitos, vamos remover este por ser muito genérico
-  ].filter((_, index) => index !== 15);  // Remove o último padrão que é muito genérico
+  ];
 
   private suspiciousIps = new Set<string>();
   private whitelistedIps = new Set<string>();
@@ -271,7 +268,7 @@ export class SecurityService {
     let decodedUrl = url;
     try {
       decodedUrl = decodeURIComponent(url);
-    } catch (e) {
+    } catch {
       // URL mal formada pode ser suspeita
       console.warn('URL mal formada detectada:', url);
     }
