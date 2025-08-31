@@ -19,15 +19,11 @@ export class ImageOptimizationInterceptor implements NestInterceptor {
     next: CallHandler,
   ): Promise<Observable<any>> {
     const request = context.switchToHttp().getRequest();
-    const file = request.file;
+    const singleFile = request.file;
+    const multipleFiles = request.files;
 
-    // Se não há arquivo ou se já foi processado, continua normalmente
-    if (!file || file.location) {
-      return next.handle();
-    }
-
-    // Se é um arquivo em memória (buffer), processa com otimização
-    if (file.buffer) {
+    // Processa arquivo único
+    if (singleFile && !singleFile.location && singleFile.buffer) {
       try {
         console.log('🔄 Iniciando otimização da imagem...');
 
@@ -37,9 +33,9 @@ export class ImageOptimizationInterceptor implements NestInterceptor {
         // Otimiza e faz upload da imagem
         const optimizationResult =
           await this.uploadOptimizationService.optimizeAndUploadImage(
-            file.buffer,
+            singleFile.buffer,
             folder,
-            file.originalname,
+            singleFile.originalname,
           );
 
         // Converte resultado para formato compatível com MulterS3
@@ -69,6 +65,67 @@ export class ImageOptimizationInterceptor implements NestInterceptor {
           error,
         );
         // Em caso de erro, continua sem otimização
+      }
+    }
+
+    // Processa múltiplos arquivos
+    if (multipleFiles && typeof multipleFiles === 'object') {
+      const optimizationResults = {};
+      
+      for (const [fieldName, fileArray] of Object.entries(multipleFiles)) {
+        if (Array.isArray(fileArray) && fileArray[0]) {
+          const file = fileArray[0];
+          
+          if (!file.location && file.buffer) {
+            try {
+              console.log(`🔄 Iniciando otimização da imagem ${fieldName}...`);
+
+              // Extrai o folder do fieldname ou usa padrão
+              const folder = request.body.folder || 'images';
+
+              // Otimiza e faz upload da imagem
+              const optimizationResult =
+                await this.uploadOptimizationService.optimizeAndUploadImage(
+                  file.buffer,
+                  folder,
+                  file.originalname,
+                );
+
+              // Converte resultado para formato compatível com MulterS3
+              const compatibleFile =
+                this.uploadOptimizationService.createMulterS3CompatibleResponse(
+                  optimizationResult,
+                );
+
+              // Substitui o arquivo no array com versão compatível
+              multipleFiles[fieldName][0] = compatibleFile;
+
+              // Adiciona informações de otimização
+              optimizationResults[fieldName] = {
+                variants: optimizationResult.variants,
+                srcSet: optimizationResult.srcSet,
+                sizes: optimizationResult.sizes,
+                blurPlaceholder: optimizationResult.blurPlaceholder,
+                compressionRatio: optimizationResult.compressionRatio,
+              };
+
+              console.log(
+                `✅ Otimização de ${fieldName} concluída: ${optimizationResult.compressionRatio}% de compressão`,
+              );
+            } catch (error) {
+              console.error(
+                `❌ Erro na otimização de ${fieldName}, continuando sem otimizar:`,
+                error,
+              );
+              // Em caso de erro, continua sem otimização
+            }
+          }
+        }
+      }
+      
+      // Se houve otimizações, adiciona na request
+      if (Object.keys(optimizationResults).length > 0) {
+        request.imageOptimization = optimizationResults;
       }
     }
 

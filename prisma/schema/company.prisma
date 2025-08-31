@@ -6,6 +6,7 @@ model Company {
   comercial_name     String    @db.VarChar(255) 
   corporate_name     String    @db.VarChar(255)
   logoUrl            String?    @db.VarChar(255)
+  faviconUrl         String?    @db.VarChar(255)
   primary_color      String?    @db.VarChar(7)   // Cor primária em formato hexadecimal
   secondary_color    String?    @db.VarChar(7)   // Cor secundária em formato hexadecimal
   description        String?    @db.VarChar(355) // Descriçao simples para metatags e footer

@@ -49,6 +49,14 @@ export class UpdateDto {
 
   @IsString()
   @IsOptional()
+  @IsUrl({}, { message: 'Invalid URL format' })
+  faviconUrl?: string;
+
+  @IsOptional() // Opcional, pois a imagem pode ou não ser enviada
+  favicon?: any; // Permitir que seja tratado como arquivo no Controller
+
+  @IsString()
+  @IsOptional()
   primary_color?: string;
 
   @IsString()

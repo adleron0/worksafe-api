@@ -7,7 +7,7 @@ import {
   Post,
   Put,
   Req,
-  UploadedFile,
+  UploadedFiles,
   UseInterceptors,
   UsePipes,
   ValidationPipe,
@@ -23,7 +23,10 @@ import { UpdateDto } from './dto/update.dto';
 import { IEntity } from './interfaces/interface';
 import { CompanyService as Service } from './service';
 // Import utils specifics
-import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  FileInterceptor,
+  FileFieldsInterceptor,
+} from '@nestjs/platform-express';
 import { getOptimizedMulterOptions } from '../upload/upload.middleware';
 import { ImageOptimizationInterceptor } from '../upload/image-optimization.interceptor';
 // Import generic controller
@@ -86,7 +89,13 @@ export class CompanyController extends GenericController<
   @CacheEvictAll('companies:*', 'cache:*/companies*') // descomente para limpar cache
   @Put(':id')
   @UseInterceptors(
-    FileInterceptor('image', getOptimizedMulterOptions()),
+    FileFieldsInterceptor(
+      [
+        { name: 'logo', maxCount: 1 },
+        { name: 'favicon', maxCount: 1 },
+      ],
+      getOptimizedMulterOptions(),
+    ),
     ImageOptimizationInterceptor,
   )
   @UsePipes(
@@ -100,13 +109,17 @@ export class CompanyController extends GenericController<
     @Param('id') id: number,
     @Req() request: Request,
     @Body() UpdateDto: UpdateDto,
-    @UploadedFile() file?: Express.MulterS3.File,
+    @UploadedFiles()
+    files?: {
+      logo?: Express.MulterS3.File[];
+      favicon?: Express.MulterS3.File[];
+    },
   ) {
-    // Se há arquivo, adiciona a URL ao DTO
-    if (file && file.location) {
-      UpdateDto.logoUrl = file.location;
-      console.log('✅ DEBUG - imageUrl adicionada ao DTO:', UpdateDto.logoUrl);
-    }
-    return super.update(id, request, UpdateDto, null, hooksUpdate);
+    // Remove campos de arquivo do DTO (serão processados pelo GenericService)
+    delete UpdateDto.logo;
+    delete UpdateDto.favicon;
+
+    // Chama o update do GenericController passando os arquivos como um único parâmetro
+    return super.update(id, request, UpdateDto, files, hooksUpdate);
   }
 }

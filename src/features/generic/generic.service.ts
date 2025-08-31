@@ -371,11 +371,29 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
     protected uploadService: UploadService,
   ) {}
 
+  // Helper para detectar se é arquivo único ou múltiplos
+  private isMultipleFiles(
+    file: Express.MulterS3.File | { [key: string]: Express.MulterS3.File[] },
+  ): file is { [key: string]: Express.MulterS3.File[] } {
+    // Se não tem file, retorna false
+    if (!file) return false;
+
+    // Verifica se é um objeto com arrays (múltiplos arquivos)
+    // Múltiplos arquivos têm estrutura: { logo: [...], favicon: [...] }
+    // Arquivo único tem propriedades como: fieldname, originalname, buffer (otimização) ou location (upload direto)
+    return !(
+      'fieldname' in file ||
+      'originalname' in file ||
+      'buffer' in file ||
+      'location' in file
+    );
+  }
+
   async create(
     dto: TCreateDto,
     logParams: any,
     entity: entity,
-    file?: Express.MulterS3.File,
+    file?: Express.MulterS3.File | { [key: string]: Express.MulterS3.File[] },
     searchVerify = {},
     hooks?: {
       hookPreCreate?: (params: {
@@ -414,9 +432,20 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
         throw new BadRequestException(`${entity.name} já cadastrado`);
       }
 
-      // Se houver file, define a URL da imageUrl
+      // Processa arquivos (unificado para arquivo único ou múltiplos)
       if (file) {
-        dto['imageUrl'] = file.location;
+        if (this.isMultipleFiles(file)) {
+          // Múltiplos arquivos
+          for (const [fieldName, fileArray] of Object.entries(file)) {
+            if (fileArray && fileArray[0]) {
+              const urlFieldName = `${fieldName}Url`; // Ex: logo -> logoUrl
+              dto[urlFieldName] = fileArray[0].location;
+            }
+          }
+        } else {
+          // Arquivo único - mantém compatibilidade com imageUrl
+          dto['imageUrl'] = file.location;
+        }
       }
 
       // Se `dto.password` existir, criptografa-a
@@ -775,7 +804,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
     dto: TUpdateDto,
     logParams: logParams,
     entity: entity,
-    file?: Express.MulterS3.File,
+    file?: Express.MulterS3.File | { [key: string]: Express.MulterS3.File[] },
     hooks?: {
       hookPreUpdate?: (params: {
         id: number;
@@ -816,16 +845,55 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
         throw new NotFoundException(`${entity.name} não encontrado`);
       }
 
-      // Se uma nova imagem foi enviada, exclui a imagem antiga e define a nova URL
+      // Processa arquivos (unificado para arquivo único ou múltiplos)
       if (file) {
-        if (verifyExist.imageUrl) {
-          console.log(
-            '🚀 ~ GenericService ~ update ~ verifyExist.imageUrl:',
-            verifyExist.imageUrl,
-          );
-          await this.uploadService.deleteImageFromS3(verifyExist.imageUrl);
+        if (this.isMultipleFiles(file)) {
+          // Múltiplos arquivos
+          for (const [fieldName, fileArray] of Object.entries(file)) {
+            if (fileArray && fileArray[0]) {
+              const urlFieldName = `${fieldName}Url`; // Ex: logo -> logoUrl
+              const existingUrl = verifyExist[urlFieldName];
+
+              // Se há uma URL existente, deleta do S3
+              if (existingUrl) {
+                console.log(
+                  `🚀 ~ GenericService ~ update ~ ${urlFieldName}:`,
+                  existingUrl,
+                );
+                await this.uploadService.deleteImageFromS3(existingUrl);
+              }
+
+              // Define a nova URL
+              dto[urlFieldName] = fileArray[0].location;
+            }
+          }
+
+          // Processa campos de URL nulos para múltiplos arquivos
+          for (const [fieldName] of Object.entries(file)) {
+            const urlFieldName = `${fieldName}Url`;
+            // Se o campo URL é null e não há novo arquivo, exclui a imagem existente
+            if (
+              dto[urlFieldName] === null &&
+              !file[fieldName]?.[0] &&
+              verifyExist[urlFieldName]
+            ) {
+              await this.uploadService.deleteImageFromS3(
+                verifyExist[urlFieldName],
+              );
+              dto[urlFieldName] = null;
+            }
+          }
+        } else {
+          // Arquivo único - mantém compatibilidade com imageUrl
+          if (verifyExist.imageUrl) {
+            console.log(
+              '🚀 ~ GenericService ~ update ~ verifyExist.imageUrl:',
+              verifyExist.imageUrl,
+            );
+            await this.uploadService.deleteImageFromS3(verifyExist.imageUrl);
+          }
+          dto['imageUrl'] = file.location;
         }
-        dto['imageUrl'] = file.location;
       }
 
       // Se `dto.imageUrl` é null e não há nova imagem, exclui a imagem existente
@@ -914,7 +982,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
     whereCondition: any,
     logParams: logParams,
     entity: entity,
-    file?: Express.MulterS3.File,
+    file?: Express.MulterS3.File | { [key: string]: Express.MulterS3.File[] },
     hooks?: {
       hookPreUpsert?: (params: {
         id: number;
@@ -953,9 +1021,20 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
         });
       }
 
-      // Se houver file, define a URL da imageUrl
+      // Processa arquivos (unificado para arquivo único ou múltiplos)
       if (file) {
-        dto['imageUrl'] = file.location;
+        if (this.isMultipleFiles(file)) {
+          // Múltiplos arquivos
+          for (const [fieldName, fileArray] of Object.entries(file)) {
+            if (fileArray && fileArray[0]) {
+              const urlFieldName = `${fieldName}Url`; // Ex: logo -> logoUrl
+              dto[urlFieldName] = fileArray[0].location;
+            }
+          }
+        } else {
+          // Arquivo único - mantém compatibilidade com imageUrl
+          dto['imageUrl'] = file.location;
+        }
       }
 
       // Se `dto.password` existir, criptografa-a

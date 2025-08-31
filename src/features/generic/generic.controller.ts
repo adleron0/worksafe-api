@@ -43,7 +43,7 @@ export interface ICrudService<T> {
     data: any,
     logParams: logParams,
     entity: entity,
-    file?: Express.MulterS3.File,
+    file?: Express.MulterS3.File | { [key: string]: Express.MulterS3.File[] },
     searchVerify?: any,
     hooks?: {
       hookPreCreate?: (params: {
@@ -68,7 +68,7 @@ export interface ICrudService<T> {
     data: any,
     logParams: logParams,
     entity: entity,
-    file?: Express.MulterS3.File,
+    file?: Express.MulterS3.File | { [key: string]: Express.MulterS3.File[] },
     hooks?: {
       hookPreUpdate?: (params: {
         id: number;
@@ -100,7 +100,7 @@ export interface ICrudService<T> {
     whereCondition: any,
     logParams: logParams,
     entity: entity,
-    file?: Express.MulterS3.File,
+    file?: Express.MulterS3.File | { [key: string]: Express.MulterS3.File[] },
     hooks?: {
       hookPreUpsert?: (params: {
         id: number;
@@ -160,7 +160,7 @@ export class GenericController<
     const parseArrayParam = (param: string) => {
       if (!param) return [];
       return param
-        .replace(/[\[\]]/g, '')
+        .replace(/\[|\]/g, '')
         .split(',')
         .filter((item) => item !== '');
     };
@@ -229,7 +229,7 @@ export class GenericController<
     @Param('id') id: number,
     @Req() request: Request,
     @Body() UpdateDto: TUpdateDto,
-    @UploadedFile() file?: Express.MulterS3.File,
+    @UploadedFile() file?: Express.MulterS3.File | { [key: string]: Express.MulterS3.File[] },
     entityHooks?: any,
   ): Promise<TEntity> {
     const hooks = entityHooks || {};
