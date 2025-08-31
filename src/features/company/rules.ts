@@ -6,6 +6,7 @@ export const omitAttributes: string[] = [
   'id',
   'financial_email',
   'financial_contact',
+  'email_conection',
 ];
 
 // Campos a serem encriptados na resposta do GET

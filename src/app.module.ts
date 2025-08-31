@@ -36,6 +36,7 @@ import { WebhooksModule } from './features/gateway/webhooks/module';
 import { FinancialrecordsModule } from './features/gateway/financialrecords/module';
 import { ClassAttendanceListModule } from './features/training/class_attendance_list/module';
 import { CompanyModule } from './features/company/module';
+import { EmailModule } from './features/email/email.module';
 
 @Module({
   imports: [
@@ -73,6 +74,7 @@ import { CompanyModule } from './features/company/module';
     FinancialrecordsModule,
     ClassAttendanceListModule,
     CompanyModule,
+    EmailModule,
   ],
   controllers: [],
   providers: [

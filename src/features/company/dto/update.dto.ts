@@ -128,10 +128,9 @@ export class UpdateDto {
   @IsOptional()
   operational_contact?: string;
 
-  @IsJSON()
+  @IsString()
   @IsOptional()
-  @IsEmail({}, { message: 'Invalid email format' })
-  email_conection?: JSON;
+  email_conection?: string;
 
   @IsString()
   @IsOptional()
