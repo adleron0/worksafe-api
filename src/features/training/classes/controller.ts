@@ -25,7 +25,10 @@ import { IEntity } from './interfaces/interface';
 import { ClassesService as Service } from './service';
 // Import utils specifics
 import { FileInterceptor } from '@nestjs/platform-express';
-import { getMulterOptions, getOptimizedMulterOptions } from '../../upload/upload.middleware';
+import {
+  getMulterOptions,
+  getOptimizedMulterOptions,
+} from '../../upload/upload.middleware';
 import { ImageOptimizationInterceptor } from '../../upload/image-optimization.interceptor';
 // Import generic controller
 import { GenericController } from 'src/features/generic/generic.controller';
@@ -144,6 +147,11 @@ export class ClassesController extends GenericController<
     @Body() CreateDto: CreateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
+    // Se há arquivo, adiciona a URL ao DTO
+    if (file && file.location) {
+      CreateDto.imageUrl = file.location;
+      console.log('✅ DEBUG - imageUrl adicionada ao DTO:', CreateDto.imageUrl);
+    }
     const search = {
       courseId: CreateDto.courseId,
       initialDate: CreateDto.initialDate,
@@ -166,7 +174,12 @@ export class ClassesController extends GenericController<
     @Body() UpdateDto: UpdateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
-    console.log('🚀 ~ ClassesController ~ update ~ UpdateDto:', UpdateDto);
+    // Se há arquivo, adiciona a URL ao DTO
+    if (file && file.location) {
+      UpdateDto.imageUrl = file.location;
+      console.log('✅ DEBUG - imageUrl adicionada ao DTO:', UpdateDto.imageUrl);
+    }
+
     if (!UpdateDto.price) UpdateDto.price = null;
     if (!UpdateDto.discountPrice) UpdateDto.discountPrice = null;
     return super.update(id, request, UpdateDto, file);

@@ -27,7 +27,10 @@ import { IEntity } from './interfaces/interface';
 import { ImageService as Service } from './service';
 // Import utils specifics
 import { FileInterceptor } from '@nestjs/platform-express';
-import { getMulterOptions, getOptimizedMulterOptions } from '../upload/upload.middleware';
+import {
+  getMulterOptions,
+  getOptimizedMulterOptions,
+} from '../upload/upload.middleware';
 import { ImageOptimizationInterceptor } from '../upload/image-optimization.interceptor';
 // Import generic controller
 import { GenericController } from 'src/features/generic/generic.controller';
@@ -43,9 +46,9 @@ import {
   hooksUpdate,
 } from './rules';
 
-function UserPermission(permission: string) {
-  return applyDecorators(Permissions(permission));
-}
+// function UserPermission(permission: string) {
+//   return applyDecorators(Permissions(permission));
+// }
 
 const entity = {
   model: 'Image' as keyof PrismaClient,
@@ -91,64 +94,6 @@ export class ImageController extends GenericController<
     return super.create(request, CreateDto, file, search, hooksCreate);
   }
 
-  // Rota de teste com otimização
-  @Post('optimized')
-  @UseInterceptors(
-    FileInterceptor('image', getOptimizedMulterOptions()),
-    ImageOptimizationInterceptor,
-  )
-  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
-  async createOptimized(
-    @Req() request: Request,
-    @Body() CreateDto: CreateDto,
-    @UploadedFile() file?: Express.MulterS3.File,
-  ) {
-    console.log('🚀 ~ ImageController ~ createOptimized ~ CreateDto:', CreateDto);
-    const search = getSearchParams(request, CreateDto);
-    
-    // O interceptor já processou o arquivo e adicionou as informações de otimização
-    const result = await super.create(request, CreateDto, file, search, hooksCreate);
-    
-    // Adiciona informações de otimização na resposta
-    if (request['imageOptimization']) {
-      return {
-        ...result,
-        optimization: request['imageOptimization'],
-      };
-    }
-    
-    return result;
-  }
-
-  // @UserPermission(`update_${entity.permission}`) // comente para tirar permissao
-  // @Public() // descomente para tornar publica
-  @Put(':id')
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('image-image')))
-  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
-  async update(
-    @Param('id') id: number,
-    @Req() request: Request,
-    @Body() UpdateDto: UpdateDto,
-    @UploadedFile() file?: Express.MulterS3.File,
-  ) {
-    const processedDto = formaterPreUpdate(UpdateDto);
-    return super.update(id, request, processedDto, file, hooksUpdate);
-  }
-
-  // @UserPermission(`activate_${entity.permission}`) // comente para tirar permissao
-  // @Public() // descomente para tornar publica
-  @Patch('active/:id')
-  async activate(@Param('id') id: number, @Req() request: Request) {
-    return super.activate(id, request);
-  }
-
-  // @UserPermission(`inactive_${entity.permission}`) // comente para tirar permissao
-  // @Public() // descomente para tornar publica
-  @Patch('inactive/:id')
-  async inactivate(@Param('id') id: number, @Req() request: Request) {
-    return super.inactivate(id, request);
-  }
-
   // @UserPermission(`delete_${entity.permission}`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
   @Delete(':id')
@@ -161,19 +106,16 @@ export class ImageController extends GenericController<
     return this.Service.deleteImage(id, logParams);
   }
 
-  @Public()
-  @Options('proxy')
-  async proxyOptions(@Res() res: Response) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    res.status(200).send();
-  }
-
   @Post('s3')
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('uploads')))
+  @UseInterceptors(
+    FileInterceptor('image', getOptimizedMulterOptions()),
+    ImageOptimizationInterceptor,
+  )
   async uploadToS3(@UploadedFile() file: Express.MulterS3.File) {
-    return this.Service.uploadToS3(file);
+    // Se há arquivo, adiciona a URL ao DTO
+    if (file && file.location) {
+      return { imageUrl: file.location };
+    }
   }
 
   @Public()

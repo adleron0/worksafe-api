@@ -11,8 +11,6 @@ async function seedCompanies() {
       comercial_name: 'Worksafe Brasil',
       corporate_name: 'Worksafe Servicos Ltda',
       cnpj: '33714458000161',
-      region: 'Nordeste',
-      state: 'PE',
       representative_email: 'julio@worksafebrasil.com.br',
       segment: 'Servicos',
     },
@@ -107,7 +105,7 @@ async function seedCompanyProducts() {
 // --------------------------------------------------------------------------------
 async function seedProfiles() {
   const profilesData = [
-    { name: 'super', companyId: 1 },
+    { name: 'super', companyId: 0 },
     { name: 'admin', companyId: 1 },
     { name: 'user', companyId: 1 },
   ];
@@ -188,6 +186,7 @@ async function seedPermissions() {
     { permission: 'profile', name: 'perfis', group: 'perfil' },
     { permission: 'instrutores', name: 'instrutores', group: 'treinamentos' },
     { permission: 'classes', name: 'turmas', group: 'treinamentos' },
+    { permission: 'company', name: 'empresa', group: 'empresa' },
   ];
 
   const permissionsData = [];

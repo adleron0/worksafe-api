@@ -29,8 +29,11 @@ O script é **interativo** e guiará você através do processo de criação da 
 
 ### 4. **Configurações Adicionais**
 - **Campo de Imagem**: Pergunta se deve incluir suporte a upload de imagem
+  - **Otimização WebP**: Se imagem habilitada, pergunta se deseja usar conversão automática para WebP
 - **CompanyId**: Pergunta se a rota exige `companyId` do token
 - **Rota Upsert**: Pergunta se deve incluir rota de upsert (create/update em uma única operação)
+- **Cache**: Pergunta se deseja usar cache nas rotas
+  - **TTL do Cache**: Se cache habilitado, permite configurar tempo de expiração
 
 ### 5. **Revisão e Confirmação**
 - Mostra os campos que serão incluídos nos DTOs
@@ -108,25 +111,55 @@ $ npx ts-node src/cli/generate-entity.ts
 
 A entidade pertence a um grupo? (s/n): n
 Digite o nome da feature (ex: user, product): product
+Digite o nome da rota (ex: users, products): products
+Digite o nome da permission (ex: users, products): products
 Digite o nome do modelo (ou número da lista): 15
 Deseja incluir campo de imagem? (s/n): n
 A rota exige companyId do token? (s/n): n
 Deseja incluir rota de upsert? (s/n): n
-Deseja gerar a entidade com esses campos? (s/n): s
+Deseja usar cache nas rotas? (s/n): n
+Deseja gerar a entidade com essas configurações? (s/n): s
 ```
 
-### Exemplo 2: Entidade em Grupo com Upsert
+### Exemplo 2: Entidade em Grupo com Upsert e Cache
 ```bash
 $ npx ts-node src/cli/generate-entity.ts
 
 A entidade pertence a um grupo? (s/n): s
 Qual o nome do grupo? (ex: clientes): clientes
 Digite o nome da feature (ex: user, product): contact
+Digite o nome da rota (ex: users, products): contacts
+Digite o nome da permission (ex: users, products): contacts
 Digite o nome do modelo (ou número da lista): customer_contacts
 Deseja incluir campo de imagem? (s/n): s
+Deseja usar otimizador de imagens WebP? (s/n): s
 A rota exige companyId do token? (s/n): s
 Deseja incluir rota de upsert? (s/n): s
-Deseja gerar a entidade com esses campos? (s/n): s
+Deseja usar cache nas rotas? (s/n): s
+Por quanto tempo deseja manter o cache?
+   Exemplos: 300s (5 minutos), 5m, 1h, 24h, 7d
+   Digite o tempo: 1h
+Deseja gerar a entidade com essas configurações? (s/n): s
+```
+
+### Exemplo 3: Entidade com Imagem e Otimização WebP
+```bash
+$ npx ts-node src/cli/generate-entity.ts
+
+A entidade pertence a um grupo? (s/n): n
+Digite o nome da feature (ex: user, product): instructor
+Digite o nome da rota (ex: users, products): instructors
+Digite o nome da permission (ex: users, products): instructors
+Digite o nome do modelo (ou número da lista): Instructor
+Deseja incluir campo de imagem? (s/n): s
+Deseja usar otimizador de imagens WebP? (s/n): s
+A rota exige companyId do token? (s/n): s
+Deseja incluir rota de upsert? (s/n): n
+Deseja usar cache nas rotas? (s/n): s
+Por quanto tempo deseja manter o cache?
+   Exemplos: 300s (5 minutos), 5m, 1h, 24h, 7d
+   Digite o tempo: 48h
+Deseja gerar a entidade com essas configurações? (s/n): s
 ```
 
 ## 🔄 Após a Geração
@@ -263,8 +296,19 @@ export async function hookPosUpsert(params: {
 
 ### Upload de Imagem
 ```typescript
-// Configuração automática no controller
+// Configuração automática no controller - Padrão
 @UseInterceptors(FileInterceptor('image', getMulterOptions('entity-name-image')))
+
+// Com otimização WebP (quando habilitado)
+@UseInterceptors(
+  FileInterceptor('image', getOptimizedMulterOptions()),
+  ImageOptimizationInterceptor,
+)
+
+// Lógica automática para adicionar imageUrl ao DTO (quando WebP habilitado)
+if (file && file.location) {
+  CreateDto.imageUrl = file.location;
+}
 ```
 
 ### Rota Upsert
@@ -317,3 +361,5 @@ A entidade gerada segue o padrão genérico do projeto:
 - ✅ **Integração Completa** com o sistema existente
 - ✅ **Suporte a Grupos** para organização
 - ✅ **Validações Automáticas** baseadas no schema Prisma
+- ✅ **Otimização de Imagens** com conversão para WebP
+- ✅ **Cache Configurável** com TTL personalizável

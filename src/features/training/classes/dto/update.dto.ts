@@ -100,6 +100,23 @@ export class UpdateDto {
   gradePracticle: string;
 
   @IsOptional()
+  @Transform(({ value }) => {
+    // Se não há valor ou é string vazia, retorna undefined para ser preenchido depois
+    if (!value || value === '') {
+      return undefined;
+    }
+    // Se tem valor, valida se é uma URL válida
+    if (value && typeof value === 'string' && value.length > 0) {
+      try {
+        new URL(value);
+        return value;
+      } catch {
+        console.warn('⚠️ imageUrl inválida no update, será ignorada:', value);
+        return undefined;
+      }
+    }
+    return value;
+  })
   imageUrl?: string | null;
 
   @IsUrl({}, { message: 'Invalid URL format for video' })

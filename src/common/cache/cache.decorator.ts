@@ -18,8 +18,8 @@ export interface CacheOptions {
  * Exemplos de uso:
  *
  * @Cache() // Cache padrão com TTL de 5 minutos
- * @Cache({ ttl: 3600 }) // Cache de 1 hora
- * @Cache({ prefix: 'products', ttl: 172800 }) // Cache de 48h com prefixo
+ * @Cache({ ttl: 3600 }) // Cache de 1 horaem segundos
+ * @Cache({ prefix: 'products', ttl: 172800 }) // Cache de 48h em segundos
  * @Cache({ key: (req) => `user:${req.user.id}` }) // Chave dinâmica
  */
 export function Cache(options: CacheOptions = {}) {

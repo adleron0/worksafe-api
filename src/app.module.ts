@@ -5,7 +5,6 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthGuard } from './auth/auth.guard';
-import { CompanyModule } from './features/company/company.module';
 import { SecurityModule } from './common/security/security.module';
 import { PermissionsModule } from './features/users/permissions/permissions.module';
 import { UploadModule } from './features/upload/upload.module';
@@ -36,6 +35,7 @@ import { CompanygatewaysModule } from './features/gateway/companygateways/module
 import { WebhooksModule } from './features/gateway/webhooks/module';
 import { FinancialrecordsModule } from './features/gateway/financialrecords/module';
 import { ClassAttendanceListModule } from './features/training/class_attendance_list/module';
+import { CompanyModule } from './features/company/module';
 
 @Module({
   imports: [
@@ -44,7 +44,6 @@ import { ClassAttendanceListModule } from './features/training/class_attendance_
     UserModule,
     PrismaModule,
     AuthModule,
-    CompanyModule,
     PermissionsModule,
     UploadModule,
     AreaModule,
@@ -73,6 +72,7 @@ import { ClassAttendanceListModule } from './features/training/class_attendance_
     WebhooksModule,
     FinancialrecordsModule,
     ClassAttendanceListModule,
+    CompanyModule,
   ],
   controllers: [],
   providers: [

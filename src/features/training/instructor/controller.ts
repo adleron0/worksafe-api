@@ -24,7 +24,10 @@ import { IEntity } from './interfaces/interface';
 import { InstructorService as Service } from './service';
 // Import utils specifics
 import { FileInterceptor } from '@nestjs/platform-express';
-import { getMulterOptions, getOptimizedMulterOptions } from '../../upload/upload.middleware';
+import {
+  getMulterOptions,
+  getOptimizedMulterOptions,
+} from '../../upload/upload.middleware';
 import { ImageOptimizationInterceptor } from '../../upload/image-optimization.interceptor';
 // Import generic controller
 import { GenericController } from 'src/features/generic/generic.controller';
@@ -75,6 +78,11 @@ export class InstructorController extends GenericController<
     @Body() CreateDto: CreateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
+    // Se há arquivo, adiciona a URL ao DTO
+    if (file && file.location) {
+      CreateDto.imageUrl = file.location;
+      console.log('✅ DEBUG - imageUrl adicionada ao DTO:', CreateDto.imageUrl);
+    }
     const search = {
       cpf: CreateDto.cpf,
     }; // Customize search parameters if needed
@@ -95,6 +103,11 @@ export class InstructorController extends GenericController<
     @Body() UpdateDto: UpdateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
+    // Se há arquivo, adiciona a URL ao DTO
+    if (file && file.location) {
+      UpdateDto.imageUrl = file.location;
+      console.log('✅ DEBUG - imageUrl adicionada ao DTO:', UpdateDto.imageUrl);
+    }
     return super.update(id, request, UpdateDto, file);
   }
 

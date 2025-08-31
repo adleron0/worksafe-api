@@ -2,13 +2,37 @@
 model Company {
   id                 Int       @id @default(autoincrement())
   active             Boolean   @default(true)  // Novo campo booleano para status de ativo/inativo
+  cnpj               String    @db.VarChar(14) @unique
   comercial_name     String    @db.VarChar(255) 
   corporate_name     String    @db.VarChar(255)
-  cnpj               String    @db.VarChar(14) @unique
-  region             String    @db.VarChar(255)
-  state              String    @db.VarChar(255)
-  representative_email String    @db.VarChar(255)
-  segment            String    @db.VarChar(255)
+  logoUrl            String?    @db.VarChar(255)
+  primary_color      String?    @db.VarChar(7)   // Cor primária em formato hexadecimal
+  secondary_color    String?    @db.VarChar(7)   // Cor secundária em formato hexadecimal
+  description        String?    @db.VarChar(355) // Descriçao simples para metatags e footer
+  stateId            Int?
+  state             DOM_States?     @relation(fields: [stateId], references: [id])
+  cityId            Int?
+  city              DOM_Cities?      @relation(fields: [cityId], references: [id])
+  address String?    @db.VarChar(255)
+  addressNumber String?    @db.VarChar(255)
+  addressComplement String?    @db.VarChar(255)
+  neighborhood String?    @db.VarChar(255)
+  zipCode String?    @db.VarChar(255)
+  segment            String?    @db.VarChar(255)
+  representative_email String?    @db.VarChar(255)
+  representative_contact String?    @db.VarChar(50)
+  financial_email    String?    @db.VarChar(255)
+  financial_contact  String?    @db.VarChar(50)
+  operational_email  String?    @db.VarChar(255)
+  operational_contact String?    @db.VarChar(50)
+  email_conection    Json?
+  lp_domain         String?    @db.VarChar(255)
+  system_domain     String?    @db.VarChar(255)
+  websiteUrl        String?    @db.VarChar(255)
+  facebookUrl       String?    @db.VarChar(255)
+  instagramUrl      String?    @db.VarChar(255)
+  linkedinUrl       String?    @db.VarChar(255)
+
 
   users              User[]    // Relacionamento com a tabela User
   Area               Area[]    // Relacionamento com a tabela Area

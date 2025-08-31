@@ -510,6 +510,18 @@ async function main() {
       hasImageAnswer.toLowerCase() === 's' ||
       hasImageAnswer.toLowerCase() === 'sim';
 
+    // 8.1. Se quer imagem, perguntar se quer usar otimizador WebP
+    let useWebpOptimizer = false;
+    if (hasImage) {
+      const webpAnswer = await askQuestion(
+        rl,
+        '🌐 Deseja usar otimizador de imagens WebP? (s/n): ',
+      );
+      useWebpOptimizer =
+        webpAnswer.toLowerCase() === 's' ||
+        webpAnswer.toLowerCase() === 'sim';
+    }
+
     // 9. Perguntar valor de noCompany
     const noCompanyAnswer = await askQuestion(
       rl,
@@ -609,6 +621,9 @@ async function main() {
     console.log(`🔐 Permission: ${permissionName}`);
     console.log(`🗃️  Modelo: ${selectedModel}`);
     console.log(`🖼️  Imagem: ${hasImage ? 'Sim' : 'Não'}`);
+    if (hasImage) {
+      console.log(`🌐 Otimizador WebP: ${useWebpOptimizer ? 'Sim' : 'Não'}`);
+    }
     console.log(`🏢 CompanyId: ${noCompany ? 'Não exige' : 'Exige'}`);
     console.log(`🔄 Upsert: ${hasUpsert ? 'Sim' : 'Não'}`);
     console.log(
@@ -637,6 +652,7 @@ async function main() {
       selectedModel,
       schemaModel,
       hasImage,
+      useWebpOptimizer,
       noCompany,
       isGroup,
       groupName,
@@ -659,6 +675,7 @@ async function generateEntity(
   schemaName: string,
   schemaModel: SchemaModel,
   hasImage: boolean,
+  useWebpOptimizer: boolean,
   noCompany: boolean,
   isGroup: boolean,
   groupName: string,
@@ -950,6 +967,20 @@ export class ${entityNamePascal}Service extends GenericService<
     ? `@CacheEvictAll('${cacheKeyPrefix}:*', 'cache:*/${cacheKeyPrefix}*')`
     : `// @CacheEvictAll('${cacheKeyPrefix}:*', 'cache:*/${cacheKeyPrefix}*') // descomente para limpar cache`;
 
+  // Definir interceptors baseado em hasImage e useWebpOptimizer
+  let fileInterceptorImport = '';
+  let fileInterceptorUsage = '';
+  
+  if (hasImage && useWebpOptimizer) {
+    fileInterceptorImport = `import { getOptimizedMulterOptions } from '${uploadImportPath}';
+import { ImageOptimizationInterceptor } from '${isGroup ? '../../' : '../'}upload/image-optimization.interceptor';`;
+    fileInterceptorUsage = `FileInterceptor('image', getOptimizedMulterOptions()),
+    ImageOptimizationInterceptor,`;
+  } else if (hasImage) {
+    fileInterceptorImport = `import { getMulterOptions } from '${uploadImportPath}';`;
+    fileInterceptorUsage = `FileInterceptor('image', getMulterOptions('${entityName}-image')),`;
+  }
+
   const controllerContent = `import {
   Body,
   Controller,
@@ -976,7 +1007,7 @@ import { IEntity } from './interfaces/interface';
 import { ${entityNamePascal}Service as Service } from './service';
 // Import utils specifics
 import { FileInterceptor } from '@nestjs/platform-express';
-import { getMulterOptions } from '${uploadImportPath}';
+${fileInterceptorImport}
 // Import generic controller
 import { GenericController } from 'src/features/generic/generic.controller';
 import { Public } from 'src/auth/decorators/public.decorator';
@@ -1042,32 +1073,44 @@ export class ${entityNamePascal}Controller extends GenericController<
   @UserPermission(\`create_\${entity.permission}\`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
   ${cacheEvictDecorator}
-  @Post()
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('${entityName}-image')))
+  @Post()${hasImage ? `
+  @UseInterceptors(
+    ${fileInterceptorUsage}
+  )` : ''}
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
   async create(
     @Req() request: Request,
     @Body() CreateDto: CreateDto,
-    @UploadedFile() file?: Express.MulterS3.File,
+    ${hasImage ? '@UploadedFile() file?: Express.MulterS3.File,' : ''}
   ) {
+    ${hasImage && useWebpOptimizer ? `// Se há arquivo, adiciona a URL ao DTO
+    if (file && file.location) {
+      CreateDto.imageUrl = file.location;
+    }` : ''}
     const search = getSearchParams(request, CreateDto);
-    return super.create(request, CreateDto, file, search, hooksCreate);
+    return super.create(request, CreateDto, ${hasImage ? 'file' : 'null'}, search, hooksCreate);
   }
 
   @UserPermission(\`update_\${entity.permission}\`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
   ${cacheEvictDecorator}
-  @Put(':id')
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('${entityName}-image')))
+  @Put(':id')${hasImage ? `
+  @UseInterceptors(
+    ${fileInterceptorUsage}
+  )` : ''}
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
   async update(
     @Param('id') id: number,
     @Req() request: Request,
     @Body() UpdateDto: UpdateDto,
-    @UploadedFile() file?: Express.MulterS3.File,
+    ${hasImage ? '@UploadedFile() file?: Express.MulterS3.File,' : ''}
   ) {
+    ${hasImage && useWebpOptimizer ? `// Se há arquivo, adiciona a URL ao DTO
+    if (file && file.location) {
+      UpdateDto.imageUrl = file.location;
+    }` : ''}
     const processedDto = formaterPreUpdate(UpdateDto);
-    return super.update(id, request, processedDto, file, hooksUpdate);
+    return super.update(id, request, processedDto, ${hasImage ? 'file' : 'null'}, hooksUpdate);
   }
 
   @UserPermission(\`activate_\${entity.permission}\`) // comente para tirar permissao
@@ -1091,17 +1134,23 @@ export class ${entityNamePascal}Controller extends GenericController<
   @UserPermission(\`create_\${entity.permission}\`) // mesma permissao do create
   // @Public() // descomente para tornar publica
   ${cacheEvictDecorator}
-  @Post('upsert')
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('${entityName}-image')))
+  @Post('upsert')${hasImage ? `
+  @UseInterceptors(
+    ${fileInterceptorUsage}
+  )` : ''}
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
   async upsert(
     @Req() request: Request,
     @Body() upsertDto: CreateDto,
-    @UploadedFile() file?: Express.MulterS3.File,
+    ${hasImage ? '@UploadedFile() file?: Express.MulterS3.File,' : ''}
   ) {
+    ${hasImage && useWebpOptimizer ? `// Se há arquivo, adiciona a URL ao DTO
+    if (file && file.location) {
+      upsertDto.imageUrl = file.location;
+    }` : ''}
     const whereCondition = getUpsertWhereCondition(request, upsertDto);
     
-    return super.upsert(request, upsertDto, file, whereCondition, hooksUpsert);
+    return super.upsert(request, upsertDto, ${hasImage ? 'file' : 'null'}, whereCondition, hooksUpsert);
   }`
       : ''
   }

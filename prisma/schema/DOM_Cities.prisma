@@ -9,4 +9,5 @@ model DOM_Cities {
 
   customers   Customer[]
   trainees   Trainee[]
+  companies   Company[]
 }

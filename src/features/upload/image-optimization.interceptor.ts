@@ -30,21 +30,23 @@ export class ImageOptimizationInterceptor implements NestInterceptor {
     if (file.buffer) {
       try {
         console.log('🔄 Iniciando otimização da imagem...');
-        
+
         // Extrai o folder do fieldname ou usa padrão
         const folder = request.body.folder || 'images';
-        
+
         // Otimiza e faz upload da imagem
-        const optimizationResult = await this.uploadOptimizationService.optimizeAndUploadImage(
-          file.buffer,
-          folder,
-          file.originalname,
-        );
+        const optimizationResult =
+          await this.uploadOptimizationService.optimizeAndUploadImage(
+            file.buffer,
+            folder,
+            file.originalname,
+          );
 
         // Converte resultado para formato compatível com MulterS3
-        const compatibleFile = this.uploadOptimizationService.createMulterS3CompatibleResponse(
-          optimizationResult,
-        );
+        const compatibleFile =
+          this.uploadOptimizationService.createMulterS3CompatibleResponse(
+            optimizationResult,
+          );
 
         // Substitui o arquivo na request com versão compatível
         request.file = compatibleFile;
@@ -62,7 +64,10 @@ export class ImageOptimizationInterceptor implements NestInterceptor {
           `✅ Otimização concluída: ${optimizationResult.compressionRatio}% de compressão`,
         );
       } catch (error) {
-        console.error('❌ Erro na otimização, continuando sem otimizar:', error);
+        console.error(
+          '❌ Erro na otimização, continuando sem otimizar:',
+          error,
+        );
         // Em caso de erro, continua sem otimização
       }
     }
