@@ -7,6 +7,7 @@ model Course {
   icon String?    @db.VarChar(100)
   color String?    @db.VarChar(20)
   companyId Int
+  company   Company   @relation(fields: [companyId], references: [id])
   description String?
   gradeTheory String
   gradePracticle String

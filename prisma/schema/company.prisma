@@ -58,6 +58,7 @@ model Company {
   webhooks Webhooks[] // Relacionamento com a tabela Webhooks
   financialRecords FinancialRecords[] // Relacionamento com a tabela FinancialRecords
   classes CourseClass[] // Relacionamento com a tabela CourseClass
+  courses Course[] // Relacionamento com a tabela Course
 
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @default(now()) @updatedAt
