@@ -46,10 +46,10 @@ export class UpdateDto {
   @IsOptional()
   address?: string;
 
-  @IsInt()
-  @Type(() => Number)
+  @IsString()
+  @Type(() => String)
   @IsOptional()
-  addressNumber?: number;
+  addressNumber?: string;
 
   @IsString()
   @IsOptional()
@@ -108,4 +108,8 @@ export class UpdateDto {
 
   @IsOptional()
   image?: any;
+
+  @IsString()
+  @IsOptional()
+  occupation?: string;
 }

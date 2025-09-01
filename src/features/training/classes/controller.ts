@@ -116,6 +116,7 @@ export class ClassesController extends GenericController<
             },
             where: {
               authorizationExposeReview: true,
+              inactiveAt: null,
             },
           },
         },

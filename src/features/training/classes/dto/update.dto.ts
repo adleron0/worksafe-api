@@ -207,4 +207,8 @@ export class UpdateDto {
     return value;
   })
   paymentMethods?: paymentMethods[];
+
+  @IsJSON()
+  @IsOptional()
+  whyUs?: string;
 }

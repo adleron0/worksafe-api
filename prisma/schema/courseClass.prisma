@@ -35,8 +35,9 @@ model CourseClass {
   minimumQuorum Int?
   maxSubscriptions Int?
   allowCheckout Boolean @default(false)
-  paymentMethods paymentMethods[]
+  whyUs Json?
 
+  paymentMethods paymentMethods[]
   certificates TraineeCourseCertificate[]
   exams CourseClassExam[]
   instructors CourseClassInstructor[]

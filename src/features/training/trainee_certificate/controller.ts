@@ -13,6 +13,7 @@ import {
   ValidationPipe,
   Query,
   applyDecorators,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { Request } from 'express';
@@ -20,6 +21,7 @@ import { Permissions } from 'src/auth/decorators/permissions.decorator';
 // Import entity template
 import { CreateDto } from './dto/create.dto';
 import { UpdateDto } from './dto/update.dto';
+import { SendCertificateEmailDto } from './dto/send-email.dto';
 import { IEntity } from './interfaces/interface';
 import { TraineeCertificateService as Service } from './service';
 // Import utils specifics
@@ -131,5 +133,22 @@ export class TraineeCertificateController extends GenericController<
   @Patch('inactive/:id')
   async inactivate(@Param('id') id: number, @Req() request: Request) {
     return super.inactivate(id, request);
+  }
+
+  @Public()
+  @Post('send-email')
+  @UseInterceptors(FileInterceptor('none')) // Interceptor para processar FormData
+  @UsePipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  )
+  async sendCertificateByEmail(@Body() dto: SendCertificateEmailDto) {
+    return this.Service.sendCertificateByEmail(
+      dto.traineeId,
+      dto.certificateKey,
+    );
   }
 }

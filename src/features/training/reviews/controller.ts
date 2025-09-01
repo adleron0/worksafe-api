@@ -50,7 +50,7 @@ const entity = {
   model: 'CourseReview' as keyof PrismaClient,
   name: 'Reviews',
   route: 'reviews',
-  permission: 'class',
+  permission: 'classes',
 };
 
 @Controller(entity.route)
@@ -113,7 +113,7 @@ export class ReviewsController extends GenericController<
 
   @UserPermission(`activate_${entity.permission}`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
-  // @CacheEvictAll('reviews:*', 'cache:*/reviews*') // descomente para limpar cache
+  @CacheEvictAll('training-classes:*', 'cache:*/classes*')
   @Patch('active/:id')
   async activate(@Param('id') id: number, @Req() request: Request) {
     return super.activate(id, request);
@@ -121,7 +121,7 @@ export class ReviewsController extends GenericController<
 
   @UserPermission(`inactive_${entity.permission}`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
-  // @CacheEvictAll('reviews:*', 'cache:*/reviews*') // descomente para limpar cache
+  @CacheEvictAll('training-classes:*', 'cache:*/classes*')
   @Patch('inactive/:id')
   async inactivate(@Param('id') id: number, @Req() request: Request) {
     return super.inactivate(id, request);

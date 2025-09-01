@@ -207,4 +207,8 @@ export class CreateDto {
     return value;
   })
   paymentMethods?: paymentMethods[];
+
+  @IsJSON()
+  @IsOptional()
+  whyUs?: string;
 }
