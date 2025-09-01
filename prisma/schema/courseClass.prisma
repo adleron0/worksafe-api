@@ -2,6 +2,7 @@ model CourseClass {
   id       Int       @id @default(autoincrement())
   name     String    @db.VarChar(100)
   companyId Int?
+  company   Company?   @relation(fields: [companyId], references: [id])
   customerId Int? 
   customer   Customer?   @relation(fields: [customerId], references: [id])
   courseId Int

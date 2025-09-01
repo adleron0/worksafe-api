@@ -57,6 +57,7 @@ model Company {
   gateways CompanyGateWays[] // Relacionamento com a tabela CompanyGateWays
   webhooks Webhooks[] // Relacionamento com a tabela Webhooks
   financialRecords FinancialRecords[] // Relacionamento com a tabela FinancialRecords
+  classes CourseClass[] // Relacionamento com a tabela CourseClass
 
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @default(now()) @updatedAt
