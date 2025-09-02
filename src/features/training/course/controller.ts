@@ -69,7 +69,7 @@ export class CourseController extends GenericController<
   }
 
   @Public()
-  @Cache({ prefix: 'list-courses', ttl: 172800 })
+  // @Cache({ prefix: 'list-courses', ttl: 172800 })
   @Get('list')
   async list(@Req() request: Request, @Query() query: any) {
     // filtros e atributos de associações
