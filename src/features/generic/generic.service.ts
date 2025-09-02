@@ -729,8 +729,13 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       console.log('🚀 ~ GenericService ~ get ~ params:', params);
 
       // Definindo valores padrão para página e limite
-      const page = filters.page ? Number(filters.page) + 1 : 1;
-      const limit = filters.limit ? Number(filters.limit) : 10;
+      const pageNum = Number(filters.page);
+      const page = !isNaN(pageNum) ? pageNum + 1 : 1;
+      
+      // Verifica se limit é "all" ou um número
+      const isLimitAll = filters.limit === 'all';
+      const limitNum = Number(filters.limit);
+      const limit = !isNaN(limitNum) && limitNum > 0 ? limitNum : 10;
 
       // Calculando o número de itens a serem pulados (skip) com base na página atual
       const skip = (page - 1) * limit;
@@ -740,8 +745,12 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       if (filters.orderBy.length) orderBy = filters.orderBy; // Ordenação customizada da busca
 
       let result;
-      if (filters.all) {
-        result = await this.prisma.select(entity.model, params, orderBy);
+      if (filters.all || isLimitAll) {
+        const rows = await this.prisma.select(entity.model, params, orderBy);
+        result = {
+          total: rows.length,
+          rows: rows
+        };
       } else {
         result = await this.prisma.selectPaging(
           entity.model,

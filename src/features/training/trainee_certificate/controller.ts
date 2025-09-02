@@ -15,6 +15,7 @@ import {
   applyDecorators,
   BadRequestException,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { PrismaClient } from '@prisma/client';
 import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
@@ -73,6 +74,7 @@ export class TraineeCertificateController extends GenericController<
 
   @UserPermission(`list_${entity.permission}`) // comente para tirar permissao
   @Public() // descomente para tornar publica
+  @Throttle({ default: { limit: 500, ttl: 60000 } }) // 500 requests por minuto para esta rota
   // @Cache({ prefix: 'trainee-certificate', ttl: 3600 }) // descomente para usar cache (1 hora)
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
