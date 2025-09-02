@@ -29,18 +29,20 @@ export class CourseService extends GenericService<
   async list(search: any, entity: entity) {
     try {
       let companyId = search.companyId;
-      if (!companyId && search.domain) {
+      if (!companyId) {
+        const whereCompany = {};
+        if (search.lp_domain) whereCompany['lp_domain'] = search.lp_domain;
+        if (search.system_domain)
+          whereCompany['system_domain'] = search.system_domain;
         const company = await this.prisma.select(
           'company',
           {
-            where: {
-              or: [
-                { lp_domain: search.lp_domain },
-                { system_domain: search.system_domain },
-              ],
+            where: whereCompany,
+            select: {
+              id: true,
             },
           },
-          null,
+          [{ id: 'desc' }],
         );
         if (company.length > 0) {
           companyId = company[0].id;
@@ -61,6 +63,7 @@ export class CourseService extends GenericService<
 
       return result;
     } catch (error) {
+      console.log("🚀 ~ CourseService ~ list ~ error:", error)
       throw new BadRequestException(error);
     }
   }
