@@ -27,7 +27,7 @@ import { CacheModule } from './common/cache';
 import { ImageModule } from './features/image/module';
 import { CertificateModule } from './features/training/certificate/module';
 import { SubscriptionModule } from './features/training/subscription/module';
-import { AlunosModule } from './features/training/alunos/module';
+import { AlunosModule } from './features/training/trainees/module';
 import { ExamesModule } from './features/training/exames/module';
 import { TraineeCertificateModule } from './features/training/trainee_certificate/module';
 import { ReviewsModule } from './features/training/reviews/module';

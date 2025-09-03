@@ -7,5 +7,6 @@ import { UploadModule } from '../../upload/upload.module';
   controllers: [Controller],
   providers: [Service],
   imports: [UploadModule],
+  exports: [Service], // Exporta o service para outros módulos poderem usar
 })
 export class AlunosModule {}

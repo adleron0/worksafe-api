@@ -77,53 +77,10 @@ export class AlunosController extends GenericController<
     if (!query.omitAttributes) {
       query.omitAttributes = omitAttributes;
     }
+    query['show'] = 'traineeCompany';
+    // Usa a sintaxe padrão para filtrar relações many-to-many
+    query['traineeCompany.companyId'] = request.user.companyId;
+
     return super.get(request, query, paramsIncludes, noCompany);
-  }
-
-  @UserPermission(`create_${entity.permission}`) // comente para tirar permissao
-  // @Public() // descomente para tornar publica
-  // @CacheEvictAll('trainee:*', 'cache:*/trainee*') // descomente para limpar cache
-  @Post()
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('alunos-image')))
-  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
-  async create(
-    @Req() request: Request,
-    @Body() CreateDto: CreateDto,
-    @UploadedFile() file?: Express.MulterS3.File,
-  ) {
-    const search = getSearchParams(request, CreateDto);
-    return super.create(request, CreateDto, file, search, hooksCreate);
-  }
-
-  @UserPermission(`update_${entity.permission}`) // comente para tirar permissao
-  // @Public() // descomente para tornar publica
-  // @CacheEvictAll('trainee:*', 'cache:*/trainee*') // descomente para limpar cache
-  @Put(':id')
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('alunos-image')))
-  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
-  async update(
-    @Param('id') id: number,
-    @Req() request: Request,
-    @Body() UpdateDto: UpdateDto,
-    @UploadedFile() file?: Express.MulterS3.File,
-  ) {
-    const processedDto = formaterPreUpdate(UpdateDto);
-    return super.update(id, request, processedDto, file, hooksUpdate);
-  }
-
-  @UserPermission(`activate_${entity.permission}`) // comente para tirar permissao
-  // @Public() // descomente para tornar publica
-  // @CacheEvictAll('trainee:*', 'cache:*/trainee*') // descomente para limpar cache
-  @Patch('active/:id')
-  async activate(@Param('id') id: number, @Req() request: Request) {
-    return super.activate(id, request);
-  }
-
-  @UserPermission(`inactive_${entity.permission}`) // comente para tirar permissao
-  // @Public() // descomente para tornar publica
-  // @CacheEvictAll('trainee:*', 'cache:*/trainee*') // descomente para limpar cache
-  @Patch('inactive/:id')
-  async inactivate(@Param('id') id: number, @Req() request: Request) {
-    return super.inactivate(id, request);
   }
 }

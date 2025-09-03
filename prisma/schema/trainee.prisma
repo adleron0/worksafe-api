@@ -16,7 +16,6 @@ model Trainee {
   password String?   @db.VarChar(255)
   customerId Int?
   customer   Customer?   @relation(fields: [customerId], references: [id])
-  companyId Int
   occupation String?    @db.VarChar(255)
   imageUrl String? @db.VarChar(255)
   active Boolean @default(true)
@@ -29,6 +28,7 @@ model Trainee {
   exam CourseClassExam[]
   financialRecords FinancialRecords[]
   examAttendance CourseClassAttendanceList[]
+  traineeCompany TraineeCompany[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @default(now()) @updatedAt

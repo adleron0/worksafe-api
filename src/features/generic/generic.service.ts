@@ -134,15 +134,56 @@ function parseFilterObject(filterObj: any, skipNestedFilters = false) {
   return condition;
 }
 
+// Função para determinar o tipo de relação usando os metadados do Prisma
+function getRelationType(modelName: string, fieldName: string): 'many-to-many' | 'one-to-many' | 'many-to-one' | null {
+  try {
+    // Acessa os metadados do Prisma
+    const { Prisma } = require('@prisma/client');
+    const dmmf = Prisma.dmmf;
+    
+    // Encontra o modelo
+    const model = dmmf.datamodel.models.find((m: any) => m.name === modelName);
+    if (!model) return null;
+    
+    // Encontra o campo
+    const field = model.fields.find((f: any) => f.name === fieldName);
+    if (!field || field.kind !== 'object') return null;
+    
+    // Verifica se é uma relação
+    if (field.relationName) {
+      // Verifica se tem lista em ambos os lados (many-to-many)
+      const relatedModel = dmmf.datamodel.models.find((m: any) => m.name === field.type);
+      if (relatedModel) {
+        const reverseField = relatedModel.fields.find((f: any) => f.relationName === field.relationName && f.name !== fieldName);
+        
+        if (field.isList && reverseField && reverseField.isList) {
+          return 'many-to-many';
+        } else if (field.isList) {
+          return 'one-to-many';
+        } else {
+          return 'many-to-one';
+        }
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Erro ao determinar tipo de relação:', error);
+    return null;
+  }
+}
+
 // Nova função para processar filtros de associações aninhadas
 function processNestedFilters(
   filters: any,
   includesToShow: string[],
   paramsIncludes: any,
+  modelName?: string,
 ) {
   const nestedFilters: any = {
     belongsToFilters: {}, // Para relações Many-to-One (aplicar no where principal)
     hasManyFilters: {}, // Para relações One-to-Many (aplicar no include com where)
+    manyToManyFilters: {}, // Para relações Many-to-Many (aplicar com some/every/none)
   };
 
   // Identifica todos os filtros que contêm pontos (indicando associações aninhadas)
@@ -187,14 +228,24 @@ function processNestedFilters(
 
       // Verifica se a associação está incluída no 'show'
       if (includesToShow.includes(associationName)) {
-        // Para relações Many-to-One (belongsTo), aplicamos o filtro no where principal
-        // Vamos assumir que se tem select ou é um objeto simples, é Many-to-One
-        const isBelongsTo =
-          paramsIncludes[associationName] &&
-          (paramsIncludes[associationName].select ||
-            typeof paramsIncludes[associationName] === 'boolean');
-
-        if (isBelongsTo) {
+        // Determina o tipo de relação automaticamente usando os metadados do Prisma
+        const relationType = modelName ? getRelationType(modelName, associationName) : null;
+        const isManyToMany = relationType === 'many-to-many';
+        const isManyToOne = relationType === 'many-to-one';
+        
+        if (isManyToMany) {
+          // Para relações Many-to-Many, usa filtros com some/every/none
+          if (!nestedFilters.manyToManyFilters[associationName]) {
+            nestedFilters.manyToManyFilters[associationName] = {};
+          }
+          
+          const remainingPath = pathParts.slice(1).join('.');
+          const filterKey = operator
+            ? `${operator}${remainingPath}`
+            : remainingPath;
+          nestedFilters.manyToManyFilters[associationName][filterKey] =
+            filters[key];
+        } else if (isManyToOne) {
           // Adiciona ao belongsToFilters para aplicar no where principal
           const fullPath = fieldPath; // Mantém o caminho completo
           const filterKey = operator ? `${operator}${fullPath}` : fullPath;
@@ -502,6 +553,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
         filters,
         filters.includesToShow,
         paramsIncludes,
+        entity.model as string, // Passa o nome do modelo
       );
 
       // Aplica filtros nas associações One-to-Many (hasManyFilters)
@@ -619,6 +671,81 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
           } else {
             currentLevel[finalField] = ifNumberParseNumber(filterValue);
           }
+        }
+      }
+
+      // Aplica filtros de relações Many-to-Many (manyToManyFilters) no where principal com 'some'
+      if (Object.keys(nestedFilters.manyToManyFilters).length > 0) {
+        for (const [associationName, associationFilters] of Object.entries(
+          nestedFilters.manyToManyFilters,
+        )) {
+          // Constrói o filtro com 'some' para Many-to-Many
+          const whereCondition: any = {};
+          
+          for (const [filterKey, filterValue] of Object.entries(
+            associationFilters as any,
+          )) {
+            // Processa operadores
+            let operator = '';
+            let fieldName = filterKey;
+            
+            if (filterKey.startsWith('like-')) {
+              operator = 'like';
+              fieldName = filterKey.substring(5);
+            } else if (filterKey.startsWith('notlike-')) {
+              operator = 'notlike';
+              fieldName = filterKey.substring(8);
+            } else if (filterKey.startsWith('in-')) {
+              operator = 'in';
+              fieldName = filterKey.substring(3);
+            } else if (filterKey.startsWith('notin-')) {
+              operator = 'notin';
+              fieldName = filterKey.substring(6);
+            } else if (filterKey.startsWith('not-')) {
+              operator = 'not';
+              fieldName = filterKey.substring(4);
+            } else if (filterKey.startsWith('gt-')) {
+              operator = 'gt';
+              fieldName = filterKey.substring(3);
+            } else if (filterKey.startsWith('lt-')) {
+              operator = 'lt';
+              fieldName = filterKey.substring(3);
+            } else if (filterKey.startsWith('gte-')) {
+              operator = 'gte';
+              fieldName = filterKey.substring(4);
+            } else if (filterKey.startsWith('lte-')) {
+              operator = 'lte';
+              fieldName = filterKey.substring(4);
+            }
+            
+            // Aplica o operador correto
+            if (operator === 'like') {
+              whereCondition[fieldName] = { contains: filterValue, mode: 'insensitive' };
+            } else if (operator === 'notlike') {
+              whereCondition[fieldName] = { NOT: { contains: filterValue, mode: 'insensitive' } };
+            } else if (operator === 'in') {
+              whereCondition[fieldName] = { in: filterValue };
+            } else if (operator === 'notin') {
+              whereCondition[fieldName] = { notIn: filterValue };
+            } else if (operator === 'not') {
+              whereCondition[fieldName] = { not: filterValue };
+            } else if (operator === 'gt') {
+              whereCondition[fieldName] = { gt: filterValue };
+            } else if (operator === 'lt') {
+              whereCondition[fieldName] = { lt: filterValue };
+            } else if (operator === 'gte') {
+              whereCondition[fieldName] = { gte: filterValue };
+            } else if (operator === 'lte') {
+              whereCondition[fieldName] = { lte: filterValue };
+            } else {
+              whereCondition[fieldName] = filterValue;
+            }
+          }
+          
+          // Aplica o filtro com 'some' para Many-to-Many
+          params.where[associationName] = {
+            some: whereCondition
+          };
         }
       }
 

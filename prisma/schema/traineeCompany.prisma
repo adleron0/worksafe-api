@@ -1,0 +1,11 @@
+model TraineeCompany {
+  id        Int       @id @default(autoincrement())
+  traineeId Int
+  trainee   Trainee  @relation(fields: [traineeId], references: [id])
+  companyId Int
+  company   Company   @relation(fields: [companyId], references: [id])
+
+  @@unique([traineeId, companyId])
+
+  createdAt DateTime  @default(now())
+}

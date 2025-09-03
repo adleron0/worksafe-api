@@ -12,6 +12,7 @@ import { UpdateDto } from './dto/update.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CheckoutService } from 'src/features/gateway/checkout/checkout.service';
 import { CacheService } from 'src/common/cache/cache.service';
+import { AlunosService } from '../trainees/service';
 
 type entity = {
   model: keyof PrismaClient;
@@ -31,6 +32,7 @@ export class SubscriptionService extends GenericService<
     @Inject(forwardRef(() => CheckoutService))
     private checkoutService: CheckoutService,
     private cacheService: CacheService,
+    private alunosService: AlunosService,
   ) {
     super(prisma, null);
   }
@@ -446,61 +448,6 @@ export class SubscriptionService extends GenericService<
     };
   }
 
-  /**
-   * Busca ou cria um trainee com base nos dados da inscrição
-   * Usado quando o pagamento é confirmado
-   */
-  private async findOrCreateTrainee(
-    subscriptionData: any,
-    companyId: number,
-    subscriptionId?: number,
-  ): Promise<number> {
-    // Usa selectOrCreate para buscar ou criar o trainee
-    // NOTA: trainee não tem campos neighborhood, city, state como strings
-    // Esses campos ficam apenas na subscription
-    const traineeData = {
-      name: subscriptionData.name,
-      cpf: subscriptionData.cpf,
-      email: subscriptionData.email,
-      phone: subscriptionData.phone,
-      companyId: companyId,
-      occupation: subscriptionData.occupation || null,
-      address: subscriptionData.address || null,
-      addressNumber: subscriptionData.addressNumber
-        ? String(subscriptionData.addressNumber)
-        : null,
-      complement:
-        subscriptionData.addressComplement ||
-        subscriptionData.complement ||
-        null,
-      zipCode: subscriptionData.zipCode || null,
-    };
-
-    // Corrigindo a estrutura para selectOrCreate
-    const whereCondition = {
-      cpf: subscriptionData.cpf,
-      companyId: companyId,
-    };
-
-    const trainee = await this.prisma.selectOrCreate(
-      'trainee',
-      whereCondition,
-      traineeData,
-      {}, // logParams vazio - operação interna do sistema
-    );
-
-    if (trainee.created) {
-      console.log(
-        `Trainee criado após confirmação de pagamento: ${trainee.data.id} - ${trainee.data.name}`,
-      );
-    } else {
-      console.log(
-        `Trainee existente encontrado: ${trainee.data.id} - ${trainee.data.name}`,
-      );
-    }
-
-    return trainee.data.id;
-  }
 
   /**
    * Confirma uma inscrição após webhook de pagamento
@@ -532,7 +479,7 @@ export class SubscriptionService extends GenericService<
 
       if (!traineeId) {
         console.log(`Inscrição ${subscriptionId} sem trainee, criando...`);
-        traineeId = await this.findOrCreateTrainee(
+        traineeId = await this.alunosService.findOrCreateTrainee(
           subscription,
           subscription.companyId,
           subscriptionId,
