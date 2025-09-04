@@ -1,0 +1,30 @@
+model OnlineStudentLessonProgress {
+  id            Int         @id @default(autoincrement())
+  traineeId Int
+  trainee   Trainee      @relation(fields: [traineeId], references: [id])
+  lessonId  Int
+  lesson    OnlineLesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  companyId Int
+  lessonStepId Int?
+  lessonStep   OnlineLessonStep? @relation(fields: [lessonStepId], references: [id])
+
+  // Status simples da aula
+  status LessonProgressStatus @default(NOT_STARTED)
+
+  // Controle de navegação
+  currentStepOrder Int @default(1)
+  maxStepReached   Int @default(1)
+
+  // Timestamps
+  startedAt    DateTime? // quando acessou primeiro step
+  completedAt  DateTime? // quando completou
+  lastAccessAt DateTime  @default(now())
+
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @default(now()) @updatedAt
+  inactiveAt         DateTime?
+
+  @@unique([traineeId, lessonId])
+  @@index([traineeId])
+  @@index([status])
+}

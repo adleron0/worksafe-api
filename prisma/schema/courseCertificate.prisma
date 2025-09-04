@@ -1,19 +1,19 @@
 model CouseCertificate {
-  id       Int       @id @default(autoincrement())
-  name     String
-  courseId Int
-  course   Course    @relation(fields: [courseId], references: [id])
-  companyId Int
-  company   Company   @relation(fields: [companyId], references: [id])
-  active   Boolean   @default(true)
-  canvasWidth        Int    @default(800) @map("canvas_width")
-  canvasHeight       Int    @default(600) @map("canvas_height")
-  fabricJsonFront    Json?  @map("fabric_json_front") @db.JsonB
-  fabricJsonBack     Json?  @map("fabric_json_back") @db.JsonB
+  id              Int     @id @default(autoincrement())
+  name            String
+  courseId        Int
+  course          Course  @relation(fields: [courseId], references: [id])
+  companyId       Int
+  company         Company @relation(fields: [companyId], references: [id])
+  active          Boolean @default(true)
+  canvasWidth     Int     @default(800) @map("canvas_width")
+  canvasHeight    Int     @default(600) @map("canvas_height")
+  fabricJsonFront Json?   @map("fabric_json_front") @db.JsonB
+  fabricJsonBack  Json?   @map("fabric_json_back") @db.JsonB
 
   classes CourseClass[]
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @default(now()) @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
 }

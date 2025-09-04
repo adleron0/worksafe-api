@@ -1,14 +1,14 @@
 // Tabela CompanyProduct (Relacionamento entre Companies e Products)
 model CompanyProduct {
-  id            Int       @id @default(autoincrement())
-  companyId     Int
-  productId     Int
-  company       Company   @relation(fields: [companyId], references: [id])
-  product       Product   @relation(fields: [productId], references: [id])
+  id        Int     @id @default(autoincrement())
+  companyId Int
+  productId Int
+  company   Company @relation(fields: [companyId], references: [id])
+  product   Product @relation(fields: [productId], references: [id])
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
 
   @@unique([companyId, productId])
-
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @default(now()) @updatedAt
-  inactiveAt    DateTime?
 }

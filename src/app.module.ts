@@ -37,6 +37,7 @@ import { FinancialrecordsModule } from './features/gateway/financialrecords/modu
 import { ClassAttendanceListModule } from './features/training/class_attendance_list/module';
 import { CompanyModule } from './features/company/module';
 import { EmailModule } from './features/email/email.module';
+import { OnlinelessonModule } from './features/training/onlinelesson/module';
 
 @Module({
   imports: [
@@ -75,6 +76,7 @@ import { EmailModule } from './features/email/email.module';
     ClassAttendanceListModule,
     CompanyModule,
     EmailModule,
+    OnlinelessonModule,
   ],
   controllers: [],
   providers: [

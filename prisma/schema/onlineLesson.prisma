@@ -1,0 +1,27 @@
+model OnlineLesson {
+  id            Int         @id @default(autoincrement())
+  courseId  Int // vinculada ao Course
+  course    Course @relation(fields: [courseId], references: [id])
+  companyId Int
+
+  // Info básica da aula
+  title       String  @db.VarChar(255)
+  description String? @db.Text
+  version     String? @db.VarChar(50) // "v1", "básico", "avançado"
+  isActive    Boolean @default(true)
+
+  // Configurações de progresso
+  progressConfig Json @default("{}") @db.JsonB
+
+  // Relacionamentos
+  steps          OnlineLessonStep[]
+  stepProgress   OnlineStudentStepProgress[]
+  lessonProgress OnlineStudentLessonProgress[]
+  classes        CourseClass[] // turmas que usam esta aula
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@index([courseId, isActive])
+}

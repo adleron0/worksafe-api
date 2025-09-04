@@ -1,13 +1,13 @@
 model DOM_Cities {
-  id          Int       @id @default(autoincrement())
-  name        String    @db.VarChar(255)
-  stateId     Int
-  state       DOM_States @relation(fields: [stateId], references: [id])
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @default(now()) @updatedAt
-  inactiveAt  DateTime?
+  id         Int        @id @default(autoincrement())
+  name       String     @db.VarChar(255)
+  stateId    Int
+  state      DOM_States @relation(fields: [stateId], references: [id])
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @default(now()) @updatedAt
+  inactiveAt DateTime?
 
-  customers   Customer[]
-  trainees   Trainee[]
-  companies   Company[]
+  customers Customer[]
+  trainees  Trainee[]
+  companies Company[]
 }

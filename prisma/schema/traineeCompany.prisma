@@ -1,11 +1,11 @@
 model TraineeCompany {
-  id        Int       @id @default(autoincrement())
+  id        Int     @id @default(autoincrement())
   traineeId Int
-  trainee   Trainee  @relation(fields: [traineeId], references: [id])
+  trainee   Trainee @relation(fields: [traineeId], references: [id])
   companyId Int
-  company   Company   @relation(fields: [companyId], references: [id])
+  company   Company @relation(fields: [companyId], references: [id])
+
+  createdAt DateTime @default(now())
 
   @@unique([traineeId, companyId])
-
-  createdAt DateTime  @default(now())
 }

@@ -1,13 +1,13 @@
 model DOM_States {
-  id          Int       @id @default(autoincrement())
-  uf          String    @db.VarChar(2)
-  name        String    @db.VarChar(255)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @default(now()) @updatedAt
-  inactiveAt  DateTime?
+  id         Int       @id @default(autoincrement())
+  uf         String    @db.VarChar(2)
+  name       String    @db.VarChar(255)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
 
-  citys       DOM_Cities[]
-  customers   Customer[]
-  trainees   Trainee[]
-  companies   Company[]
+  citys     DOM_Cities[]
+  customers Customer[]
+  trainees  Trainee[]
+  companies Company[]
 }

@@ -1,0 +1,30 @@
+model OnlineStudentStepProgress {
+  id            Int         @id @default(autoincrement())
+  traineeId Int
+  trainee   Trainee          @relation(fields: [traineeId], references: [id])
+  stepId    Int
+  step      OnlineLessonStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  lessonId  Int
+  lesson    OnlineLesson     @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  companyId Int
+
+  // Progresso principal (0-100%)
+  progressPercent Int @default(0)
+
+  // Dados específicos por tipo (JSON flexível)
+  progressData Json @default("{}") @db.JsonB
+
+  // Timestamps importantes
+  firstAccessAt DateTime?
+  lastAccessAt  DateTime  @default(now())
+  completedAt   DateTime?
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([traineeId, stepId])
+  @@index([traineeId])
+  @@index([stepId])
+  @@index([progressPercent])
+}

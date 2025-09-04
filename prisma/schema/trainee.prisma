@@ -1,36 +1,39 @@
 model Trainee {
-  id       Int       @id @default(autoincrement())
-  name     String    @db.VarChar(100)
-  cpf      String    @db.VarChar(20)
-  email    String?   @db.VarChar(100)
-  phone    String?   @db.VarChar(20)
-  birthDate DateTime?
-  zipCode  String?   @db.VarChar(10)
-  address  String?   @db.VarChar(255)
-  addressNumber String?   @db.VarChar(255)
-  complement String? @db.VarChar(100)
-  cityId   Int?
-  city     DOM_Cities?     @relation(fields: [cityId], references: [id])
-  stateId  Int?
-  state    DOM_States?    @relation(fields: [stateId], references: [id])
-  password String?   @db.VarChar(255)
-  customerId Int?
-  customer   Customer?   @relation(fields: [customerId], references: [id])
-  occupation String?    @db.VarChar(255)
-  imageUrl String? @db.VarChar(255)
-  active Boolean @default(true)
+  id            Int         @id @default(autoincrement())
+  name          String      @db.VarChar(100)
+  cpf           String      @db.VarChar(20)
+  email         String?     @db.VarChar(100)
+  phone         String?     @db.VarChar(20)
+  birthDate     DateTime?
+  zipCode       String?     @db.VarChar(10)
+  address       String?     @db.VarChar(255)
+  addressNumber String?     @db.VarChar(255)
+  complement    String?     @db.VarChar(100)
+  cityId        Int?
+  city          DOM_Cities? @relation(fields: [cityId], references: [id])
+  stateId       Int?
+  state         DOM_States? @relation(fields: [stateId], references: [id])
+  password      String?     @db.VarChar(255)
+  customerId    Int?
+  customer      Customer?   @relation(fields: [customerId], references: [id])
+  occupation    String?     @db.VarChar(255)
+  imageUrl      String?     @db.VarChar(255)
+  active        Boolean     @default(true)
+
+  certificate      TraineeCourseCertificate[]
+  subscription     CourseClassSubscription[]
+  review           CourseReview[]
+  exam             CourseClassExam[]
+  financialRecords FinancialRecords[]
+  examAttendance   CourseClassAttendanceList[]
+  traineeCompany   TraineeCompany[]
+  quizResponses    OnlineQuizResponse[]
+  lessonProgress   OnlineStudentLessonProgress[]
+  stepProgress     OnlineStudentStepProgress[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
 
   @@unique([cpf, customerId])
-
-  certificate TraineeCourseCertificate[]
-  subscription CourseClassSubscription[]
-  review CourseReview[]
-  exam CourseClassExam[]
-  financialRecords FinancialRecords[]
-  examAttendance CourseClassAttendanceList[]
-  traineeCompany TraineeCompany[]
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @default(now()) @updatedAt
-  inactiveAt DateTime?
 }

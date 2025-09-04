@@ -1,12 +1,12 @@
 // Tabela Permission
 model Permission {
-  id          Int               @id @default(autoincrement())
-  name        String            @unique
-  description String?           @db.VarChar(255)
-  group       String?           @db.VarChar(255)
-  
-  profilePermissions ProfilePermission[]  // Relacionamento com ProfilePermission
-  userPermissions UserPermission[]  // Relacionamento com UserPermission
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
+  description String? @db.VarChar(255)
+  group       String? @db.VarChar(255)
 
-  createdAt   DateTime          @default(now())
+  profilePermissions ProfilePermission[] // Relacionamento com ProfilePermission
+  userPermissions    UserPermission[] // Relacionamento com UserPermission
+
+  createdAt DateTime @default(now())
 }

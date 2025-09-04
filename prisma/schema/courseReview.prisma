@@ -1,20 +1,20 @@
 // Tabela Course
 model CourseReview {
-  id       Int       @id @default(autoincrement())
-  traineeId Int?
-  trainee   Trainee?   @relation(fields: [traineeId], references: [id])
-  courseId Int?
-  course   Course?   @relation(fields: [courseId], references: [id])
-  classId Int
-  class   CourseClass  @relation(fields: [classId], references: [id])
-  courseReview Json?
-  instructorReview Json?
-  generalRating Int
-  opinionRating String?
+  id                        Int         @id @default(autoincrement())
+  traineeId                 Int?
+  trainee                   Trainee?    @relation(fields: [traineeId], references: [id])
+  courseId                  Int?
+  course                    Course?     @relation(fields: [courseId], references: [id])
+  classId                   Int
+  class                     CourseClass @relation(fields: [classId], references: [id])
+  courseReview              Json?
+  instructorReview          Json?
+  generalRating             Int
+  opinionRating             String?
   authorizationExposeReview Boolean
-  companyId Int
+  companyId                 Int
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @default(now()) @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
 }

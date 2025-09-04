@@ -1,52 +1,54 @@
 model CourseClass {
-  id       Int       @id @default(autoincrement())
-  name     String    @db.VarChar(100)
-  companyId Int?
-  company   Company?   @relation(fields: [companyId], references: [id])
-  customerId Int? 
-  customer   Customer?   @relation(fields: [customerId], references: [id])
-  courseId Int
-  course   Course   @relation(fields: [courseId], references: [id])
-  certificateId Int?
-  certificate   CouseCertificate?   @relation(fields: [certificateId], references: [id])
-  categoryId Int?
-  classCode String? @db.VarChar(50)
-  price         Decimal?   @db.Decimal(18, 2)
-  discountPrice      Decimal?   @db.Decimal(18, 2)
-  dividedIn Int?
-  hoursDuration Int?
-  daysDuration Int?
-  openClass     Boolean?   @default(false)
-  gifts String?
-  description String?
-  gradeTheory  String?
-  gradePracticle String?
-  imageUrl String? @db.VarChar(255)
-  videoUrl String? @db.VarChar(255)
-  videoTitle String?
-  videoSubtitle String?
-  videoDescription String?
-  active Boolean @default(true)
-  faq Json?
-  initialDate DateTime?
-  finalDate DateTime?
+  id                Int               @id @default(autoincrement())
+  name              String            @db.VarChar(100)
+  companyId         Int?
+  company           Company?          @relation(fields: [companyId], references: [id])
+  customerId        Int?
+  customer          Customer?         @relation(fields: [customerId], references: [id])
+  courseId          Int
+  course            Course            @relation(fields: [courseId], references: [id])
+  certificateId     Int?
+  certificate       CouseCertificate? @relation(fields: [certificateId], references: [id])
+  categoryId        Int?
+  classCode         String?           @db.VarChar(50)
+  price             Decimal?          @db.Decimal(18, 2)
+  discountPrice     Decimal?          @db.Decimal(18, 2)
+  dividedIn         Int?
+  hoursDuration     Int?
+  daysDuration      Int?
+  openClass         Boolean?          @default(false)
+  gifts             String?
+  description       String?
+  gradeTheory       String?
+  gradePracticle    String?
+  imageUrl          String?           @db.VarChar(255)
+  videoUrl          String?           @db.VarChar(255)
+  videoTitle        String?
+  videoSubtitle     String?
+  videoDescription  String?
+  active            Boolean           @default(true)
+  faq               Json?
+  initialDate       DateTime?
+  finalDate         DateTime?
   landingPagesDates String?
-  allowExam Boolean
-  allowReview Boolean
-  minimumQuorum Int?
-  maxSubscriptions Int?
-  allowCheckout Boolean @default(false)
-  whyUs Json?
+  allowExam         Boolean
+  allowReview       Boolean
+  minimumQuorum     Int?
+  maxSubscriptions  Int?
+  allowCheckout     Boolean           @default(false)
+  whyUs             Json?
+  onlineLessonId    Int?
+  onlineLesson      OnlineLesson?     @relation(fields: [onlineLessonId], references: [id])
 
-  paymentMethods paymentMethods[]
-  certificates TraineeCourseCertificate[]
-  exams CourseClassExam[]
-  instructors CourseClassInstructor[]
-  reviews CourseReview[]
-  subscriptions CourseClassSubscription[]
+  paymentMethods  paymentMethods[]
+  certificates    TraineeCourseCertificate[]
+  exams           CourseClassExam[]
+  instructors     CourseClassInstructor[]
+  reviews         CourseReview[]
+  subscriptions   CourseClassSubscription[]
   attendanceLists CourseClassAttendanceList[]
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @default(now()) @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
 }

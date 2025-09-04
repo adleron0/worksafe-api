@@ -5,32 +5,32 @@ enum SubscribeStatus {
 }
 
 model CourseClassSubscription {
-  id       Int       @id @default(autoincrement())
-  name     String    @db.VarChar(100)
-  cpf String    @db.VarChar(20)
-  email String    @db.VarChar(255)
-  phone String    @db.VarChar(255)
-  workedAt String?    @db.VarChar(255)
-  occupation String?    @db.VarChar(255)
-  companyId Int?
-  classId Int?
-  class CourseClass? @relation(fields: [classId], references: [id])
-  traineeId Int?
-  trainee Trainee? @relation(fields: [traineeId], references: [id])
-  subscribeStatus SubscribeStatus @default(pending)
-  confirmedAt DateTime?
-  declinedReason String?
-  address String?    @db.VarChar(255)
-  addressNumber String?    @db.VarChar(255)
-  addressComplement String?    @db.VarChar(255)
-  neighborhood String?    @db.VarChar(255)
-  city String?    @db.VarChar(255)
-  state String?    @db.VarChar(255)
-  zipCode String?    @db.VarChar(255)
+  id                Int             @id @default(autoincrement())
+  name              String          @db.VarChar(100)
+  cpf               String          @db.VarChar(20)
+  email             String          @db.VarChar(255)
+  phone             String          @db.VarChar(255)
+  workedAt          String?         @db.VarChar(255)
+  occupation        String?         @db.VarChar(255)
+  companyId         Int?
+  classId           Int?
+  class             CourseClass?    @relation(fields: [classId], references: [id])
+  traineeId         Int?
+  trainee           Trainee?        @relation(fields: [traineeId], references: [id])
+  subscribeStatus   SubscribeStatus @default(pending)
+  confirmedAt       DateTime?
+  declinedReason    String?
+  address           String?         @db.VarChar(255)
+  addressNumber     String?         @db.VarChar(255)
+  addressComplement String?         @db.VarChar(255)
+  neighborhood      String?         @db.VarChar(255)
+  city              String?         @db.VarChar(255)
+  state             String?         @db.VarChar(255)
+  zipCode           String?         @db.VarChar(255)
 
   financialRecords FinancialRecords[]
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @default(now()) @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
 }

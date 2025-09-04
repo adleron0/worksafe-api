@@ -1,32 +1,33 @@
 // Tabela Course
 model Course {
-  id       Int       @id @default(autoincrement())
-  name     String    @db.VarChar(100)
-  hoursDuration Int?
-  flags     String?    @db.VarChar(255)
-  icon String?    @db.VarChar(100)
-  color String?    @db.VarChar(20)
-  companyId Int
-  company   Company   @relation(fields: [companyId], references: [id])
-  description String?
-  gradeTheory String
-  gradePracticle String
-  imageUrl String? @db.VarChar(255)
-  active Boolean @default(true)
-  weekly       Boolean?   @default(false)
-  weekDays String? @db.VarChar(255)
-  faq Json?
-  exam Json?
+  id               Int      @id @default(autoincrement())
+  name             String   @db.VarChar(100)
+  hoursDuration    Int?
+  flags            String?  @db.VarChar(255)
+  icon             String?  @db.VarChar(100)
+  color            String?  @db.VarChar(20)
+  companyId        Int
+  company          Company  @relation(fields: [companyId], references: [id])
+  description      String?
+  gradeTheory      String
+  gradePracticle   String
+  imageUrl         String?  @db.VarChar(255)
+  active           Boolean  @default(true)
+  weekly           Boolean? @default(false)
+  weekDays         String?  @db.VarChar(255)
+  faq              Json?
+  exam             Json?
   yearOfValidation Int?
-  media Int? @default(6)
+  media            Int?     @default(6)
 
-  certificates CouseCertificate[]
+  certificates         CouseCertificate[]
   traineesCertificates TraineeCourseCertificate[]
-  reviews CourseReview[]
-  exams CourseClassExam[]
-  classes CourseClass[]
+  reviews              CourseReview[]
+  exams                CourseClassExam[]
+  classes              CourseClass[]
+  onlineLessons        OnlineLesson[]
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @default(now()) @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
 }

@@ -1,42 +1,42 @@
 model Confinus_ConfinedSpace {
-  id          Int       @id @default(autoincrement())
-  companyId   Int
-  company     Company   @relation(fields: [companyId], references: [id])
-  areaId      Int
-  area        Area   @relation(fields: [areaId], references: [id])
-  subAreaId   Int?
-  subArea     SubArea?   @relation(fields: [subAreaId], references: [id])
-  tag         String?     @db.VarChar(100)
-  mainCoverPhotoUrl String?   @db.VarChar(255)
+  id                     Int                             @id @default(autoincrement())
+  companyId              Int
+  company                Company                         @relation(fields: [companyId], references: [id])
+  areaId                 Int
+  area                   Area                            @relation(fields: [areaId], references: [id])
+  subAreaId              Int?
+  subArea                SubArea?                        @relation(fields: [subAreaId], references: [id])
+  tag                    String?                         @db.VarChar(100)
+  mainCoverPhotoUrl      String?                         @db.VarChar(255)
   equipamentSerialNumber Int?
-  equipmentDescription String?  @db.VarChar(255)
-  environment String? // ambiante intern ou externo
-  cetegoryId  Int
-  cetegory    Confinus_DOM_Categories @relation(fields: [cetegoryId], references: [id])
-  severityId  Int
-  severity    Confinus_DOM_SeverityDefinition @relation(fields: [severityId], references: [id])
+  equipmentDescription   String?                         @db.VarChar(255)
+  environment            String? // ambiante intern ou externo
+  cetegoryId             Int
+  cetegory               Confinus_DOM_Categories         @relation(fields: [cetegoryId], references: [id])
+  severityId             Int
+  severity               Confinus_DOM_SeverityDefinition @relation(fields: [severityId], references: [id])
   constructionMaterialId Int
-  constructionMaterial DOM_ConstructionMaterial @relation(fields: [constructionMaterialId], references: [id])
-  height      Decimal
-  width       Decimal
-  length      Decimal
-  diameter    Decimal
-  volume      Decimal
-  storedMaterial String?   @db.VarChar(255)
-  physicalState String?    @db.VarChar(255)
-  classifiedZoneId Int
-  classifiedZone Confinus_DOM_ClassifiedZone @relation(fields: [classifiedZoneId], references: [id])
-  flammableAgent String?   @db.VarChar(255)
+  constructionMaterial   DOM_ConstructionMaterial        @relation(fields: [constructionMaterialId], references: [id])
+  height                 Decimal
+  width                  Decimal
+  length                 Decimal
+  diameter               Decimal
+  volume                 Decimal
+  storedMaterial         String?                         @db.VarChar(255)
+  physicalState          String?                         @db.VarChar(255)
+  classifiedZoneId       Int
+  classifiedZone         Confinus_DOM_ClassifiedZone     @relation(fields: [classifiedZoneId], references: [id])
+  flammableAgent         String?                         @db.VarChar(255)
   registeredByUserId     Int
-  registeredByUser       User     @relation("RegisteredByUser", fields: [registeredByUserId], references: [id])
+  registeredByUser       User                            @relation("RegisteredByUser", fields: [registeredByUserId], references: [id])
   approvedByUserId       Int
-  approvedByUser         User     @relation("ApprovedByUser", fields: [approvedByUserId], references: [id])
+  approvedByUser         User                            @relation("ApprovedByUser", fields: [approvedByUserId], references: [id])
 
   accessEquipments AccessEquipment[] // Relacionamento com AccessEquipment
-  manHoles Confinus_Manhole[] // Relacionamento com Confinus_Manhole
-  auxiliaryImages Confinus_AuxiliaryImages[] // Relacionamento com Confinus_AuxiliaryImages
+  manHoles         Confinus_Manhole[] // Relacionamento com Confinus_Manhole
+  auxiliaryImages  Confinus_AuxiliaryImages[] // Relacionamento com Confinus_AuxiliaryImages
 
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @default(now()) @updatedAt
-  inactiveAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
 }

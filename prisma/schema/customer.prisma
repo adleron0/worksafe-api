@@ -1,35 +1,35 @@
 model Customer {
-  id          Int       @id @default(autoincrement())
-  name        String        @db.VarChar(255)
-  searchName  String?       @db.VarChar(255)
-  corporateName String      @db.VarChar(255)
-  active      Boolean      @default(true)
-  companyId   Int
-  company     Company   @relation(fields: [companyId], references: [id])
-  cnpj        String    @db.VarChar(14)
-  imageUrl    String?   @db.VarChar(255)
-  description String?   @db.VarChar(255)
-  rankId      Int
-  rank        DOM_Ranks @relation(fields: [rankId], references: [id])
-  phone       String    @db.VarChar(100)
-  email       String    @db.VarChar(255)
-  stateId     Int
-  state       DOM_States @relation(fields: [stateId], references: [id])
-  cityId      Int
-  city        DOM_Cities @relation(fields: [cityId], references: [id])
-  neighborhood String?  @db.VarChar(255)
-  street      String?   @db.VarChar(255)
-  number      Int?
-  complement  String?   @db.VarChar(255)
-  zipcode     String?   @db.VarChar(10)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @default(now()) @updatedAt
-  inactiveAt  DateTime?
+  id            Int        @id @default(autoincrement())
+  name          String     @db.VarChar(255)
+  searchName    String?    @db.VarChar(255)
+  corporateName String     @db.VarChar(255)
+  active        Boolean    @default(true)
+  companyId     Int
+  company       Company    @relation(fields: [companyId], references: [id])
+  cnpj          String     @db.VarChar(14)
+  imageUrl      String?    @db.VarChar(255)
+  description   String?    @db.VarChar(255)
+  rankId        Int
+  rank          DOM_Ranks  @relation(fields: [rankId], references: [id])
+  phone         String     @db.VarChar(100)
+  email         String     @db.VarChar(255)
+  stateId       Int
+  state         DOM_States @relation(fields: [stateId], references: [id])
+  cityId        Int
+  city          DOM_Cities @relation(fields: [cityId], references: [id])
+  neighborhood  String?    @db.VarChar(255)
+  street        String?    @db.VarChar(255)
+  number        Int?
+  complement    String?    @db.VarChar(255)
+  zipcode       String?    @db.VarChar(10)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @default(now()) @updatedAt
+  inactiveAt    DateTime?
+
+  contacts         Customer_Contacts[]
+  classes          CourseClass[]
+  trainees         Trainee[]
+  financialRecords FinancialRecords[]
 
   @@unique([cnpj, companyId]) // Garante que o email seja único dentro da mesma empresa
-
-  contacts    Customer_Contacts[]
-  classes     CourseClass[]
-  trainees    Trainee[]
-  financialRecords FinancialRecords[]
 }

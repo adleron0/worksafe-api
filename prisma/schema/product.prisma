@@ -1,12 +1,12 @@
 // Tabela Product
 model Product {
-  id            Int       @id @default(autoincrement())
-  name          String    @db.VarChar(255)
-  groupPermission     String?   @db.VarChar(255)
+  id              Int     @id @default(autoincrement())
+  name            String  @db.VarChar(255)
+  groupPermission String? @db.VarChar(255)
 
-  companies     CompanyProduct[]  // Relacionamento com CompanyProduct
+  companies CompanyProduct[] // Relacionamento com CompanyProduct
 
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @default(now()) @updatedAt
-  inactiveAt    DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
 }

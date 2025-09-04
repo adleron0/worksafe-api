@@ -135,27 +135,35 @@ function parseFilterObject(filterObj: any, skipNestedFilters = false) {
 }
 
 // Função para determinar o tipo de relação usando os metadados do Prisma
-function getRelationType(modelName: string, fieldName: string): 'many-to-many' | 'one-to-many' | 'many-to-one' | null {
+function getRelationType(
+  modelName: string,
+  fieldName: string,
+): 'many-to-many' | 'one-to-many' | 'many-to-one' | null {
   try {
     // Acessa os metadados do Prisma
     const { Prisma } = require('@prisma/client');
     const dmmf = Prisma.dmmf;
-    
+
     // Encontra o modelo
     const model = dmmf.datamodel.models.find((m: any) => m.name === modelName);
     if (!model) return null;
-    
+
     // Encontra o campo
     const field = model.fields.find((f: any) => f.name === fieldName);
     if (!field || field.kind !== 'object') return null;
-    
+
     // Verifica se é uma relação
     if (field.relationName) {
       // Verifica se tem lista em ambos os lados (many-to-many)
-      const relatedModel = dmmf.datamodel.models.find((m: any) => m.name === field.type);
+      const relatedModel = dmmf.datamodel.models.find(
+        (m: any) => m.name === field.type,
+      );
       if (relatedModel) {
-        const reverseField = relatedModel.fields.find((f: any) => f.relationName === field.relationName && f.name !== fieldName);
-        
+        const reverseField = relatedModel.fields.find(
+          (f: any) =>
+            f.relationName === field.relationName && f.name !== fieldName,
+        );
+
         if (field.isList && reverseField && reverseField.isList) {
           return 'many-to-many';
         } else if (field.isList) {
@@ -165,7 +173,7 @@ function getRelationType(modelName: string, fieldName: string): 'many-to-many' |
         }
       }
     }
-    
+
     return null;
   } catch (error) {
     console.error('Erro ao determinar tipo de relação:', error);
@@ -229,16 +237,18 @@ function processNestedFilters(
       // Verifica se a associação está incluída no 'show'
       if (includesToShow.includes(associationName)) {
         // Determina o tipo de relação automaticamente usando os metadados do Prisma
-        const relationType = modelName ? getRelationType(modelName, associationName) : null;
+        const relationType = modelName
+          ? getRelationType(modelName, associationName)
+          : null;
         const isManyToMany = relationType === 'many-to-many';
         const isManyToOne = relationType === 'many-to-one';
-        
+
         if (isManyToMany) {
           // Para relações Many-to-Many, usa filtros com some/every/none
           if (!nestedFilters.manyToManyFilters[associationName]) {
             nestedFilters.manyToManyFilters[associationName] = {};
           }
-          
+
           const remainingPath = pathParts.slice(1).join('.');
           const filterKey = operator
             ? `${operator}${remainingPath}`
@@ -540,7 +550,9 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       params.include = {};
       if (filters.includesToShow.length) {
         for (const association of filters.includesToShow) {
-          if (paramsIncludes.hasOwnProperty(association)) {
+          if (
+            Object.prototype.hasOwnProperty.call(paramsIncludes, association)
+          ) {
             params.include[association] = paramsIncludes[association];
           } else {
             params.include[association] = true;
@@ -681,14 +693,14 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
         )) {
           // Constrói o filtro com 'some' para Many-to-Many
           const whereCondition: any = {};
-          
+
           for (const [filterKey, filterValue] of Object.entries(
             associationFilters as any,
           )) {
             // Processa operadores
             let operator = '';
             let fieldName = filterKey;
-            
+
             if (filterKey.startsWith('like-')) {
               operator = 'like';
               fieldName = filterKey.substring(5);
@@ -717,12 +729,17 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
               operator = 'lte';
               fieldName = filterKey.substring(4);
             }
-            
+
             // Aplica o operador correto
             if (operator === 'like') {
-              whereCondition[fieldName] = { contains: filterValue, mode: 'insensitive' };
+              whereCondition[fieldName] = {
+                contains: filterValue,
+                mode: 'insensitive',
+              };
             } else if (operator === 'notlike') {
-              whereCondition[fieldName] = { NOT: { contains: filterValue, mode: 'insensitive' } };
+              whereCondition[fieldName] = {
+                NOT: { contains: filterValue, mode: 'insensitive' },
+              };
             } else if (operator === 'in') {
               whereCondition[fieldName] = { in: filterValue };
             } else if (operator === 'notin') {
@@ -741,10 +758,10 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
               whereCondition[fieldName] = filterValue;
             }
           }
-          
+
           // Aplica o filtro com 'some' para Many-to-Many
           params.where[associationName] = {
-            some: whereCondition
+            some: whereCondition,
           };
         }
       }
@@ -858,7 +875,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       // Definindo valores padrão para página e limite
       const pageNum = Number(filters.page);
       const page = !isNaN(pageNum) ? pageNum + 1 : 1;
-      
+
       // Verifica se limit é "all" ou um número
       const isLimitAll = filters.limit === 'all';
       const limitNum = Number(filters.limit);
@@ -876,7 +893,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
         const rows = await this.prisma.select(entity.model, params, orderBy);
         result = {
           total: rows.length,
-          rows: rows
+          rows: rows,
         };
       } else {
         result = await this.prisma.selectPaging(
@@ -1086,18 +1103,28 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       const data = {};
       data['updatedAt'] = new Date();
 
-      if (verifyExist.hasOwnProperty('active')) data['active'] = true;
-      if (verifyExist.hasOwnProperty('inactiveAt')) data['inactiveAt'] = null;
-      if (verifyExist.hasOwnProperty('deletedAt')) data['deletedAt'] = null;
-      if (verifyExist.hasOwnProperty('status')) data['status'] = true;
+      if (Object.prototype.hasOwnProperty.call(verifyExist, 'active'))
+        data['active'] = true;
+      if (Object.prototype.hasOwnProperty.call(verifyExist, 'isActive'))
+        data['isActive'] = true;
+      if (Object.prototype.hasOwnProperty.call(verifyExist, 'inactiveAt'))
+        data['inactiveAt'] = null;
+      if (Object.prototype.hasOwnProperty.call(verifyExist, 'deletedAt'))
+        data['deletedAt'] = null;
+      if (Object.prototype.hasOwnProperty.call(verifyExist, 'status'))
+        data['status'] = true;
 
       if (type === 'inactive') {
-        if (verifyExist.hasOwnProperty('active')) data['active'] = false;
-        if (verifyExist.hasOwnProperty('inactiveAt'))
+        if (Object.prototype.hasOwnProperty.call(verifyExist, 'active'))
+          data['active'] = false;
+        if (Object.prototype.hasOwnProperty.call(verifyExist, 'isActive'))
+          data['isActive'] = false;
+        if (Object.prototype.hasOwnProperty.call(verifyExist, 'inactiveAt'))
           data['inactiveAt'] = new Date();
-        if (verifyExist.hasOwnProperty('deletedAt'))
+        if (Object.prototype.hasOwnProperty.call(verifyExist, 'deletedAt'))
           data['deletedAt'] = new Date();
-        if (verifyExist.hasOwnProperty('status')) data['status'] = false;
+        if (Object.prototype.hasOwnProperty.call(verifyExist, 'status'))
+          data['status'] = false;
       }
 
       const user = await this.prisma.update(entity.model, data, logParams, {

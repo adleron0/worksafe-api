@@ -1,15 +1,15 @@
 model Customer_Contacts {
-  id          Int       @id @default(autoincrement())
-  companyId   Int
-  customerId  Int
-  roleId      Int
-  company     Company   @relation(fields: [companyId], references: [id])
-  role        DOM_Roles @relation(fields: [roleId], references: [id])
-  customer    Customer  @relation(fields: [customerId], references: [id])
-  name        String    @db.VarChar(255)
-  email       String    @db.VarChar(255)
-  phone       String    @db.VarChar(255)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @default(now()) @updatedAt
-  inactiveAt  DateTime?
+  id         Int       @id @default(autoincrement())
+  companyId  Int
+  customerId Int
+  roleId     Int
+  company    Company   @relation(fields: [companyId], references: [id])
+  role       DOM_Roles @relation(fields: [roleId], references: [id])
+  customer   Customer  @relation(fields: [customerId], references: [id])
+  name       String    @db.VarChar(255)
+  email      String    @db.VarChar(255)
+  phone      String    @db.VarChar(255)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
 }

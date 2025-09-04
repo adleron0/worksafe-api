@@ -1,13 +1,13 @@
 // Tabela Profile
 model Profile {
-  id       Int       @id @default(autoincrement())
-  name     String    @db.VarChar(100) @unique
+  id        Int    @id @default(autoincrement())
+  name      String @unique @db.VarChar(100)
   companyId Int?
 
-  users    User[]
-  permissions ProfilePermission[]  // Relacionamento com ProfilePermission
+  users       User[]
+  permissions ProfilePermission[] // Relacionamento com ProfilePermission
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @default(now()) @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
 }

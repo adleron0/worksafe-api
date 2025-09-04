@@ -1,0 +1,25 @@
+model OnlineQuizResponse {
+  id            Int         @id @default(autoincrement())
+  traineeId Int
+  trainee   Trainee          @relation(fields: [traineeId], references: [id])
+  stepId    Int
+  step      OnlineLessonStep @relation(fields: [stepId], references: [id])
+  companyId Int
+
+  // Respostas (igual à prova)
+  responses Json @db.JsonB
+
+  // Resultado
+  score      Int
+  maxScore   Int
+  percentage Decimal @db.Decimal(5, 2)
+
+  // Metadados
+  timeSpent  Int? // segundos gastos
+  deviceType String? @db.VarChar(50)
+
+  submittedAt DateTime @default(now())
+
+  @@unique([traineeId, stepId]) // UM quiz por aluno por step
+  @@index([stepId]) // para analytics
+}

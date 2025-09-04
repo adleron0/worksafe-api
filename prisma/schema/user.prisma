@@ -1,27 +1,27 @@
 model User {
-  id          Int          @id @default(autoincrement())
-  name        String        @db.VarChar(255)
-  searchName  String?       @db.VarChar(255)
-  active      Boolean      @default(true)
-  email       String      @db.VarChar(255)
-  password    String      @db.VarChar(255)
-  imageUrl    String?      @db.VarChar(255)
-  phone       String      @db.VarChar(255)
-  cpf         String      @db.VarChar(20)
-  companyId   Int?
-  company     Company?     @relation(fields: [companyId], references: [id])
-  profileId      Int?
-  profile        Profile?        @relation(fields: [profileId], references: [id])
-  permissions UserPermission[]  // Relacionamento com UserPermission
-  sessions    Session[]    // Relacionamento com Session
-  systemLogs  System_Logs[] // Relacionamento com System_Logs
-  confinusRegister  Confinus_ConfinedSpace[] @relation("RegisteredByUser")
-  confinusApprove   Confinus_ConfinedSpace[] @relation("ApprovedByUser")
+  id               Int                      @id @default(autoincrement())
+  name             String                   @db.VarChar(255)
+  searchName       String?                  @db.VarChar(255)
+  active           Boolean                  @default(true)
+  email            String                   @db.VarChar(255)
+  password         String                   @db.VarChar(255)
+  imageUrl         String?                  @db.VarChar(255)
+  phone            String                   @db.VarChar(255)
+  cpf              String                   @db.VarChar(20)
+  companyId        Int?
+  company          Company?                 @relation(fields: [companyId], references: [id])
+  profileId        Int?
+  profile          Profile?                 @relation(fields: [profileId], references: [id])
+  permissions      UserPermission[] // Relacionamento com UserPermission
+  sessions         Session[] // Relacionamento com Session
+  systemLogs       System_Logs[] // Relacionamento com System_Logs
+  confinusRegister Confinus_ConfinedSpace[] @relation("RegisteredByUser")
+  confinusApprove  Confinus_ConfinedSpace[] @relation("ApprovedByUser")
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
 
   @@unique([email, companyId]) // Garante que o email seja único dentro da mesma empresa
-  @@unique([id, companyId])    // Índice composto para id e companyId
-
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @default(now()) @updatedAt
-  inactiveAt  DateTime?
+  @@unique([id, companyId]) // Índice composto para id e companyId
 }

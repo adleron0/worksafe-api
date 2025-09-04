@@ -748,7 +748,7 @@ export const encryptFields: string[] = [];
  * Função de search personalizada para verificação antes de criar
  * Crie com os parametros de busca pré-criaão
  */
-export function getSearchParams(request: Request, CreateDto: any) {
+export function validateCreate(request: Request, CreateDto: any) {
   // Exemplo de search usando companyId do request e campos do dto
   // PERSONALIZE ESTA FUNÇÃO conforme as necessidades da sua entidade
   const search = {
@@ -1018,7 +1018,7 @@ import { CacheService } from 'src/common/cache/cache.service';
 import { paramsIncludes } from './associations';
 import {
   noCompany,
-  getSearchParams,
+  validateCreate,
   formaterPreUpdate,
   omitAttributes,
   hooksCreate,
@@ -1087,7 +1087,7 @@ export class ${entityNamePascal}Controller extends GenericController<
     if (file && file.location) {
       CreateDto.imageUrl = file.location;
     }` : ''}
-    const search = getSearchParams(request, CreateDto);
+    const search = validateCreate(request, CreateDto);
     return super.create(request, CreateDto, ${hasImage ? 'file' : 'null'}, search, hooksCreate);
   }
 
@@ -1319,7 +1319,7 @@ export interface IEntity extends Prisma {
   }
   console.log('\n2️⃣  Configure os arquivos gerados:');
   console.log(
-    '   🔍 Ajuste a função getSearchParams em rules.ts para definir os critérios de unicidade',
+    '   🔍 Ajuste a função validateCreate em rules.ts para definir os critérios de unicidade',
   );
   console.log(
     '   ⚙️  Personalize os hooks conforme necessário para lógicas específicas',

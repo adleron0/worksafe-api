@@ -1,16 +1,16 @@
 // Tabela de Severidade
 model Confinus_DOM_SeverityDefinition {
-  id          Int       @id @default(autoincrement())
-  companyId   Int
-  company     Company   @relation(fields: [companyId], references: [id])
-  description String?   @db.VarChar(255)
-  classification String @db.VarChar(255)
+  id             Int     @id @default(autoincrement())
+  companyId      Int
+  company        Company @relation(fields: [companyId], references: [id])
+  description    String? @db.VarChar(255)
+  classification String  @db.VarChar(255)
 
   confinedSpaces Confinus_ConfinedSpace[] // Relacionamento com a tabela ConfinusConfinedSpace
-  
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @default(now()) @updatedAt
-  inactiveAt  DateTime?
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
 
   @@unique([classification, companyId])
 }

@@ -1,17 +1,17 @@
 model Confinus_Manhole {
-  id          Int       @id @default(autoincrement())
+  id              Int                    @id @default(autoincrement())
   confinedSpaceId Int
-  confinedSpace Confinus_ConfinedSpace @relation(fields: [confinedSpaceId], references: [id])
-  compnyId    Int
-  compny      Company   @relation(fields: [compnyId], references: [id])
-  imageUrl    String?   @db.VarChar(255)
-  positioning String?   @db.VarChar(255)
-  dimensions  String?   @db.VarChar(255)
-  shape       String?   @db.VarChar(255)
+  confinedSpace   Confinus_ConfinedSpace @relation(fields: [confinedSpaceId], references: [id])
+  compnyId        Int
+  compny          Company                @relation(fields: [compnyId], references: [id])
+  imageUrl        String?                @db.VarChar(255)
+  positioning     String?                @db.VarChar(255)
+  dimensions      String?                @db.VarChar(255)
+  shape           String?                @db.VarChar(255)
 
   accessEquipments AccessEquipment[] // Relacionamento com AccessEquipment
 
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @default(now()) @updatedAt
-  inactiveAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
 }

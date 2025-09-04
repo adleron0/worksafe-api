@@ -1,22 +1,22 @@
 model TraineeCourseCertificate {
-  id       Int       @id @default(autoincrement())
-  courseId Int
-  course   Course    @relation(fields: [courseId], references: [id])
-  traineeId Int
-  trainee   Trainee  @relation(fields: [traineeId], references: [id])
-  classId Int
-  class   CourseClass  @relation(fields: [classId], references: [id])
-  companyId Int
-  company   Company   @relation(fields: [companyId], references: [id])
-  expirationDate DateTime?
-  fabricJsonFront    Json?  @map("fabric_json_front") @db.JsonB
-  fabricJsonBack     Json?  @map("fabric_json_back") @db.JsonB
-  variableToReplace  Json?  @map("variable_to_replace") @db.JsonB
-  showOnWebsiteConsent Boolean @default(true)
-  pdfUrl String?   @db.VarChar(255)
-  key                String    @default(uuid())  // Definindo o campo 'key' como UUID auto gerado
+  id                   Int         @id @default(autoincrement())
+  courseId             Int
+  course               Course      @relation(fields: [courseId], references: [id])
+  traineeId            Int
+  trainee              Trainee     @relation(fields: [traineeId], references: [id])
+  classId              Int
+  class                CourseClass @relation(fields: [classId], references: [id])
+  companyId            Int
+  company              Company     @relation(fields: [companyId], references: [id])
+  expirationDate       DateTime?
+  fabricJsonFront      Json?       @map("fabric_json_front") @db.JsonB
+  fabricJsonBack       Json?       @map("fabric_json_back") @db.JsonB
+  variableToReplace    Json?       @map("variable_to_replace") @db.JsonB
+  showOnWebsiteConsent Boolean     @default(true)
+  pdfUrl               String?     @db.VarChar(255)
+  key                  String      @default(uuid()) // Definindo o campo 'key' como UUID auto gerado
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @default(now()) @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
 }

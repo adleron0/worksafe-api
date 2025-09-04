@@ -1,14 +1,14 @@
 // Tabela Company
 model Webhooks {
-  id                 Int       @id @default(autoincrement())
-  companyId          Int
-  company       Company   @relation(fields: [companyId], references: [id])
-  gateway            gateways
-  payload            Json?  @map("payload") @db.JsonB // Dados do payload do gateway
-  error              Json?  @map("error") @db.JsonB // Dados do erro do webhook
+  id        Int      @id @default(autoincrement())
+  companyId Int
+  company   Company  @relation(fields: [companyId], references: [id])
+  gateway   gateways
+  payload   Json?    @map("payload") @db.JsonB // Dados do payload do gateway
+  error     Json?    @map("error") @db.JsonB // Dados do erro do webhook
 
-  processedAt       DateTime? // Data de processamento do webhook
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @default(now()) @updatedAt
-  inactiveAt         DateTime?
+  processedAt DateTime? // Data de processamento do webhook
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now()) @updatedAt
+  inactiveAt  DateTime?
 }

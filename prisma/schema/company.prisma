@@ -1,68 +1,66 @@
 // Tabela Company
 model Company {
-  id                 Int       @id @default(autoincrement())
-  active             Boolean   @default(true)  // Novo campo booleano para status de ativo/inativo
-  cnpj               String    @db.VarChar(14) @unique
-  comercial_name     String    @db.VarChar(255) 
-  corporate_name     String    @db.VarChar(255)
-  logoUrl            String?    @db.VarChar(255)
-  faviconUrl         String?    @db.VarChar(255)
-  primary_color      String?    @db.VarChar(7)   // Cor primária em formato hexadecimal
-  secondary_color    String?    @db.VarChar(7)   // Cor secundária em formato hexadecimal
-  description        String?    @db.VarChar(355) // Descriçao simples para metatags e footer
-  stateId            Int?
-  state             DOM_States?     @relation(fields: [stateId], references: [id])
-  cityId            Int?
-  city              DOM_Cities?      @relation(fields: [cityId], references: [id])
-  address String?    @db.VarChar(255)
-  addressNumber String?    @db.VarChar(255)
-  addressComplement String?    @db.VarChar(255)
-  neighborhood String?    @db.VarChar(255)
-  zipCode String?    @db.VarChar(255)
-  segment            String?    @db.VarChar(255)
-  representative_email String?    @db.VarChar(255)
-  representative_contact String?    @db.VarChar(50)
-  financial_email    String?    @db.VarChar(255)
-  financial_contact  String?    @db.VarChar(50)
-  operational_email  String?    @db.VarChar(255)
-  operational_contact String?    @db.VarChar(50)
-  email_conection    Json?
-  lp_domain         String?    @db.VarChar(255)
-  system_domain     String?    @db.VarChar(255)
-  websiteUrl        String?    @db.VarChar(255)
-  facebookUrl       String?    @db.VarChar(255)
-  instagramUrl      String?    @db.VarChar(255)
-  linkedinUrl       String?    @db.VarChar(255)
+  id                     Int         @id @default(autoincrement())
+  active                 Boolean     @default(true) // Novo campo booleano para status de ativo/inativo
+  cnpj                   String      @unique @db.VarChar(14)
+  comercial_name         String      @db.VarChar(255)
+  corporate_name         String      @db.VarChar(255)
+  logoUrl                String?     @db.VarChar(255)
+  faviconUrl             String?     @db.VarChar(255)
+  primary_color          String?     @db.VarChar(7) // Cor primária em formato hexadecimal
+  secondary_color        String?     @db.VarChar(7) // Cor secundária em formato hexadecimal
+  description            String?     @db.VarChar(355) // Descriçao simples para metatags e footer
+  stateId                Int?
+  state                  DOM_States? @relation(fields: [stateId], references: [id])
+  cityId                 Int?
+  city                   DOM_Cities? @relation(fields: [cityId], references: [id])
+  address                String?     @db.VarChar(255)
+  addressNumber          String?     @db.VarChar(255)
+  addressComplement      String?     @db.VarChar(255)
+  neighborhood           String?     @db.VarChar(255)
+  zipCode                String?     @db.VarChar(255)
+  segment                String?     @db.VarChar(255)
+  representative_email   String?     @db.VarChar(255)
+  representative_contact String?     @db.VarChar(50)
+  financial_email        String?     @db.VarChar(255)
+  financial_contact      String?     @db.VarChar(50)
+  operational_email      String?     @db.VarChar(255)
+  operational_contact    String?     @db.VarChar(50)
+  email_conection        Json?
+  lp_domain              String?     @db.VarChar(255)
+  system_domain          String?     @db.VarChar(255)
+  websiteUrl             String?     @db.VarChar(255)
+  facebookUrl            String?     @db.VarChar(255)
+  instagramUrl           String?     @db.VarChar(255)
+  linkedinUrl            String?     @db.VarChar(255)
 
-
-  users              User[]    // Relacionamento com a tabela User
-  Area               Area[]    // Relacionamento com a tabela Area
-  products           CompanyProduct[] // Relacionamento com a tabela Product
-  severity           Confinus_DOM_SeverityDefinition[] // Relacionamento com a tabela Severity
-  equipaments        DOM_Equipaments[] // Relacionamento com a tabela Equipaments
-  accessEquipments   AccessEquipment[] // Relacionamento com a tabela AccessEquipments
-  confinusDomCategories Confinus_DOM_Categories[] // Relacionamento com a tabela ConfinusDOMCategories
-  confinusDomClassifiedZone Confinus_DOM_ClassifiedZone[] // Relacionamento com a tabela ConfinusDOMClassifiedZone
+  users                           User[] // Relacionamento com a tabela User
+  Area                            Area[] // Relacionamento com a tabela Area
+  products                        CompanyProduct[] // Relacionamento com a tabela Product
+  severity                        Confinus_DOM_SeverityDefinition[] // Relacionamento com a tabela Severity
+  equipaments                     DOM_Equipaments[] // Relacionamento com a tabela Equipaments
+  accessEquipments                AccessEquipment[] // Relacionamento com a tabela AccessEquipments
+  confinusDomCategories           Confinus_DOM_Categories[] // Relacionamento com a tabela ConfinusDOMCategories
+  confinusDomClassifiedZone       Confinus_DOM_ClassifiedZone[] // Relacionamento com a tabela ConfinusDOMClassifiedZone
   confinusDomConstructionMaterial DOM_ConstructionMaterial[] // Relacionamento com a tabela ConfinusDOMConstructionMaterial
-  confinusConfinedSpace Confinus_ConfinedSpace[] // Relacionamento com a tabela ConfinusConfinedSpace
-  confinusManhole Confinus_Manhole[] // Relacionamento com a tabela ConfinusManhole
-  confinusAuxiliaryImages Confinus_AuxiliaryImages[] // Relacionamento com a tabela ConfinusAuxiliaryImages
-  systemLogs System_Logs[] // Relacionamento com a tabela System_Logs
-  customers Customer[] // Relacionamento com a tabela Customer
-  customerContacts Customer_Contacts[] // Relacionamento com a tabela Customer_Contacts
-  services Site_Services[] // Relacionamento com a tabela Site_Services
-  images Image[] // Relacionamento com a tabela Image
-  courseCertificates CouseCertificate[] // Relacionamento com a tabela CourseCertificate
-  certificates TraineeCourseCertificate[] // Relacionamento com a tabela TraineeCourseCertificate
-  gateways CompanyGateWays[] // Relacionamento com a tabela CompanyGateWays
-  webhooks Webhooks[] // Relacionamento com a tabela Webhooks
-  financialRecords FinancialRecords[] // Relacionamento com a tabela FinancialRecords
-  classes CourseClass[] // Relacionamento com a tabela CourseClass
-  courses Course[] // Relacionamento com a tabela Course
-  traineeCompanies TraineeCompany[] // Relacionamento com a tabela TraineeCompany
+  confinusConfinedSpace           Confinus_ConfinedSpace[] // Relacionamento com a tabela ConfinusConfinedSpace
+  confinusManhole                 Confinus_Manhole[] // Relacionamento com a tabela ConfinusManhole
+  confinusAuxiliaryImages         Confinus_AuxiliaryImages[] // Relacionamento com a tabela ConfinusAuxiliaryImages
+  systemLogs                      System_Logs[] // Relacionamento com a tabela System_Logs
+  customers                       Customer[] // Relacionamento com a tabela Customer
+  customerContacts                Customer_Contacts[] // Relacionamento com a tabela Customer_Contacts
+  services                        Site_Services[] // Relacionamento com a tabela Site_Services
+  images                          Image[] // Relacionamento com a tabela Image
+  courseCertificates              CouseCertificate[] // Relacionamento com a tabela CourseCertificate
+  certificates                    TraineeCourseCertificate[] // Relacionamento com a tabela TraineeCourseCertificate
+  gateways                        CompanyGateWays[] // Relacionamento com a tabela CompanyGateWays
+  webhooks                        Webhooks[] // Relacionamento com a tabela Webhooks
+  financialRecords                FinancialRecords[] // Relacionamento com a tabela FinancialRecords
+  classes                         CourseClass[] // Relacionamento com a tabela CourseClass
+  courses                         Course[] // Relacionamento com a tabela Course
+  traineeCompanies                TraineeCompany[] // Relacionamento com a tabela TraineeCompany
 
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @default(now()) @updatedAt
-  inactiveAt         DateTime?
-
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
 }

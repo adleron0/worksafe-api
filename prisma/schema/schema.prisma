@@ -6,6 +6,7 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URI")
 }
+
 // tipos de gateways
 enum gateways {
   asaas
@@ -30,4 +31,16 @@ enum financialRecordsStatus {
   chargeback
   cancelled
   overdue
+}
+
+enum ContentType {
+  VIDEO
+  TEXT
+  QUIZ
+}
+
+enum LessonProgressStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
 }

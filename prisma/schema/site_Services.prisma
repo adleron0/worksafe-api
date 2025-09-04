@@ -1,15 +1,15 @@
 // Tabela Site_Services
 model Site_Services {
-  id            Int       @id @default(autoincrement())
-  companyId     Int
-  name          String    @db.VarChar(255)
-  imageUrl      String?   @db.VarChar(255)
-  features      String?   @db.VarChar(255)
-  active        Boolean   @default(true)  // Novo campo booleano para status de ativo/inativo
+  id        Int     @id @default(autoincrement())
+  companyId Int
+  name      String  @db.VarChar(255)
+  imageUrl  String? @db.VarChar(255)
+  features  String? @db.VarChar(255)
+  active    Boolean @default(true) // Novo campo booleano para status de ativo/inativo
 
-  company       Company   @relation(fields: [companyId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
 
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @default(now()) @updatedAt
-  inactiveAt    DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
 }

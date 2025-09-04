@@ -1,15 +1,15 @@
 model AccessEquipment {
-  id          Int       @id @default(autoincrement())
-  companyId   Int
-  company     Company   @relation(fields: [companyId], references: [id])
-  equipamentId Int
-  equipament  DOM_Equipaments @relation(fields: [equipamentId], references: [id])
-  manHoleId   Int
-  manHole     Confinus_Manhole @relation(fields: [manHoleId], references: [id])
+  id              Int                    @id @default(autoincrement())
+  companyId       Int
+  company         Company                @relation(fields: [companyId], references: [id])
+  equipamentId    Int
+  equipament      DOM_Equipaments        @relation(fields: [equipamentId], references: [id])
+  manHoleId       Int
+  manHole         Confinus_Manhole       @relation(fields: [manHoleId], references: [id])
   confinedSpaceId Int
-  confinedSpace Confinus_ConfinedSpace @relation(fields: [confinedSpaceId], references: [id])
-  name        String     @db.VarChar(255)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @default(now()) @updatedAt
-  inactiveAt  DateTime?
+  confinedSpace   Confinus_ConfinedSpace @relation(fields: [confinedSpaceId], references: [id])
+  name            String                 @db.VarChar(255)
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @default(now()) @updatedAt
+  inactiveAt      DateTime?
 }
