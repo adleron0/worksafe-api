@@ -52,7 +52,9 @@ export class EmailService {
 
   async sendEmail(options: EmailOptions): Promise<void> {
     if (!this.transporter || !this.config) {
-      throw new Error('Email service not initialized. Call initialize() first.');
+      throw new Error(
+        'Email service not initialized. Call initialize() first.',
+      );
     }
 
     const mailOptions = {
@@ -67,7 +69,9 @@ export class EmailService {
     try {
       await this.transporter.sendMail(mailOptions);
     } catch (error) {
-      throw new Error(`Failed to send email: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(
+        `Failed to send email: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
     }
   }
 
@@ -84,14 +88,15 @@ export class EmailService {
       });
 
       await testTransporter.verify();
-      
+
       return {
         success: true,
       };
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error occurred',
+        error:
+          error instanceof Error ? error.message : 'Unknown error occurred',
       };
     }
   }

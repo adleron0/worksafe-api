@@ -448,7 +448,6 @@ export class SubscriptionService extends GenericService<
     };
   }
 
-
   /**
    * Confirma uma inscrição após webhook de pagamento
    * Cria o trainee se necessário e atualiza o status

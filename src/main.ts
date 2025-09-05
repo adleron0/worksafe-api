@@ -11,20 +11,22 @@ const ORIGIN_CORS = process.env.ORIGIN_CORS || '*';
 async function bootstrap() {
   try {
     const app = await NestFactory.create(AppModule);
-    
+
     // Trust proxy configuração segura para produção
     // Define quantos proxies confiáveis existem antes do servidor
     // Use 1 se estiver atrás de um único proxy (nginx, cloudflare, etc)
     const trustProxyHops = process.env.TRUST_PROXY_HOPS || '1';
-    
+
     // Cookie parser (movido para cá para evitar erro)
     app.use(cookieParser());
-    
+
     // Helmet para headers de segurança
-    app.use(helmet.default({
-      contentSecurityPolicy: false, // Desabilita CSP para evitar conflitos com frontend
-      crossOriginEmbedderPolicy: false,
-    }));
+    app.use(
+      helmet.default({
+        contentSecurityPolicy: false, // Desabilita CSP para evitar conflitos com frontend
+        crossOriginEmbedderPolicy: false,
+      }),
+    );
 
     // Rate limiting específico para /classes (problema identificado)
     const classesLimiter = rateLimit.default({
@@ -33,7 +35,8 @@ async function bootstrap() {
       message: {
         statusCode: 429,
         error: 'Too Many Requests',
-        message: 'Muitas requisições para /classes. Tente novamente em 1 minuto.',
+        message:
+          'Muitas requisições para /classes. Tente novamente em 1 minuto.',
       },
       standardHeaders: true,
       legacyHeaders: false,
@@ -46,12 +49,14 @@ async function bootstrap() {
 
     // Verifica se a segurança está habilitada
     const securityEnabled = process.env.SECURITY_ENABLED !== 'false';
-    
+
     if (securityEnabled) {
       // Middleware de detecção de ataques (aplicado globalmente)
-      const { SecurityService } = await import('./common/security/security.service');
+      const { SecurityService } = await import(
+        './common/security/security.service'
+      );
       const securityService = app.get(SecurityService);
-      
+
       app.use((req, res, next) => {
         const { allowed, reason } = securityService.logRequest(req);
         if (!allowed) {
@@ -61,7 +66,8 @@ async function bootstrap() {
             method: req.method,
             reason,
           });
-          const statusCode = reason?.includes('taxa') || reason?.includes('DDoS') ? 429 : 403;
+          const statusCode =
+            reason?.includes('taxa') || reason?.includes('DDoS') ? 429 : 403;
           return res.status(statusCode).json({
             statusCode,
             message: reason || 'Acesso negado',
@@ -104,19 +110,27 @@ async function bootstrap() {
     });
 
     // Configura trust proxy de forma segura
-    app.getHttpAdapter().getInstance().set('trust proxy', parseInt(trustProxyHops, 10));
+    app
+      .getHttpAdapter()
+      .getInstance()
+      .set('trust proxy', parseInt(trustProxyHops, 10));
 
     const server = await app.listen(PORT);
     const { port: actualPort } = server.address();
-    
+
     console.log('═══════════════════════════════════════════════════');
     if (securityEnabled) {
       console.log('🔒 SEGURANÇA ATIVADA');
       console.log('═══════════════════════════════════════════════════');
       console.log('✅ Helmet: Headers de segurança configurados');
       console.log('✅ Rate Limiting: Proteção contra DDoS ativa');
+      console.log('   ├─ Padrão: 200 req/min (60s)');
+      console.log('   ├─ Strict: 10 req/min (rotas sensíveis)');
+      console.log('   ├─ Public: 300 req/min (rotas públicas)');
+      console.log('   └─ Data-intensive: 500 req/min (listagens)');
       console.log('✅ Attack Detection: Middleware de detecção ativo');
       console.log('✅ Throttler: Rate limiting por IP ativo');
+      console.log('   └─ Bloqueio: 60 segundos após exceder limite');
     } else {
       console.log('⚠️  SEGURANÇA DESABILITADA');
       console.log('═══════════════════════════════════════════════════');

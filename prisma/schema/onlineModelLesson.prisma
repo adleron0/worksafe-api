@@ -1,0 +1,18 @@
+model OnlineModelLesson {
+  id            Int         @id @default(autoincrement())
+  modelId       Int
+  model         OnlineCourseModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  lessonId      Int
+  lesson        OnlineLesson    @relation(fields: [lessonId], references: [id])
+  companyId     Int
+  
+  order         Int             // ordem da lição neste modelo específico
+  isActive      Boolean         @default(true)
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+  
+  @@unique([modelId, lessonId])
+  @@index([modelId, order])
+}

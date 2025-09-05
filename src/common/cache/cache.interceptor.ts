@@ -115,12 +115,12 @@ export class CacheInterceptor implements NestInterceptor {
       .filter((key) => query[key] !== undefined && query[key] !== null)
       .map((key) => {
         let value = query[key];
-        
+
         // Normalizar datas para ignorar horas/minutos/segundos
         if (this.isDateField(key, value)) {
           value = this.normalizeDateValue(value);
         }
-        
+
         return `${key}=${value}`;
       });
 
@@ -130,37 +130,51 @@ export class CacheInterceptor implements NestInterceptor {
   private isDateField(key: string, value: any): boolean {
     // Detecta campos de data por padrões comuns
     const dateFieldPatterns = [
-      'date', 'Date',
-      'created', 'Created',
-      'updated', 'Updated', 
-      'modified', 'Modified',
-      'start', 'Start',
-      'end', 'End',
-      'begin', 'Begin',
-      'initial', 'Initial',
-      'final', 'Final',
-      'at', 'At',
-      'from', 'From',
-      'to', 'To',
-      'until', 'Until'
+      'date',
+      'Date',
+      'created',
+      'Created',
+      'updated',
+      'Updated',
+      'modified',
+      'Modified',
+      'start',
+      'Start',
+      'end',
+      'End',
+      'begin',
+      'Begin',
+      'initial',
+      'Initial',
+      'final',
+      'Final',
+      'at',
+      'At',
+      'from',
+      'From',
+      'to',
+      'To',
+      'until',
+      'Until',
     ];
-    
+
     // Verifica se a chave contém algum padrão de data
-    const hasDatePattern = dateFieldPatterns.some(pattern => 
-      key.toLowerCase().includes(pattern.toLowerCase())
+    const hasDatePattern = dateFieldPatterns.some((pattern) =>
+      key.toLowerCase().includes(pattern.toLowerCase()),
     );
-    
+
     // Verifica se o valor parece uma data ISO
-    const isISODate = typeof value === 'string' && 
+    const isISODate =
+      typeof value === 'string' &&
       /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value);
-    
+
     return hasDatePattern && isISODate;
   }
 
   private normalizeDateValue(value: string): string {
     try {
       const date = new Date(value);
-      
+
       // Se for uma data válida, normaliza para o início do dia
       if (!isNaN(date.getTime())) {
         // Retorna apenas a data (YYYY-MM-DD) sem hora
@@ -169,7 +183,7 @@ export class CacheInterceptor implements NestInterceptor {
     } catch (error) {
       // Se falhar ao processar, retorna o valor original
     }
-    
+
     return value;
   }
 }

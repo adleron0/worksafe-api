@@ -52,7 +52,7 @@ const entity = {
   model: 'OnlineLesson' as keyof PrismaClient,
   name: 'Onlinelesson',
   route: 'online-lesson',
-  permission: 'classes',
+  permission: 'treinamentos',
 };
 
 @Controller(entity.route)

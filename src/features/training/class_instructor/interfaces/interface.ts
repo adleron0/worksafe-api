@@ -1,5 +1,9 @@
 /* eslint-disable */
-import { CourseClassInstructor as Prisma, CourseClass as Class, Instructor as ClassInstructor } from '@prisma/client';
+import {
+  CourseClassInstructor as Prisma,
+  CourseClass as Class,
+  Instructor as ClassInstructor,
+} from '@prisma/client';
 
 // Extender a interface do Prisma
 export interface IEntity extends Prisma {

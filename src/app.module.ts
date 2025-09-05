@@ -38,6 +38,8 @@ import { ClassAttendanceListModule } from './features/training/class_attendance_
 import { CompanyModule } from './features/company/module';
 import { EmailModule } from './features/email/email.module';
 import { OnlinelessonModule } from './features/training/onlinelesson/module';
+import { OnlinecoursesModule } from './features/training/onlinecourses/module';
+import { OnlinemodellessonModule } from './features/training/onlinemodellesson/module';
 
 @Module({
   imports: [
@@ -77,6 +79,8 @@ import { OnlinelessonModule } from './features/training/onlinelesson/module';
     CompanyModule,
     EmailModule,
     OnlinelessonModule,
+    OnlinecoursesModule,
+    OnlinemodellessonModule,
   ],
   controllers: [],
   providers: [

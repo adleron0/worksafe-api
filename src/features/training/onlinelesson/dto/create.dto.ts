@@ -13,16 +13,15 @@ import {
 } from 'class-validator';
 
 export class CreateDto {
-
-  @IsInt()
-  @Type(() => Number)
-  @IsNotEmpty({ message: 'courseId is required' })
-  courseId: number;
-
   @IsInt()
   @Type(() => Number)
   @IsOptional()
   companyId?: number;
+
+  @IsInt()
+  @Type(() => Number)
+  @IsOptional()
+  courseId?: number;
 
   @IsString()
   @IsNotEmpty({ message: 'title is required' })

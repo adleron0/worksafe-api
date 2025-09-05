@@ -21,8 +21,9 @@ export class AttackDetectionMiddleware implements NestMiddleware {
       });
 
       // Responde com erro 429 (Too Many Requests) ou 403 (Forbidden)
-      const statusCode = reason?.includes('taxa') || reason?.includes('DDoS') ? 429 : 403;
-      
+      const statusCode =
+        reason?.includes('taxa') || reason?.includes('DDoS') ? 429 : 403;
+
       return res.status(statusCode).json({
         statusCode,
         message: reason || 'Acesso negado',

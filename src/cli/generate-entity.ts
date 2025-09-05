@@ -518,8 +518,7 @@ async function main() {
         '🌐 Deseja usar otimizador de imagens WebP? (s/n): ',
       );
       useWebpOptimizer =
-        webpAnswer.toLowerCase() === 's' ||
-        webpAnswer.toLowerCase() === 'sim';
+        webpAnswer.toLowerCase() === 's' || webpAnswer.toLowerCase() === 'sim';
     }
 
     // 9. Perguntar valor de noCompany
@@ -967,10 +966,10 @@ export class ${entityNamePascal}Service extends GenericService<
     ? `@CacheEvictAll('${cacheKeyPrefix}:*', 'cache:*/${cacheKeyPrefix}*')`
     : `// @CacheEvictAll('${cacheKeyPrefix}:*', 'cache:*/${cacheKeyPrefix}*') // descomente para limpar cache`;
 
-  // Definir interceptors baseado em hasImage e useWebpOptimizer
+  // Definir interceptors - sempre usa FormData
   let fileInterceptorImport = '';
   let fileInterceptorUsage = '';
-  
+
   if (hasImage && useWebpOptimizer) {
     fileInterceptorImport = `import { getOptimizedMulterOptions } from '${uploadImportPath}';
 import { ImageOptimizationInterceptor } from '${isGroup ? '../../' : '../'}upload/image-optimization.interceptor';`;
@@ -979,6 +978,10 @@ import { ImageOptimizationInterceptor } from '${isGroup ? '../../' : '../'}uploa
   } else if (hasImage) {
     fileInterceptorImport = `import { getMulterOptions } from '${uploadImportPath}';`;
     fileInterceptorUsage = `FileInterceptor('image', getMulterOptions('${entityName}-image')),`;
+  } else {
+    // Mesmo sem imagem, sempre usa FileInterceptor para processar FormData
+    fileInterceptorImport = ``;
+    fileInterceptorUsage = `FileInterceptor('file'),`; // campo 'file' vazio para processar FormData
   }
 
   const controllerContent = `import {
@@ -1073,20 +1076,24 @@ export class ${entityNamePascal}Controller extends GenericController<
   @UserPermission(\`create_\${entity.permission}\`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
   ${cacheEvictDecorator}
-  @Post()${hasImage ? `
+  @Post()
   @UseInterceptors(
     ${fileInterceptorUsage}
-  )` : ''}
+  )
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
   async create(
     @Req() request: Request,
     @Body() CreateDto: CreateDto,
     ${hasImage ? '@UploadedFile() file?: Express.MulterS3.File,' : ''}
   ) {
-    ${hasImage && useWebpOptimizer ? `// Se há arquivo, adiciona a URL ao DTO
+    ${
+      hasImage && useWebpOptimizer
+        ? `// Se há arquivo, adiciona a URL ao DTO
     if (file && file.location) {
       CreateDto.imageUrl = file.location;
-    }` : ''}
+    }`
+        : ''
+    }
     const search = validateCreate(request, CreateDto);
     return super.create(request, CreateDto, ${hasImage ? 'file' : 'null'}, search, hooksCreate);
   }
@@ -1094,10 +1101,10 @@ export class ${entityNamePascal}Controller extends GenericController<
   @UserPermission(\`update_\${entity.permission}\`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
   ${cacheEvictDecorator}
-  @Put(':id')${hasImage ? `
+  @Put(':id')
   @UseInterceptors(
     ${fileInterceptorUsage}
-  )` : ''}
+  )
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
   async update(
     @Param('id') id: number,
@@ -1105,10 +1112,14 @@ export class ${entityNamePascal}Controller extends GenericController<
     @Body() UpdateDto: UpdateDto,
     ${hasImage ? '@UploadedFile() file?: Express.MulterS3.File,' : ''}
   ) {
-    ${hasImage && useWebpOptimizer ? `// Se há arquivo, adiciona a URL ao DTO
+    ${
+      hasImage && useWebpOptimizer
+        ? `// Se há arquivo, adiciona a URL ao DTO
     if (file && file.location) {
       UpdateDto.imageUrl = file.location;
-    }` : ''}
+    }`
+        : ''
+    }
     const processedDto = formaterPreUpdate(UpdateDto);
     return super.update(id, request, processedDto, ${hasImage ? 'file' : 'null'}, hooksUpdate);
   }
@@ -1134,20 +1145,24 @@ export class ${entityNamePascal}Controller extends GenericController<
   @UserPermission(\`create_\${entity.permission}\`) // mesma permissao do create
   // @Public() // descomente para tornar publica
   ${cacheEvictDecorator}
-  @Post('upsert')${hasImage ? `
+  @Post('upsert')
   @UseInterceptors(
     ${fileInterceptorUsage}
-  )` : ''}
+  )
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
   async upsert(
     @Req() request: Request,
     @Body() upsertDto: CreateDto,
     ${hasImage ? '@UploadedFile() file?: Express.MulterS3.File,' : ''}
   ) {
-    ${hasImage && useWebpOptimizer ? `// Se há arquivo, adiciona a URL ao DTO
+    ${
+      hasImage && useWebpOptimizer
+        ? `// Se há arquivo, adiciona a URL ao DTO
     if (file && file.location) {
       upsertDto.imageUrl = file.location;
-    }` : ''}
+    }`
+        : ''
+    }
     const whereCondition = getUpsertWhereCondition(request, upsertDto);
     
     return super.upsert(request, upsertDto, ${hasImage ? 'file' : 'null'}, whereCondition, hooksUpsert);

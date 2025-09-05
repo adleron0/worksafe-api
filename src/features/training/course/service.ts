@@ -63,7 +63,7 @@ export class CourseService extends GenericService<
 
       return result;
     } catch (error) {
-      console.log("🚀 ~ CourseService ~ list ~ error:", error)
+      console.log('🚀 ~ CourseService ~ list ~ error:', error);
       throw new BadRequestException(error);
     }
   }

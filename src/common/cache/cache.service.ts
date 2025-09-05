@@ -233,8 +233,9 @@ export class CacheService implements OnModuleDestroy, OnModuleInit {
       // Primeiro obtém informações do cache antes de limpar
       const keyCountBefore = await this.redis.dbsize();
       const infoBefore = await this.redis.info('memory');
-      const memoryBefore = infoBefore.match(/used_memory_human:(.+)/)?.[1]?.trim() || 'N/A';
-      
+      const memoryBefore =
+        infoBefore.match(/used_memory_human:(.+)/)?.[1]?.trim() || 'N/A';
+
       console.log('═══════════════════════════════════════════════════');
       console.log('🔄 LIMPEZA DE CACHE REDIS NA INICIALIZAÇÃO');
       console.log('═══════════════════════════════════════════════════');
@@ -243,12 +244,12 @@ export class CacheService implements OnModuleDestroy, OnModuleInit {
       console.log(`   - Memória utilizada: ${memoryBefore}`);
       console.log('───────────────────────────────────────────────────');
       console.log('🗑️  Executando limpeza completa do Redis...');
-      
+
       await this.redis.flushall();
-      
+
       // Verifica se limpou corretamente
       const keyCountAfter = await this.redis.dbsize();
-      
+
       console.log('✅ CACHE REDIS LIMPO COM SUCESSO!');
       console.log(`📊 Estado atual do cache:`);
       console.log(`   - Total de chaves: ${keyCountAfter}`);
@@ -281,7 +282,7 @@ export class CacheService implements OnModuleDestroy, OnModuleInit {
       const keyCount = await this.redis.dbsize();
       const info = await this.redis.info('memory');
       const memoryUsed = info.match(/used_memory_human:(.+)/)?.[1] || 'N/A';
-      
+
       return {
         keyCount,
         memoryUsage: memoryUsed.trim(),

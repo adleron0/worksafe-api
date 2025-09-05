@@ -1,5 +1,12 @@
 /* eslint-disable */
-import { Course as Prisma, CouseCertificate, CourseClassExam, CourseReview, CourseClass, TraineeCourseCertificate } from '@prisma/client';
+import {
+  Course as Prisma,
+  CouseCertificate,
+  CourseClassExam,
+  CourseReview,
+  CourseClass,
+  TraineeCourseCertificate,
+} from '@prisma/client';
 
 // Extender a interface do Prisma
 export interface IEntity extends Prisma {

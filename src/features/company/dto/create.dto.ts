@@ -13,7 +13,6 @@ import {
 } from 'class-validator';
 
 export class CreateDto {
-
   @IsBoolean()
   @Transform(({ value }) => {
     if (value === 'true') return true;

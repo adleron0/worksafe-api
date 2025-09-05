@@ -229,7 +229,8 @@ export class GenericController<
     @Param('id') id: number,
     @Req() request: Request,
     @Body() UpdateDto: TUpdateDto,
-    @UploadedFile() file?: Express.MulterS3.File | { [key: string]: Express.MulterS3.File[] },
+    @UploadedFile()
+    file?: Express.MulterS3.File | { [key: string]: Express.MulterS3.File[] },
     entityHooks?: any,
   ): Promise<TEntity> {
     const hooks = entityHooks || {};

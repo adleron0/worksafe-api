@@ -12,7 +12,6 @@ import {
 } from 'class-validator';
 
 export class UpdateDto {
-
   @IsInt()
   @Type(() => Number)
   @IsOptional()
@@ -21,12 +20,12 @@ export class UpdateDto {
   @IsInt()
   @Type(() => Number)
   @IsOptional()
-  courseId?: number;
+  companyId?: number;
 
   @IsInt()
   @Type(() => Number)
   @IsOptional()
-  companyId?: number;
+  courseId?: number;
 
   @IsString()
   @IsOptional()

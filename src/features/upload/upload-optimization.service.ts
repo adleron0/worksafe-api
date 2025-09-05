@@ -69,7 +69,7 @@ export class UploadOptimizationService {
     try {
       const fileId = crypto.randomUUID();
       const originalBuffer = fileBuffer;
-      
+
       // 1. Análise da imagem original
       const metadata = await sharp(originalBuffer).metadata();
       console.log('📸 Imagem original:', {
@@ -87,7 +87,8 @@ export class UploadOptimizationService {
       );
 
       // 3. Geração de placeholder blur (Base64)
-      const blurPlaceholder = await this.generateBlurPlaceholder(originalBuffer);
+      const blurPlaceholder =
+        await this.generateBlurPlaceholder(originalBuffer);
 
       // 4. Upload paralelo para S3
       const uploadedImages = await this.uploadImagesToS3(processedImages);
@@ -179,7 +180,9 @@ export class UploadOptimizationService {
     return Promise.all(processPromises);
   }
 
-  private async generateBlurPlaceholder(originalBuffer: Buffer): Promise<string> {
+  private async generateBlurPlaceholder(
+    originalBuffer: Buffer,
+  ): Promise<string> {
     try {
       const blurBuffer = await sharp(originalBuffer)
         .resize(20, null)

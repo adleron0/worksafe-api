@@ -62,11 +62,7 @@ export const defaultSecurityConfig: SecurityConfig = {
       blockDuration: 60000,
     },
   },
-  whitelist: [
-    '127.0.0.1',
-    '::1',
-    'localhost',
-  ],
+  whitelist: ['127.0.0.1', '::1', 'localhost'],
   blacklist: [
     // Adicione IPs maliciosos conhecidos aqui
   ],
@@ -76,30 +72,35 @@ export const defaultSecurityConfig: SecurityConfig = {
 
 export function getSecurityConfigFromEnv(): Partial<SecurityConfig> {
   const config: Partial<SecurityConfig> = {};
-  
+
   // Permite desabilitar completamente o módulo de segurança
   if (process.env.SECURITY_ENABLED !== undefined) {
     config.enabled = process.env.SECURITY_ENABLED === 'true';
   }
-  
+
   if (process.env.SECURITY_MAX_REQUESTS) {
     config.global = {
       ...defaultSecurityConfig.global,
       maxRequests: parseInt(process.env.SECURITY_MAX_REQUESTS, 10),
     };
   }
-  
+
   if (process.env.SECURITY_WHITELIST) {
-    config.whitelist = process.env.SECURITY_WHITELIST.split(',').map(ip => ip.trim());
+    config.whitelist = process.env.SECURITY_WHITELIST.split(',').map((ip) =>
+      ip.trim(),
+    );
   }
-  
+
   if (process.env.SECURITY_BLACKLIST) {
-    config.blacklist = process.env.SECURITY_BLACKLIST.split(',').map(ip => ip.trim());
+    config.blacklist = process.env.SECURITY_BLACKLIST.split(',').map((ip) =>
+      ip.trim(),
+    );
   }
-  
+
   if (process.env.SECURITY_ENABLE_NOTIFICATIONS) {
-    config.enableNotifications = process.env.SECURITY_ENABLE_NOTIFICATIONS === 'true';
+    config.enableNotifications =
+      process.env.SECURITY_ENABLE_NOTIFICATIONS === 'true';
   }
-  
+
   return config;
 }

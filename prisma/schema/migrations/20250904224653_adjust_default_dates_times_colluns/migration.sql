@@ -1,0 +1,8 @@
+-- AlterTable
+ALTER TABLE "public"."OnlineCourseModel" ADD COLUMN     "inactiveAt" TIMESTAMP(3),
+ALTER COLUMN "updatedAt" SET DEFAULT CURRENT_TIMESTAMP;
+
+-- AlterTable
+ALTER TABLE "public"."OnlineModelLesson" ADD COLUMN     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ADD COLUMN     "inactiveAt" TIMESTAMP(3),
+ADD COLUMN     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;

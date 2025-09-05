@@ -9,7 +9,12 @@ import { AlunosModule } from '../trainees/module';
 @Module({
   controllers: [Controller],
   providers: [Service],
-  imports: [UploadModule, CacheModule, forwardRef(() => CheckoutModule), AlunosModule],
+  imports: [
+    UploadModule,
+    CacheModule,
+    forwardRef(() => CheckoutModule),
+    AlunosModule,
+  ],
   exports: [Service], // Exporta o service para outros módulos poderem usar
 })
 export class SubscriptionModule {}

@@ -11,7 +11,7 @@ export function getCertificateEmailTemplate(data: {
   const primaryColor = data.primaryColor || '#4A90E2';
   const secondaryColor = data.secondaryColor || '#2C3E50';
   const companyName = data.companyName || 'Empresa';
-  
+
   console.log('[TEMPLATE] Dados recebidos:', data);
   console.log('[TEMPLATE] Nome da empresa final:', companyName);
 
@@ -173,19 +173,27 @@ export function getCertificateEmailTemplate(data: {
             
             <div class="certificate-info">
                 <h2>Informações do Certificado</h2>
-                ${data.courseName ? `
+                ${
+                  data.courseName
+                    ? `
                 <div class="info-item">
                     <strong>Curso:</strong> ${data.courseName}
                 </div>
-                ` : ''}
+                `
+                    : ''
+                }
                 <div class="info-item">
                     <strong>Aluno:</strong> ${data.traineeName}
                 </div>
-                ${data.certificateDate ? `
+                ${
+                  data.certificateDate
+                    ? `
                 <div class="info-item">
                     <strong>Data:</strong> ${data.certificateDate}
                 </div>
-                ` : ''}
+                `
+                    : ''
+                }
             </div>
             
             <div class="cta-button-container" style="text-align: center; margin: 30px 0;">

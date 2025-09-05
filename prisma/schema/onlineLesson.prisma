@@ -1,8 +1,8 @@
 model OnlineLesson {
   id            Int         @id @default(autoincrement())
-  courseId  Int // vinculada ao Course
-  course    Course @relation(fields: [courseId], references: [id])
   companyId Int
+  courseId Int?
+  course   Course? @relation(fields: [courseId], references: [id])
 
   // Info básica da aula
   title       String  @db.VarChar(255)
@@ -12,16 +12,22 @@ model OnlineLesson {
 
   // Configurações de progresso
   progressConfig Json @default("{}") @db.JsonB
+  // Exemplo de progressConfig:
+  // {
+  //   "videoCompletePercent": 85,     // % para considerar vídeo completo
+  //   "textCompletePercent": 90,      // % para considerar texto completo  
+  //   "requireSequential": true,      // steps em ordem obrigatória
+  //   "allowSkip": false,            // pode pular sem completar
+  //   "isRequired": true             // lição obrigatória para concluir modelo
+  // }
 
   // Relacionamentos
   steps          OnlineLessonStep[]
-  stepProgress   OnlineStudentStepProgress[]
-  lessonProgress OnlineStudentLessonProgress[]
-  classes        CourseClass[] // turmas que usam esta aula
+  studentStepProgress   OnlineStudentStepProgress[]
+  studentLessonProgress OnlineStudentLessonProgress[]
+  modelLessons      OnlineModelLesson[] // pode estar em múltiplos modelos
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
-
-  @@index([courseId, isActive])
 }

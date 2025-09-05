@@ -71,11 +71,11 @@ export class ImageOptimizationInterceptor implements NestInterceptor {
     // Processa múltiplos arquivos
     if (multipleFiles && typeof multipleFiles === 'object') {
       const optimizationResults = {};
-      
+
       for (const [fieldName, fileArray] of Object.entries(multipleFiles)) {
         if (Array.isArray(fileArray) && fileArray[0]) {
           const file = fileArray[0];
-          
+
           if (!file.location && file.buffer) {
             try {
               console.log(`🔄 Iniciando otimização da imagem ${fieldName}...`);
@@ -122,7 +122,7 @@ export class ImageOptimizationInterceptor implements NestInterceptor {
           }
         }
       }
-      
+
       // Se houve otimizações, adiciona na request
       if (Object.keys(optimizationResults).length > 0) {
         request.imageOptimization = optimizationResults;

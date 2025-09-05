@@ -16,9 +16,9 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
     // Pega o IP real considerando proxies (X-Forwarded-For, X-Real-IP, etc)
     const forwardedFor = req.headers['x-forwarded-for'];
     const realIp = req.headers['x-real-ip'];
-    
+
     let clientIp: string;
-    
+
     if (forwardedFor) {
       // X-Forwarded-For pode conter múltiplos IPs, pega o primeiro
       clientIp = (forwardedFor as string).split(',')[0].trim();
@@ -41,7 +41,11 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
   /**
    * Mensagem de erro customizada
    */
-  protected async throwThrottlingException(context: ExecutionContext): Promise<void> {
-    throw new Error('Muitas requisições. Por favor, aguarde um momento antes de tentar novamente.');
+  protected async throwThrottlingException(
+    context: ExecutionContext,
+  ): Promise<void> {
+    throw new Error(
+      'Muitas requisições. Por favor, aguarde um momento antes de tentar novamente.',
+    );
   }
 }

@@ -1,14 +1,19 @@
 import { Injectable } from '@nestjs/common';
-import { 
-  S3Client, 
+import {
+  S3Client,
   DeleteObjectCommand,
-  ListObjectsV2Command 
+  ListObjectsV2Command,
 } from '@aws-sdk/client-s3';
 
 @Injectable()
 export class UploadService {
   private s3: S3Client;
-  private readonly imageVariantSuffixes = ['thumb', 'medium', 'large', 'xlarge'];
+  private readonly imageVariantSuffixes = [
+    'thumb',
+    'medium',
+    'large',
+    'xlarge',
+  ];
 
   constructor() {
     this.s3 = new S3Client({
@@ -31,8 +36,8 @@ export class UploadService {
     }
 
     // Verifica se é uma imagem otimizada (contém sufixo -large, -medium, etc)
-    const isOptimizedImage = this.imageVariantSuffixes.some(suffix => 
-      key.includes(`-${suffix}.`)
+    const isOptimizedImage = this.imageVariantSuffixes.some((suffix) =>
+      key.includes(`-${suffix}.`),
     );
 
     if (isOptimizedImage) {
@@ -74,16 +79,20 @@ export class UploadService {
       // Cria promessas para deletar todas as variantes
       const deletePromises = this.imageVariantSuffixes.map(async (suffix) => {
         const variantKey = `${baseKey}-${suffix}.webp`;
-        
+
         try {
-          await this.s3.send(new DeleteObjectCommand({
-            Bucket: process.env.AWS_S3_BUCKET,
-            Key: variantKey,
-          }));
+          await this.s3.send(
+            new DeleteObjectCommand({
+              Bucket: process.env.AWS_S3_BUCKET,
+              Key: variantKey,
+            }),
+          );
           console.log(`✅ Variante deletada: ${variantKey}`);
         } catch (err) {
           // Ignora erro se a variante não existir
-          console.log(`⚠️ Variante não encontrada ou já deletada: ${variantKey}`);
+          console.log(
+            `⚠️ Variante não encontrada ou já deletada: ${variantKey}`,
+          );
         }
       });
 
@@ -103,16 +112,16 @@ export class UploadService {
 
     // Extrai o prefixo (sem o sufixo de tamanho)
     const prefix = key.substring(0, key.lastIndexOf('-'));
-    
+
     try {
       // Lista todos os objetos com esse prefixo
       const listCommand = new ListObjectsV2Command({
         Bucket: process.env.AWS_S3_BUCKET,
         Prefix: prefix,
       });
-      
+
       const { Contents } = await this.s3.send(listCommand);
-      
+
       if (!Contents || Contents.length === 0) {
         console.log('Nenhuma imagem encontrada com o prefixo:', prefix);
         return;
@@ -120,14 +129,18 @@ export class UploadService {
 
       // Deleta todos os objetos encontrados
       const deletePromises = Contents.map(({ Key }) =>
-        this.s3.send(new DeleteObjectCommand({
-          Bucket: process.env.AWS_S3_BUCKET,
-          Key,
-        }))
+        this.s3.send(
+          new DeleteObjectCommand({
+            Bucket: process.env.AWS_S3_BUCKET,
+            Key,
+          }),
+        ),
       );
-      
+
       await Promise.all(deletePromises);
-      console.log(`✅ ${Contents.length} imagens deletadas com prefixo: ${prefix}`);
+      console.log(
+        `✅ ${Contents.length} imagens deletadas com prefixo: ${prefix}`,
+      );
     } catch (error) {
       console.error('Erro ao deletar imagens por prefixo:', error);
       throw error;

@@ -37,8 +37,8 @@ model CourseClass {
   maxSubscriptions  Int?
   allowCheckout     Boolean           @default(false)
   whyUs             Json?
-  onlineLessonId    Int?
-  onlineLesson      OnlineLesson?     @relation(fields: [onlineLessonId], references: [id])
+  onlineCourseModelId    Int?
+  onlineCourseModel      OnlineCourseModel?     @relation(fields: [onlineCourseModelId], references: [id])
 
   paymentMethods  paymentMethods[]
   certificates    TraineeCourseCertificate[]

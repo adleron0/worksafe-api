@@ -1,0 +1,21 @@
+model OnlineCourseModel {
+  id            Int         @id @default(autoincrement())
+  courseId      Int
+  course        Course   @relation(fields: [courseId], references: [id])
+  companyId     Int
+  key           String      @default(uuid()) // Definindo o campo 'key' como UUID auto gerado
+  
+  name          String   @db.VarChar(100) // "Básico", "Avançado", "Executivo"
+  description   String?  @db.Text
+  isActive      Boolean  @default(true)
+  
+  // Relacionamentos
+  lessons       OnlineModelLesson[] // lições específicas deste modelo
+  classes       CourseClass[]       // turmas que usam este modelo
+  
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+  
+  @@index([courseId, isActive])
+}

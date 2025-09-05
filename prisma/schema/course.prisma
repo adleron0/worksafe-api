@@ -25,6 +25,7 @@ model Course {
   reviews              CourseReview[]
   exams                CourseClassExam[]
   classes              CourseClass[]
+  onlineCourseModels   OnlineCourseModel[]
   onlineLessons        OnlineLesson[]
 
   createdAt  DateTime  @default(now())

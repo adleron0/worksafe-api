@@ -34,18 +34,18 @@ export class SecurityService {
     // SQL Injection - mais específico
     /(\b|;)(SELECT|DROP|INSERT|UPDATE|DELETE|UNION|ALTER|CREATE|EXEC|EXECUTE)\s+/i,
     /(\b|;)(TABLE|DATABASE|SCHEMA|PROCEDURE|FUNCTION)\s+(DROP|ALTER|CREATE)/i,
-    
+
     // XSS - mais específico para evitar falsos positivos
-    /<script[^a-z]/i,  // <script com espaço ou >
+    /<script[^a-z]/i, // <script com espaço ou >
     /<iframe[^a-z]/i,
     /javascript:/i,
-    /<img[^>]+on(load|error)\s*=/i,  // Apenas em tags img
-    /<[^>]+on(click|mouseover|focus|blur)\s*=/i,  // Eventos inline em tags HTML
-    
+    /<img[^>]+on(load|error)\s*=/i, // Apenas em tags img
+    /<[^>]+on(click|mouseover|focus|blur)\s*=/i, // Eventos inline em tags HTML
+
     // Path Traversal - mais específico
-    /(\.\.[\/\\]){3,}/,  // Pelo menos 3 níveis de ../
-    /\.\.%2[fF]/,  // Encoded path traversal
-    
+    /(\.\.[\/\\]){3,}/, // Pelo menos 3 níveis de ../
+    /\.\.%2[fF]/, // Encoded path traversal
+
     // OS Command Injection
     /[;&|`]\s*(ls|cat|echo|rm|chmod|chown|wget|curl|nc|bash|sh)\s/i,
     /\/etc\/(passwd|shadow|hosts)/,
@@ -94,7 +94,7 @@ export class SecurityService {
       whitelistedIps: this.config.whitelist.length,
       blacklistedIps: this.config.blacklist.length,
     });
-    
+
     if (!this.config.enabled) {
       console.warn('⚠️ MÓDULO DE SEGURANÇA DESABILITADO');
     }
@@ -143,7 +143,7 @@ export class SecurityService {
     if (!this.config.enabled) {
       return { allowed: true };
     }
-    
+
     const ip = this.getClientIp(request);
     const now = Date.now();
     const endpoint = this.getEndpointFromUrl(request.url);
@@ -263,7 +263,7 @@ export class SecurityService {
   private detectMaliciousPatterns(request: Request): string | null {
     // Verifica URL
     const url = request.url || '';
-    
+
     // Decodifica a URL para evitar bypass com encoding
     let decodedUrl = url;
     try {
@@ -272,7 +272,7 @@ export class SecurityService {
       // URL mal formada pode ser suspeita
       console.warn('URL mal formada detectada:', url);
     }
-    
+
     for (const pattern of this.suspiciousPatterns) {
       if (pattern.test(decodedUrl)) {
         return `URL maliciosa: ${pattern}`;
