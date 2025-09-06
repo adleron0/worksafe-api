@@ -44,3 +44,13 @@ enum LessonProgressStatus {
   IN_PROGRESS
   COMPLETED
 }
+
+enum periodClassTypes {
+  LIMITED
+  UNLIMITED
+}
+
+enum periodSubscriptionsTypes {
+  LIMITED
+  UNLIMITED
+}

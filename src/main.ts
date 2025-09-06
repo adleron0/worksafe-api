@@ -4,6 +4,7 @@ import { PrismaClientInitializationError } from '@prisma/client/runtime/library'
 import * as helmet from 'helmet';
 import * as rateLimit from 'express-rate-limit';
 import * as cookieParser from 'cookie-parser';
+import { defaultSecurityConfig } from './common/security/security.config';
 
 const PORT = process.env.PORT || 3000;
 const ORIGIN_CORS = process.env.ORIGIN_CORS || '*';
@@ -120,17 +121,22 @@ async function bootstrap() {
 
     console.log('═══════════════════════════════════════════════════');
     if (securityEnabled) {
+      // Calcula burst dinamicamente
+      const calcBurst = (burst: number) => Math.floor(burst / 5); // 5 segundos de janela
+      
       console.log('🔒 SEGURANÇA ATIVADA');
       console.log('═══════════════════════════════════════════════════');
       console.log('✅ Helmet: Headers de segurança configurados');
       console.log('✅ Rate Limiting: Proteção contra DDoS ativa');
-      console.log('   ├─ Padrão: 200 req/min (60s)');
-      console.log('   ├─ Strict: 10 req/min (rotas sensíveis)');
-      console.log('   ├─ Public: 300 req/min (rotas públicas)');
-      console.log('   └─ Data-intensive: 500 req/min (listagens)');
+      console.log(`   ├─ Padrão: ${defaultSecurityConfig.global.maxRequests} req/min | Burst: ${calcBurst(defaultSecurityConfig.global.maxBurst)} req/seg`);
+      console.log(`   ├─ Classes: ${defaultSecurityConfig.endpoints['/classes'].maxRequests} req/min | Burst: ${calcBurst(defaultSecurityConfig.endpoints['/classes'].maxBurst)} req/seg`);
+      console.log(`   ├─ API: ${defaultSecurityConfig.endpoints['/api'].maxRequests} req/min | Burst: ${calcBurst(defaultSecurityConfig.endpoints['/api'].maxBurst)} req/seg`);
+      console.log(`   ├─ Auth: ${defaultSecurityConfig.endpoints['/auth'].maxRequests} req/min | Burst: ${calcBurst(defaultSecurityConfig.endpoints['/auth'].maxBurst)} req/seg`);
+      console.log(`   ├─ Upload: ${defaultSecurityConfig.endpoints['/upload'].maxRequests} req/min | Burst: ${calcBurst(defaultSecurityConfig.endpoints['/upload'].maxBurst)} req/seg`);
+      console.log('   └─ Webhooks: Sem limite (ignorado)');
       console.log('✅ Attack Detection: Middleware de detecção ativo');
       console.log('✅ Throttler: Rate limiting por IP ativo');
-      console.log('   └─ Bloqueio: 60 segundos após exceder limite');
+      console.log(`   └─ Bloqueio: ${defaultSecurityConfig.global.blockDuration / 1000} segundos após exceder limite`);
     } else {
       console.log('⚠️  SEGURANÇA DESABILITADA');
       console.log('═══════════════════════════════════════════════════');

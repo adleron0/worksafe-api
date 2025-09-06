@@ -25,22 +25,23 @@ export const defaultSecurityConfig: SecurityConfig = {
   enabled: true,
   global: {
     windowMs: 60000,
-    maxRequests: 200,
-    maxBurst: 30,
+    maxRequests: 100,
+    maxBurst: 80, // 100 em 5 segundos = 20 req/seg
     blockDuration: 60000,
     cleanupInterval: 300000,
   },
+  // ⏺ 📋 Lista de Endpoints - Limites Específicos por Rota
   endpoints: {
     '/classes': {
       windowMs: 60000,
       maxRequests: 100,
-      maxBurst: 20,
+      maxBurst: 80,
       blockDuration: 30000,
     },
     '/api': {
       windowMs: 60000,
       maxRequests: 300,
-      maxBurst: 50,
+      maxBurst: 150,
       blockDuration: 60000,
     },
     '/auth': {
@@ -52,14 +53,8 @@ export const defaultSecurityConfig: SecurityConfig = {
     '/upload': {
       windowMs: 60000,
       maxRequests: 20,
-      maxBurst: 5,
+      maxBurst: 10,
       blockDuration: 300000,
-    },
-    '/webhook': {
-      windowMs: 60000,
-      maxRequests: 100,
-      maxBurst: 20,
-      blockDuration: 60000,
     },
   },
   whitelist: ['127.0.0.1', '::1', 'localhost'],

@@ -77,11 +77,6 @@ export class CreateDto {
   @IsInt()
   @Type(() => Number)
   @IsOptional()
-  companyId?: number;
-
-  @IsInt()
-  @Type(() => Number)
-  @IsOptional()
   classId?: number;
 
   @IsInt()

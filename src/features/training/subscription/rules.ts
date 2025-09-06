@@ -89,7 +89,6 @@ async function hookPreCreate(params: {
   if (dto.subscribeStatus === 'confirmed') {
     // Condições para buscar o trainee existente
     const whereTrainee = {
-      companyId: Number(logParams.companyId),
       cpf: dto.cpf,
     };
 
@@ -99,7 +98,6 @@ async function hookPreCreate(params: {
       cpf: dto.cpf,
       email: dto.email,
       phone: dto.phone,
-      companyId: Number(logParams.companyId),
       custumerId: dto.customerId,
       occupation: dto.occupation,
     };
@@ -169,7 +167,6 @@ async function hookPreUpdate(params: {
 
     // Condições para buscar o trainee existente
     const whereTrainee = {
-      companyId: Number(dto.companyId || subscription.companyId),
       cpf: dto.cpf || subscription.cpf,
     };
 
@@ -179,7 +176,6 @@ async function hookPreUpdate(params: {
       cpf: dto.cpf || subscription.cpf,
       email: dto.email || subscription.email,
       phone: dto.phone || subscription.phone,
-      companyId: Number(dto.companyId || subscription.companyId),
       custumerId: dto.customerId || subscription.customerId,
       occupation: dto.occupation || subscription.occupation,
     };

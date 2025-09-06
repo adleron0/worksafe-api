@@ -31,12 +31,12 @@ export class UpdateDto {
   @IsNumber()
   @IsOptional()
   @Type(() => Number)
-  companyId?: string;
+  companyId?: number;
 
   @IsNumber()
   @IsOptional()
   @Type(() => Number)
-  courseId?: string;
+  courseId?: number;
 
   @IsDate()
   @IsOptional()
@@ -211,4 +211,40 @@ export class UpdateDto {
   @IsJSON()
   @IsOptional()
   whyUs?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
+  allowSubscriptions?: boolean;
+
+  @IsString()
+  @IsOptional()
+  periodSubscriptionsType?: string;
+
+  @IsDate()
+  @IsOptional()
+  @Type(() => Date)
+  periodSubscriptionsInitialDate?: Date;
+
+  @IsDate()
+  @IsOptional()
+  @Type(() => Date)
+  periodSubscriptionsFinalDate?: Date;
+
+  @IsBoolean()
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
+  unlimitedSubscriptions?: boolean;
+
+  @IsString()
+  @IsOptional()
+  periodClass?: string;
 }

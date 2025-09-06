@@ -40,6 +40,8 @@ import { EmailModule } from './features/email/email.module';
 import { OnlinelessonModule } from './features/training/onlinelesson/module';
 import { OnlinecoursesModule } from './features/training/onlinecourses/module';
 import { OnlinemodellessonModule } from './features/training/onlinemodellesson/module';
+import { EnumsModule } from './features/enums/enums.module';
+import { OnlinelessonstepModule } from './features/training/onlinelessonstep/module';
 
 @Module({
   imports: [
@@ -81,6 +83,8 @@ import { OnlinemodellessonModule } from './features/training/onlinemodellesson/m
     OnlinelessonModule,
     OnlinecoursesModule,
     OnlinemodellessonModule,
+    EnumsModule,
+    OnlinelessonstepModule,
   ],
   controllers: [],
   providers: [

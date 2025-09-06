@@ -28,6 +28,7 @@ model CourseClass {
   videoDescription  String?
   active            Boolean           @default(true)
   faq               Json?
+  periodClass       periodClassTypes @default(LIMITED)
   initialDate       DateTime?
   finalDate         DateTime?
   landingPagesDates String?
@@ -35,10 +36,15 @@ model CourseClass {
   allowReview       Boolean
   minimumQuorum     Int?
   maxSubscriptions  Int?
+  unlimitedSubscriptions Boolean @default(false)
   allowCheckout     Boolean           @default(false)
   whyUs             Json?
   onlineCourseModelId    Int?
   onlineCourseModel      OnlineCourseModel?     @relation(fields: [onlineCourseModelId], references: [id])
+  allowSubscriptions    Boolean           @default(false)
+  periodSubscriptionsType   periodSubscriptionsTypes @default(LIMITED)
+  periodSubscriptionsInitialDate DateTime?
+  periodSubscriptionsFinalDate DateTime?
 
   paymentMethods  paymentMethods[]
   certificates    TraineeCourseCertificate[]

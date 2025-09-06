@@ -5,15 +5,16 @@ import { SecurityService } from './security.service';
 import { AttackDetectionMiddleware } from './attack-detection.middleware';
 import { SecurityGuard } from './security.guard';
 import { CustomThrottlerGuard } from './custom-throttler.guard';
+import { defaultSecurityConfig } from './security.config';
 
 @Module({
   imports: [
     // Configuração global de rate limiting
     ThrottlerModule.forRoot([
       {
-        // Rate limit padrão: 200 requests por minuto (aumentado de 100)
-        ttl: 60000,
-        limit: 200,
+        // Rate limit padrão - pega do config centralizado
+        ttl: defaultSecurityConfig.global.windowMs,
+        limit: defaultSecurityConfig.global.maxRequests,
         ignoreUserAgents: [
           // Ignora bots conhecidos se necessário
           /googlebot/gi,
@@ -23,14 +24,14 @@ import { CustomThrottlerGuard } from './custom-throttler.guard';
       {
         // Rate limit mais restritivo para rotas sensíveis
         name: 'strict',
-        ttl: 60000,
-        limit: 10,
+        ttl: defaultSecurityConfig.endpoints['/auth']?.windowMs || 60000,
+        limit: defaultSecurityConfig.endpoints['/auth']?.maxRequests || 10,
       },
       {
         // Rate limit para rotas públicas (mais permissivo)
         name: 'public',
-        ttl: 60000,
-        limit: 300,
+        ttl: defaultSecurityConfig.endpoints['/api']?.windowMs || 60000,
+        limit: defaultSecurityConfig.endpoints['/api']?.maxRequests || 300,
       },
       {
         // Rate limit para rotas de listagem/consulta intensiva

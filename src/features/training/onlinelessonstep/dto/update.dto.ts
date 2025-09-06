@@ -12,58 +12,52 @@ import {
 } from 'class-validator';
 
 export class UpdateDto {
+
   @IsInt()
   @Type(() => Number)
   @IsOptional()
   id?: number;
 
-  @IsString()
+  @IsInt()
+  @Type(() => Number)
   @IsOptional()
-  name?: string;
-
-  @IsString()
-  @IsOptional()
-  cpf?: string;
-
-  @IsString()
-  @IsOptional()
-  @IsEmail({}, { message: 'Invalid email format' })
-  email?: string;
-
-  @IsString()
-  @IsOptional()
-  phone?: string;
-
-  @IsString()
-  @IsOptional()
-  workedAt?: string;
-
-  @IsString()
-  @IsOptional()
-  occupation?: string;
+  lessonId?: number;
 
   @IsInt()
   @Type(() => Number)
   @IsOptional()
-  classId?: number;
+  companyId?: number;
+
+  @IsString()
+  @IsOptional()
+  title?: string;
 
   @IsInt()
   @Type(() => Number)
   @IsOptional()
-  traineeId?: number;
+  order?: number;
+
+  @IsInt()
+  @Type(() => Number)
+  @IsOptional()
+  duration?: number;
 
   @IsString()
   @IsOptional()
-  subscribeStatus?: string;
+  contentType?: string;
 
-  @IsDate()
-  @Type(() => Date)
+  @IsBoolean()
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
   @IsOptional()
-  confirmedAt?: Date;
+  isActive?: boolean;
 
-  @IsString()
+  @IsJSON()
   @IsOptional()
-  declinedReason?: string;
+  content?: JSON;
 
   @IsDate()
   @Type(() => Date)
