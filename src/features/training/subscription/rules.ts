@@ -67,23 +67,26 @@ async function hookPreCreate(params: {
       id: Number(dto.classId),
     },
     select: {
+      unlimitedSubscriptions: true,
       maxSubscriptions: true,
       name: true,
     },
   });
 
   // Verifica se o limite de inscrições foi atingido
-  const total = await prisma.select(entity.model, {
-    where: {
-      companyId: Number(logParams.companyId),
-      classId: Number(dto.classId),
-      subscribeStatus: 'confirmed',
-    },
-  });
-  if (total.length >= Number(limit?.maxSubscriptions)) {
-    throw new BadRequestException(
-      `O limite de inscrições para a turma ${limit?.name} foi atingido`,
-    );
+  if (!limit?.unlimitedSubscriptions) {
+    const total = await prisma.select(entity.model, {
+      where: {
+        companyId: Number(logParams.companyId),
+        classId: Number(dto.classId),
+        subscribeStatus: 'confirmed',
+      },
+    });
+    if (total.length >= Number(limit?.maxSubscriptions)) {
+      throw new BadRequestException(
+        `O limite de inscrições para a turma ${limit?.name} foi atingido`,
+      );
+    }
   }
   // Verifica se está confirmando a inscrição e seleciona ou cria o trainee
   if (dto.subscribeStatus === 'confirmed') {

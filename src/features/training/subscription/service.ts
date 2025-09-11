@@ -61,6 +61,8 @@ export class SubscriptionService extends GenericService<
         where: whereClause,
         select: {
           id: true,
+          allowSubscriptions: true,
+          unlimitedSubscriptions: true,
           maxSubscriptions: true,
           name: true,
           allowCheckout: true,
@@ -149,19 +151,25 @@ export class SubscriptionService extends GenericService<
     // Se existe trainee, adiciona o traineeId ao DTO (mas só será usado se o pagamento for confirmado)
     dto.traineeId = trainee?.id || null;
 
-    // Verifica se o limite de inscrições foi atingido
-    if (courseClass && courseClass.maxSubscriptions) {
-      const total = await this.prisma.select(entity.model, {
-        where: {
-          companyId: Number(search.companyId),
-          classId: Number(search.classId),
-          subscribeStatus: 'confirmed',
-        },
-      });
-      if (total.length >= Number(courseClass.maxSubscriptions)) {
-        throw new BadRequestException(
-          `O limite de inscrições para a turma ${courseClass.name} foi atingido`,
-        );
+    if (!courseClass.allowSubscriptions) {
+      throw new BadRequestException(`Esta turma não permite inscrições`);
+    }
+
+    if (!courseClass.unlimitedSubscriptions) {
+      // Verifica se o limite de inscrições foi atingido
+      if (courseClass && courseClass.maxSubscriptions) {
+        const total = await this.prisma.select(entity.model, {
+          where: {
+            companyId: Number(search.companyId),
+            classId: Number(search.classId),
+            subscribeStatus: 'confirmed',
+          },
+        });
+        if (total.length >= Number(courseClass.maxSubscriptions)) {
+          throw new BadRequestException(
+            `O limite de inscrições para a turma ${courseClass.name} foi atingido`,
+          );
+        }
       }
     }
 

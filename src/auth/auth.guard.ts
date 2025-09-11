@@ -9,9 +9,11 @@ import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from './decorators/public.decorator';
+import { IS_STUDENT_ROUTE_KEY } from './decorators/student.decorator';
 import { PERMISSIONS_KEY } from './decorators/permissions.decorator';
 import { decryptPayload } from 'src/utils/crypto';
 import { PROFILE_KEY } from './decorators/profiles.decorator';
+import { shouldIgnoreRoute, AUTH_GUARD_CONFIG } from './auth-guard.config';
 import * as Zlib from 'zlib';
 
 const accessTokenSecret = process.env.JWT_ACCESS_SECRET;
@@ -24,7 +26,7 @@ export class AuthGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    // Verifica se a rota é pública
+    // 1. Verifica se a rota é pública (decorator @Public())
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
       context.getClass(),
@@ -33,7 +35,33 @@ export class AuthGuard implements CanActivate {
       return true;
     }
 
+    // 2. Verifica se é uma rota marcada como student (decorator @IsStudentRoute())
+    const isStudentRoute = this.reflector.getAllAndOverride<boolean>(
+      IS_STUDENT_ROUTE_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    if (isStudentRoute) {
+      return true;
+    }
+
     const request = context.switchToHttp().getRequest<Request>();
+
+    // 3. Verifica se a rota está na lista de rotas ignoradas (configuração centralizada)
+    const shouldIgnore = shouldIgnoreRoute(request.url);
+    if (shouldIgnore) {
+      console.log(`[AuthGuard] Ignorando rota de aluno: ${request.url}`);
+      return true;
+    }
+
+    // 4. Verifica o nome do controller se estiver na lista de ignorados
+    const controller = context.getClass();
+    if (
+      controller &&
+      AUTH_GUARD_CONFIG.ignoredControllers.includes(controller.name)
+    ) {
+      return true;
+    }
+
     const token = this.extractTokenFromHeader(request);
     if (!token) {
       throw new UnauthorizedException('Token não encontrado');

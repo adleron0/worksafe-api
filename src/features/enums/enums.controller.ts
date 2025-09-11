@@ -1,4 +1,10 @@
-import { Controller, Get, Param, HttpException, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
 import { EnumsService } from './enums.service';
 import { Public } from 'src/auth/decorators/public.decorator';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
@@ -13,8 +19,8 @@ export class EnumsController {
   @Get()
   @Public()
   @ApiOperation({ summary: 'Retorna todos os enums disponíveis' })
-  @ApiResponse({ 
-    status: 200, 
+  @ApiResponse({
+    status: 200,
     description: 'Lista de todos os enums',
     schema: {
       type: 'object',
@@ -27,16 +33,16 @@ export class EnumsController {
             efi: 'efi',
             mercadoPago: 'mercadoPago',
             pagSeguro: 'pagSeguro',
-            paypal: 'paypal'
+            paypal: 'paypal',
           },
           paymentMethods: {
             cartaoCredito: 'cartaoCredito',
             boleto: 'boleto',
-            pix: 'pix'
-          }
-        }
-      }
-    }
+            pix: 'pix',
+          },
+        },
+      },
+    },
   })
   getAllEnums() {
     try {
@@ -44,16 +50,16 @@ export class EnumsController {
       return {
         success: true,
         data: enums,
-        count: Object.keys(enums).length
+        count: Object.keys(enums).length,
       };
     } catch (error) {
       throw new HttpException(
         {
           success: false,
           message: 'Erro ao buscar enums',
-          error: error.message
+          error: error.message,
         },
-        HttpStatus.INTERNAL_SERVER_ERROR
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -61,16 +67,22 @@ export class EnumsController {
   @Get('names')
   @Public()
   @ApiOperation({ summary: 'Retorna apenas os nomes dos enums disponíveis' })
-  @ApiResponse({ 
-    status: 200, 
+  @ApiResponse({
+    status: 200,
     description: 'Lista com os nomes dos enums',
     schema: {
       type: 'object',
       example: {
         success: true,
-        data: ['gateways', 'paymentMethods', 'financialRecordsStatus', 'ContentType', 'LessonProgressStatus']
-      }
-    }
+        data: [
+          'gateways',
+          'paymentMethods',
+          'financialRecordsStatus',
+          'ContentType',
+          'LessonProgressStatus',
+        ],
+      },
+    },
   })
   getEnumNames() {
     try {
@@ -78,16 +90,16 @@ export class EnumsController {
       return {
         success: true,
         data: names,
-        count: names.length
+        count: names.length,
       };
     } catch (error) {
       throw new HttpException(
         {
           success: false,
           message: 'Erro ao buscar nomes dos enums',
-          error: error.message
+          error: error.message,
         },
-        HttpStatus.INTERNAL_SERVER_ERROR
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
@@ -95,13 +107,13 @@ export class EnumsController {
   @Get(':enumName')
   @Public()
   @ApiOperation({ summary: 'Retorna um enum específico pelo nome' })
-  @ApiParam({ 
-    name: 'enumName', 
+  @ApiParam({
+    name: 'enumName',
     description: 'Nome do enum a ser buscado',
-    example: 'paymentMethods'
+    example: 'paymentMethods',
   })
-  @ApiResponse({ 
-    status: 200, 
+  @ApiResponse({
+    status: 200,
     description: 'Enum solicitado',
     schema: {
       type: 'object',
@@ -110,14 +122,14 @@ export class EnumsController {
         data: {
           cartaoCredito: 'cartaoCredito',
           boleto: 'boleto',
-          pix: 'pix'
-        }
-      }
-    }
+          pix: 'pix',
+        },
+      },
+    },
   })
-  @ApiResponse({ 
-    status: 404, 
-    description: 'Enum não encontrado'
+  @ApiResponse({
+    status: 404,
+    description: 'Enum não encontrado',
   })
   getEnum(@Param('enumName') enumName: string) {
     try {
@@ -125,15 +137,15 @@ export class EnumsController {
       return {
         success: true,
         data: enumData,
-        name: enumName
+        name: enumName,
       };
     } catch (error) {
       throw new HttpException(
         {
           success: false,
-          message: error.message
+          message: error.message,
         },
-        HttpStatus.NOT_FOUND
+        HttpStatus.NOT_FOUND,
       );
     }
   }

@@ -8,7 +8,7 @@ export class EnumsService {
    */
   getAllEnums(): Record<string, any> {
     const enums: Record<string, any> = {};
-    
+
     // Lista de enums conhecidos do Prisma
     // Precisamos listar explicitamente pois o Prisma não exporta uma lista de enums
     const enumNames = [
@@ -16,16 +16,16 @@ export class EnumsService {
       'paymentMethods',
       'financialRecordsStatus',
       'ContentType',
-      'LessonProgressStatus'
+      'LessonProgressStatus',
     ];
-    
+
     // Extrai cada enum do namespace Prisma
-    enumNames.forEach(enumName => {
+    enumNames.forEach((enumName) => {
       if (enumName in Prisma) {
         enums[enumName] = (Prisma as any)[enumName];
       }
     });
-    
+
     return enums;
   }
 
@@ -37,14 +37,14 @@ export class EnumsService {
     if (!(enumName in Prisma)) {
       throw new Error(`Enum '${enumName}' não encontrado`);
     }
-    
+
     const enumValue = (Prisma as any)[enumName];
-    
+
     // Verifica se é realmente um enum (objeto com valores string/number)
     if (!this.isValidEnum(enumValue)) {
       throw new Error(`'${enumName}' não é um enum válido`);
     }
-    
+
     return enumValue;
   }
 
@@ -63,11 +63,12 @@ export class EnumsService {
     if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
       return false;
     }
-    
+
     // Verifica se todos os valores são strings ou números
     const values = Object.values(obj);
-    return values.length > 0 && values.every(val => 
-      typeof val === 'string' || typeof val === 'number'
+    return (
+      values.length > 0 &&
+      values.every((val) => typeof val === 'string' || typeof val === 'number')
     );
   }
 }

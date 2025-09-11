@@ -767,12 +767,47 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       }
 
       // Suporte ao filtro OR
-      if (filters.or && Array.isArray(filters.or)) {
-        params.where.OR = filters.or.map(
-          (orFilter: any) => parseFilterObject(orFilter, true), // skipNestedFilters = true para OR
+      // Faz parse se vier como string JSON
+      if (filters.or) {
+        console.log(
+          '🔍 OR filter before parse:',
+          filters.or,
+          'Type:',
+          typeof filters.or,
         );
-        // Remove o filtro 'or' do objeto principal para não duplicar condições
-        delete filters.or;
+
+        if (typeof filters.or === 'string') {
+          try {
+            // Remove espaços extras e tenta fazer parse
+            const cleanedOr = filters.or.replace(/\s+/g, ' ').trim();
+            filters.or = JSON.parse(cleanedOr);
+            console.log('✅ OR filter after parse:', filters.or);
+          } catch (e) {
+            console.error('❌ Invalid OR filter format:', e);
+            console.error('Original string:', filters.or);
+            // Tenta uma abordagem alternativa com eval (cuidado em produção!)
+            try {
+              filters.or = eval(filters.or);
+              console.log('✅ OR filter parsed with eval:', filters.or);
+            } catch (e2) {
+              console.error('❌ Eval also failed:', e2);
+            }
+          }
+        }
+
+        if (Array.isArray(filters.or)) {
+          params.where.OR = filters.or.map(
+            (orFilter: any) => parseFilterObject(orFilter, true), // skipNestedFilters = true para OR
+          );
+          console.log('✅ OR applied to params.where.OR:', params.where.OR);
+          // Remove o filtro 'or' do objeto principal para não duplicar condições
+          delete filters.or;
+        } else {
+          console.error(
+            '❌ filters.or is not an array after parsing:',
+            filters.or,
+          );
+        }
       }
 
       // Filtros adicionais (pulando filtros de associações aninhadas)

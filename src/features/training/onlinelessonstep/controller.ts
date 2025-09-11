@@ -85,16 +85,15 @@ export class OnlinelessonstepController extends GenericController<
   // @Public() // descomente para tornar publica
   // @CacheEvictAll('online-lesson-step:*', 'cache:*/online-lesson-step*') // descomente para limpar cache
   @Post()
-  @UseInterceptors(
-    FileInterceptor('file'),
+  @UseInterceptors(FileInterceptor('file'))
+  @UsePipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
   )
-  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
-  async create(
-    @Req() request: Request,
-    @Body() CreateDto: CreateDto,
-    
-  ) {
-    
+  async create(@Req() request: Request, @Body() CreateDto: CreateDto) {
     const search = validateCreate(request, CreateDto);
     return super.create(request, CreateDto, null, search, hooksCreate);
   }
@@ -103,17 +102,19 @@ export class OnlinelessonstepController extends GenericController<
   // @Public() // descomente para tornar publica
   // @CacheEvictAll('online-lesson-step:*', 'cache:*/online-lesson-step*') // descomente para limpar cache
   @Put(':id')
-  @UseInterceptors(
-    FileInterceptor('file'),
+  @UseInterceptors(FileInterceptor('file'))
+  @UsePipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
   )
-  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
   async update(
     @Param('id') id: number,
     @Req() request: Request,
     @Body() UpdateDto: UpdateDto,
-    
   ) {
-    
     const processedDto = formaterPreUpdate(UpdateDto);
     return super.update(id, request, processedDto, null, hooksUpdate);
   }

@@ -27,8 +27,8 @@ type entity = {
 };
 
 type logParams = {
-  userId: string;
-  companyId: string;
+  userId: string | number; // Pode ser string (user) ou number (traineeId)
+  companyId: string | number; // Pode ser string ou number
 };
 
 export interface ICrudService<T> {
@@ -150,7 +150,11 @@ export class GenericController<
   ): Promise<{ total: number; rows: TEntity[] }> {
     let userId = null;
     let companyId = null;
-    if (request.user) {
+    // Se for um aluno (trainee), usa o traineeId como userId
+    if (request['traineeId']) {
+      userId = request['traineeId'];
+      companyId = request['student']?.customerId;
+    } else if (request.user) {
       userId = request?.user?.sub;
       companyId = request?.user?.companyId;
     }
@@ -207,11 +211,14 @@ export class GenericController<
     entityHooks?: any,
   ): Promise<TEntity> {
     const { sub: userId, companyId } = request.user;
+    // Se for um aluno (trainee), usa o traineeId como userId
     const logParams = {
-      userId,
-      companyId,
+      userId: request['traineeId'] || userId,
+      companyId: request['traineeId']
+        ? request['student']?.customerId
+        : companyId,
     };
-    CreateDto['companyId'] = Number(companyId);
+    CreateDto['companyId'] = Number(logParams.companyId);
     const search = searchVerify || {};
     const hooks = entityHooks || {};
     return this.service.create(
@@ -234,10 +241,18 @@ export class GenericController<
     entityHooks?: any,
   ): Promise<TEntity> {
     const hooks = entityHooks || {};
-    const { sub: userId, companyId } = request.user;
+    let userId;
+    let companyId;
+    if (request.user) {
+      userId = request.user.sub;
+      companyId = request.user.companyId;
+    }
+    // Se for um aluno (trainee), usa o traineeId como userId
     const logParams = {
-      userId,
-      companyId,
+      userId: request['traineeId'] || userId,
+      companyId: request['traineeId']
+        ? request['student']?.customerId
+        : companyId,
     };
     const numberId = Number(id);
     return this.service.update(
@@ -258,9 +273,12 @@ export class GenericController<
     @Req() request: Request,
   ): Promise<TEntity> {
     const { sub: userId, companyId } = request.user;
+    // Se for um aluno (trainee), usa o traineeId como userId
     const logParams = {
-      userId,
-      companyId,
+      userId: request['traineeId'] || userId,
+      companyId: request['traineeId']
+        ? request['student']?.customerId
+        : companyId,
     };
     const numberId = Number(id);
     return this.service.changeStatus(
@@ -279,9 +297,12 @@ export class GenericController<
     @Req() request: Request,
   ): Promise<TEntity> {
     const { sub: userId, companyId } = request.user;
+    // Se for um aluno (trainee), usa o traineeId como userId
     const logParams = {
-      userId,
-      companyId,
+      userId: request['traineeId'] || userId,
+      companyId: request['traineeId']
+        ? request['student']?.customerId
+        : companyId,
     };
     const numberId = Number(id);
     return this.service.changeStatus(
@@ -303,9 +324,12 @@ export class GenericController<
     entityHooks?: any,
   ): Promise<TEntity> {
     const { sub: userId, companyId } = request.user;
+    // Se for um aluno (trainee), usa o traineeId como userId
     const logParams = {
-      userId,
-      companyId,
+      userId: request['traineeId'] || userId,
+      companyId: request['traineeId']
+        ? request['student']?.customerId
+        : companyId,
     };
 
     // Se não foi passado whereCondition, usa a chave única ou campo específico do DTO

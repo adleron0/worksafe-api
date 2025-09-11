@@ -1,9 +1,9 @@
-import { 
-  gateways, 
-  paymentMethods, 
-  financialRecordsStatus, 
-  ContentType, 
-  LessonProgressStatus 
+import {
+  gateways,
+  paymentMethods,
+  financialRecordsStatus,
+  ContentType,
+  LessonProgressStatus,
 } from '@prisma/client';
 
 /**

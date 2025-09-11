@@ -54,7 +54,7 @@ const entity = {
   model: 'CompanyGateWays' as keyof PrismaClient,
   name: 'Companygateways',
   route: 'company-gateways',
-  permission: 'financeiro',
+  permission: 'integracoes',
 };
 
 @Controller(entity.route)

@@ -1,4 +1,9 @@
-import { Injectable, ExecutionContext, HttpException, HttpStatus } from '@nestjs/common';
+import {
+  Injectable,
+  ExecutionContext,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
 import { ThrottlerGuard, ThrottlerException } from '@nestjs/throttler';
 import { Reflector } from '@nestjs/core';
 import { Request } from 'express';
@@ -53,18 +58,23 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
   ): Promise<void> {
     const request = context.switchToHttp().getRequest<Request>();
     const response = context.switchToHttp().getResponse();
-    
+
     // Calcula o tempo de espera sugerido (em segundos)
     const retryAfter = Math.ceil(this.DEFAULT_TTL / 1000); // Converte ms para segundos
-    const burstPerSecond = Math.floor(this.DEFAULT_BURST / (this.BURST_WINDOW / 1000));
-    
+    const burstPerSecond = Math.floor(
+      this.DEFAULT_BURST / (this.BURST_WINDOW / 1000),
+    );
+
     // Define o header Retry-After (padrão HTTP para rate limiting)
     response.setHeader('Retry-After', retryAfter);
     response.setHeader('X-RateLimit-Limit', String(this.DEFAULT_LIMIT));
     response.setHeader('X-RateLimit-Burst', String(burstPerSecond));
     response.setHeader('X-RateLimit-Remaining', '0');
-    response.setHeader('X-RateLimit-Reset', new Date(Date.now() + retryAfter * 1000).toISOString());
-    
+    response.setHeader(
+      'X-RateLimit-Reset',
+      new Date(Date.now() + retryAfter * 1000).toISOString(),
+    );
+
     // Lança uma exceção HTTP com status 429 (Too Many Requests)
     throw new HttpException(
       {
@@ -76,15 +86,15 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
             perMinute: this.DEFAULT_LIMIT,
             perSecond: burstPerSecond,
             burstLimit: this.DEFAULT_BURST,
-            burstWindow: this.BURST_WINDOW
+            burstWindow: this.BURST_WINDOW,
           },
           windowMs: this.DEFAULT_TTL,
           retryAfter: retryAfter,
           retryAt: new Date(Date.now() + retryAfter * 1000).toISOString(),
-          suggestion: `Limite: ${this.DEFAULT_LIMIT} req/min ou ${burstPerSecond} req/seg. Aguarde ${retryAfter} segundos.`
+          suggestion: `Limite: ${this.DEFAULT_LIMIT} req/min ou ${burstPerSecond} req/seg. Aguarde ${retryAfter} segundos.`,
         },
         timestamp: new Date().toISOString(),
-        path: request.url
+        path: request.url,
       },
       HttpStatus.TOO_MANY_REQUESTS,
     );

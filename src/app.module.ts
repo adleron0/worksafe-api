@@ -43,6 +43,14 @@ import { OnlinemodellessonModule } from './features/training/onlinemodellesson/m
 import { EnumsModule } from './features/enums/enums.module';
 import { OnlinelessonstepModule } from './features/training/onlinelessonstep/module';
 
+// Rotas de alunos
+import { StudentModule } from './features/student/student/module';
+import { StudentCoursesModule } from './features/student/student-courses/module';
+import { StudentLessonsModule } from './features/student/student-lessons/module';
+import { StudentProgressModule } from './features/student/student-progress/module';
+import { StudentCertificatesModule } from './features/student/student-certificates/module';
+import { StudentEvaluationsModule } from './features/student/student-evaluations/module';
+
 @Module({
   imports: [
     SecurityModule, // Módulo de segurança primeiro
@@ -85,6 +93,12 @@ import { OnlinelessonstepModule } from './features/training/onlinelessonstep/mod
     OnlinemodellessonModule,
     EnumsModule,
     OnlinelessonstepModule,
+    StudentModule,
+    StudentCoursesModule,
+    StudentLessonsModule,
+    StudentProgressModule,
+    StudentCertificatesModule,
+    StudentEvaluationsModule,
   ],
   controllers: [],
   providers: [

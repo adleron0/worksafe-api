@@ -187,6 +187,7 @@ async function seedPermissions() {
     { permission: 'instrutores', name: 'instrutores', group: 'treinamentos' },
     { permission: 'classes', name: 'turmas', group: 'treinamentos' },
     { permission: 'company', name: 'empresa', group: 'empresa' },
+    { permission: 'integracoes', name: 'integracoes', group: 'integracoes' },
   ];
 
   const permissionsData = [];

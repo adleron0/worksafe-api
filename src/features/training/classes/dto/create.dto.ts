@@ -247,4 +247,48 @@ export class CreateDto {
   @IsString()
   @IsOptional()
   periodClass?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
+  hasOnlineCourse?: boolean;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  onlineCourseModelId?: number;
+
+  // Campos de endereço
+  @IsString()
+  @IsOptional()
+  address?: string;
+
+  @IsString()
+  @IsOptional()
+  addressNumber?: string;
+
+  @IsString()
+  @IsOptional()
+  addressComplement?: string;
+
+  @IsString()
+  @IsOptional()
+  neighborhood?: string;
+
+  @IsString()
+  @IsOptional()
+  city?: string;
+
+  @IsString()
+  @IsOptional()
+  state?: string;
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => value?.replace(/[^\d]/g, ''))
+  zipCode?: string;
 }

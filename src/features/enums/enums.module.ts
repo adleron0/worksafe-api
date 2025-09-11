@@ -5,6 +5,6 @@ import { EnumsService } from './enums.service';
 @Module({
   controllers: [EnumsController],
   providers: [EnumsService],
-  exports: [EnumsService]
+  exports: [EnumsService],
 })
 export class EnumsModule {}
