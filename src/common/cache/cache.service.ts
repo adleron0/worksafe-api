@@ -4,8 +4,16 @@ import Redis from 'ioredis';
 @Injectable()
 export class CacheService implements OnModuleDestroy, OnModuleInit {
   private redis: Redis;
+  private static isInitialized = false;
+  private static instance: Redis;
 
   constructor() {
+    // Se já existe uma instância, reutiliza ela
+    if (CacheService.instance) {
+      this.redis = CacheService.instance;
+      return;
+    }
+
     const isProduction = process.env.NODE_ENV === 'production';
 
     // Suporta tanto REDIS_URL quanto configurações individuais
@@ -85,6 +93,9 @@ export class CacheService implements OnModuleDestroy, OnModuleInit {
     this.redis.on('connect', () => {
       console.log('Redis Client Connected');
     });
+
+    // Salva a instância para reutilização
+    CacheService.instance = this.redis;
   }
 
   async get<T = any>(key: string): Promise<T | null> {
@@ -228,6 +239,12 @@ export class CacheService implements OnModuleDestroy, OnModuleInit {
   }
 
   async onModuleInit() {
+    // Garante que a limpeza só acontece uma vez
+    if (CacheService.isInitialized) {
+      return;
+    }
+    CacheService.isInitialized = true;
+
     // Sempre limpa todo o cache Redis ao iniciar a aplicação
     try {
       // Primeiro obtém informações do cache antes de limpar
