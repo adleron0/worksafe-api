@@ -72,10 +72,16 @@ export class StudentLessonsController extends GenericController<
   @Get(':lessonId/content')
   async getLessonContent(
     @Param('lessonId') lessonId: number,
+    @Query('modelId') modelId: string,
     @Req() request: Request,
   ) {
+    console.log("🚀 ~ StudentLessonsController ~ getLessonContent ~ modelId:", modelId)
     const traineeId = request['traineeId'];
-    return this.Service.getLessonContent(traineeId, Number(lessonId));
+    return this.Service.getLessonContent(
+      traineeId,
+      Number(lessonId),
+      modelId ? Number(modelId) : undefined,
+    );
   }
 
   @StudentAuth()

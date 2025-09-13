@@ -20,8 +20,16 @@ export class StudentLessonsService extends GenericService<
     super(prisma, uploadService);
   }
 
-  async getLessonContent(traineeId: number, lessonId: number): Promise<any> {
+  async getLessonContent(
+    traineeId: number,
+    lessonId: number,
+    modelId?: number,
+  ): Promise<any> {
     try {
+      console.log(
+        '🚀 ~ StudentLessonsService ~ getLessonContent ~ modelId:',
+        modelId,
+      );
       const lesson = await this.prisma.selectOne('onlineLesson', {
         where: { id: lessonId },
         include: {
@@ -257,6 +265,47 @@ export class StudentLessonsService extends GenericService<
           };
         });
 
+      // Buscar próxima lesson se modelId foi fornecido
+      let nextLessonId = null;
+
+      if (modelId) {
+        // Buscar a lesson atual no modelo especificado
+        const currentModelLesson = await this.prisma.selectFirst(
+          'onlineModelLesson',
+          {
+            where: {
+              lessonId: lessonId,
+              modelId: modelId,
+              isActive: true,
+            },
+          },
+        );
+
+        if (currentModelLesson) {
+          // Buscar a próxima lesson no mesmo modelo
+          const nextModelLesson = await this.prisma.selectFirst(
+            'onlineModelLesson',
+            {
+              where: {
+                modelId: modelId,
+                order: { gt: currentModelLesson.order },
+                isActive: true,
+              },
+              orderBy: { order: 'asc' },
+              include: {
+                lesson: true,
+              },
+            },
+          );
+          console.log("🚀 ~ StudentLessonsService ~ getLessonContent ~ nextModelLesson:", nextModelLesson)
+
+          // Verificar se a lesson está ativa
+          if (nextModelLesson && nextModelLesson.lesson?.isActive) {
+            nextLessonId = nextModelLesson.lessonId;
+          }
+        }
+      }
+
       // Estrutura final híbrida
       return {
         lesson: {
@@ -300,6 +349,7 @@ export class StudentLessonsService extends GenericService<
             stepsOverview.filter((s) => s.status === 'completed').length ===
             lesson.steps.length,
         },
+        nextLesson: nextLessonId,
       };
     } catch (error) {
       throw new BadRequestException(error.message);

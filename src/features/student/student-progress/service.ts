@@ -429,8 +429,9 @@ export class StudentProgressService extends GenericService<
           previousAttempts,
         );
 
-        // Para quiz, o progresso é baseado na pontuação
-        progressPercent = quizResult.percentage;
+        // Para quiz, sempre marca como 100% quando respondido (completo)
+        // A porcentagem real de acertos fica no progressData
+        progressPercent = 100;
 
         // Adicionar o resultado formatado para retornar ao frontend
         processedProgressData.formattedResult =
