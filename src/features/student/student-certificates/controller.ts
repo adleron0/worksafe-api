@@ -44,6 +44,7 @@ export class StudentCertificatesController extends GenericController<
       query.omitAttributes = omitAttributes;
     }
     query.traineeId = request['traineeId'];
+    query.active = 'true';
     return super.get(request, query, paramsIncludes, noCompany, encryptFields);
   }
 
