@@ -236,8 +236,34 @@ export class StudentCoursesService extends GenericService<
         select: {
           id: true,
           hoursDuration: true,
+          allowExam: true,
+          classCode: true,
+          exams: {
+            select: {
+              id: true,
+              result: true,
+              createdAt: true,
+              examResponses: true,
+            },
+            where: {
+              traineeId: traineeId,
+              classId: classId,
+              inactiveAt: null,
+            },
+          },
+          certificates: {
+            select: {
+              key: true,
+            },
+            where: {
+              traineeId: traineeId,
+              classId: classId,
+              inactiveAt: null,
+            },
+          },
           onlineCourseModel: {
             select: {
+              id: true,
               course: {
                 select: {
                   name: true,

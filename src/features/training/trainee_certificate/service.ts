@@ -485,4 +485,61 @@ export class TraineeCertificateService extends GenericService<
       );
     }
   }
+
+  /**
+   * Atualiza apenas a pdfUrl de um certificado
+   * @param id - ID do certificado
+   * @param pdfUrl - Nova URL do PDF
+   * @returns Certificado atualizado
+   */
+  async updatePdfUrl(id: number, pdfUrl: string) {
+    try {
+      // Verificar se o certificado existe
+      const certificate = await this.prisma.selectFirst(
+        'traineeCourseCertificate',
+        {
+          where: {
+            id: id,
+            inactiveAt: null,
+          },
+        },
+      );
+
+      if (!certificate) {
+        throw new NotFoundException('Certificado não encontrado');
+      }
+
+      // Atualizar apenas a pdfUrl
+      const updatedCertificate = await this.prisma.update(
+        'traineeCourseCertificate',
+        {
+          pdfUrl: pdfUrl,
+          updatedAt: new Date(),
+        },
+        null,
+        {},
+        id,
+      );
+
+      return {
+        success: true,
+        message: 'PDF do certificado atualizado com sucesso',
+        data: {
+          id: updatedCertificate.id,
+          pdfUrl: updatedCertificate.pdfUrl,
+        },
+      };
+    } catch (error) {
+      console.error('[UPDATE PDF] Erro ao atualizar PDF do certificado:', error);
+
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new HttpException(
+        `Erro ao atualizar PDF do certificado: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
 }
