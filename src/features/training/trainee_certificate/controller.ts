@@ -153,4 +153,20 @@ export class TraineeCertificateController extends GenericController<
       dto.certificateKey,
     );
   }
+
+  @Public()
+  @Put('update-pdf/:id')
+  @UseInterceptors(
+    FileInterceptor('image', getMulterOptions('trainee-certificate-pdf')),
+  )
+  async updatePdfUrl(
+    @Param('id') id: number,
+    @UploadedFile() file?: Express.MulterS3.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Arquivo de imagem é obrigatório');
+    }
+
+    return this.Service.updatePdfUrl(Number(id), file.location);
+  }
 }
