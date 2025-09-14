@@ -1,0 +1,60 @@
+model SplitTransaction {
+    id                 Int       @id @default(autoincrement())
+
+    // Referência ao pagamento original
+    financialRecordId  Int
+    financialRecord    FinancialRecords @relation(fields: [financialRecordId], references: [id])
+
+    // Destino do split
+    toWalletId         String    @db.VarChar(100)  // Wallet destino (seller/parceiro)
+
+    // Seller beneficiado
+    sellerId           Int
+    seller             User      @relation(fields: [sellerId], references: [id])
+
+    // Valores
+    originalValue      Decimal   @db.Decimal(18, 2)  // Valor total da transação
+    splitValue         Decimal   @db.Decimal(18, 2)  // Valor do split
+    splitPercentage    Decimal?  @db.Decimal(5, 2)   // Percentual aplicado (se usado)
+    netValue           Decimal   @db.Decimal(18, 2)  // Valor líquido após taxas
+
+    // Descricao do split
+    splitDescription        String?   @db.VarChar(255)     // Descrição/motivo
+    
+    // Status do split
+    status             SplitStatus @default(PENDING)
+    
+    // IDs externos do gateway
+    asaasSplitId       String?   @db.VarChar(100)     // ID do split no Asaas
+    asaasTransferId    String?   @db.VarChar(100)     // ID da transferência no Asaas
+    
+    // Datas importantes
+    processedAt        DateTime?                      // Quando foi processado no gateway
+    settledAt          DateTime?                      // Quando foi liquidado
+    withdrawnAt        DateTime?                      // Quando foi sacado pelo seller
+    
+    // Controle de divergências
+    hasDivergence      Boolean   @default(false)
+    divergenceReason   String?   @db.VarChar(255)
+    divergenceResolvedAt DateTime?
+    
+    // Dados de resposta do gateway
+    gatewayResponse    Json?     @db.JsonB
+    
+    // Metadados
+    companyId          Int
+    company            Company   @relation(fields: [companyId], references: [id])
+    
+    createdAt          DateTime  @default(now())
+    updatedAt          DateTime  @default(now()) @updatedAt
+    
+    // ÍNDICES CRÍTICOS
+    @@index([financialRecordId])
+    @@index([sellerId, status])
+    @@index([status, processedAt])
+    @@index([companyId, createdAt])
+    @@index([toWalletId])
+    @@index([asaasSplitId])
+    @@index([settledAt, sellerId])
+    @@unique([financialRecordId, sellerId])  // Evita split duplicado
+  }

@@ -8,4 +8,5 @@ model TraineeCompany {
   createdAt DateTime @default(now())
 
   @@unique([traineeId, companyId])
+  @@index([companyId])                    // Alunos da empresa
 }

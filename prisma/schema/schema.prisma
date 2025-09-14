@@ -54,3 +54,34 @@ enum periodSubscriptionsTypes {
   LIMITED
   UNLIMITED
 }
+
+enum sellerStatusTypes {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  BLOCKED
+}
+
+// Enum para tipo de desconto
+enum DiscountType {
+  percentage  // Porcentagem
+  fixed       // Valor fixo
+}
+
+// Enum para tipo de comissão
+enum CommissionType {
+  percentage  // Porcentagem sobre o valor
+  fixed       // Valor fixo por venda
+}
+
+enum SplitStatus {
+  PENDING          // Aguardando pagamento
+  PROCESSING       // Processando no gateway
+  CONFIRMED        // Split confirmado
+  SETTLED          // Liquidado (disponível para saque)
+  WITHDRAWN        // Sacado pelo seller
+  FAILED           // Falhou
+  CANCELLED        // Cancelado
+  REFUNDED         // Estornado
+  BLOCKED          // Bloqueado por divergência
+}

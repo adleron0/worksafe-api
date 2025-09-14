@@ -63,8 +63,17 @@ model CourseClass {
   reviews         CourseReview[]
   subscriptions   CourseClassSubscription[]
   attendanceLists CourseClassAttendanceList[]
+  coupons        Coupon[]
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
+
+  // ÍNDICES ESSENCIAIS
+  @@index([companyId, active])            // Turmas ativas por empresa
+  @@index([courseId, active])             // Turmas por curso
+  @@index([customerId])                   // Turmas do cliente
+  @@index([allowCheckout, active])        // Turmas vendáveis
+  @@index([periodClass, active])          // Filtro por período
+  @@index([initialDate, finalDate])       // Busca por datas
 }

@@ -28,7 +28,34 @@ model FinancialRecords {
   externalId     String?                  @db.VarChar(255) // ID externo do registro financeiro
   key            String                   @default(uuid()) // Definindo o campo 'key' como UUID auto gerado
 
+  // Relacionamento com cupom
+  couponId        Int?
+  coupon          Coupon?   @relation(fields: [couponId], references: [id])
+
+  // Valores aplicados (snapshot no momento do uso)
+  discountApplied Decimal?  @db.Decimal(18, 2)  // Desconto aplicado
+  commissionValue Decimal?  @db.Decimal(18, 2)  // Comissão calculada
+
+  // Seller beneficiado (pode vir do cupom ou de outra fonte)
+  sellerId        Int?
+  seller          User?     @relation(fields: [sellerId], references: [id])
+
+  // Transações de split
+  splitTransactions SplitTransaction[] // Transações de split associadas ao registro
+
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
+
+  // ÍNDICES ESSENCIAIS
+  @@index([companyId, status])           // Dashboard financeiro por empresa
+  @@index([status, paidAt])               // Relatórios de pagamentos
+  @@index([traineeId])                    // Histórico do aluno
+  @@index([subscriptionId])               // Pagamentos por inscrição
+  @@index([externalId])                   // Busca por ID do gateway
+  @@index([accrualDate, companyId])       // Relatórios mensais
+  @@index([couponId, status])             // Performance de cupons
+  @@index([sellerId, status])             // Comissões de sellers
+  @@index([gateway, status])              // Análise por gateway
+  @@index([createdAt])                    // Ordenação temporal
 }

@@ -17,10 +17,17 @@ model User {
   systemLogs       System_Logs[] // Relacionamento com System_Logs
   confinusRegister Confinus_ConfinedSpace[] @relation("RegisteredByUser")
   confinusApprove  Confinus_ConfinedSpace[] @relation("ApprovedByUser")
+  isSeller        Boolean                  @default(false)
+  sellerStatus    sellerStatusTypes        @default(PENDING)
+  sellerConfig    Json?
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
+  sellerActivatedAt DateTime?
+  financialRecords FinancialRecords[]  // Registros financeiros associados ao seller
+  coupons          Coupon[]            // Cupons associados ao seller
+  splitTransactions SplitTransaction[] // Transações de split associadas ao seller
 
   @@unique([email, companyId]) // Garante que o email seja único dentro da mesma empresa
   @@unique([id, companyId]) // Índice composto para id e companyId

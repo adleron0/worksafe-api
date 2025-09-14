@@ -59,6 +59,8 @@ model Company {
   classes                         CourseClass[] // Relacionamento com a tabela CourseClass
   courses                         Course[] // Relacionamento com a tabela Course
   traineeCompanies                TraineeCompany[] // Relacionamento com a tabela TraineeCompany
+  splitTransactions               SplitTransaction[] // Relacionamento com a tabela SplitTransaction
+  coupons                         Coupon[] // Relacionamento com a tabela Coupon
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt

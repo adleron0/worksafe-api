@@ -1,0 +1,61 @@
+model Coupon {
+    id               Int       @id @default(autoincrement())
+    code             String    @db.VarChar(50)
+    description      String?   @db.VarChar(255)
+
+    // Vínculo opcional com seller
+    sellerId         Int?
+    seller           User?     @relation(fields: [sellerId], references: [id])
+
+    // Configuração do desconto
+    discountType     DiscountType    @default(percentage)
+    discountValue    Decimal         @db.Decimal(10, 2)
+
+    // Comissão do seller (quando aplicável)
+    commissionType   CommissionType? @default(percentage)
+    commissionValue  Decimal?        @db.Decimal(10, 2)
+
+    // Restrições de valor
+    minPurchaseValue Decimal?  @db.Decimal(10, 2)  // Valor mínimo da compra
+    maxDiscountValue Decimal?  @db.Decimal(10, 2)  // Desconto máximo em R$
+
+    // Controle de uso
+    usageLimit       Int?      // null = ilimitado
+    usageCount       Int       @default(0)  // Contador de uso total
+    usagePerCustomer Int       @default(1)   // Limite por cliente
+
+    // Validade
+    validFrom        DateTime  @default(now())
+    validUntil       DateTime?
+
+    // Restrições adicionais
+    firstPurchaseOnly Boolean  @default(false)  // Só primeira compra
+    classId  Int? // Cupom vinculado a uma turma específica
+    class    CourseClass? @relation(fields: [classId], references: [id])
+
+    courseId Int? // Cupom vinculado a um curso específico
+    course   Course? @relation(fields: [courseId], references: [id])
+
+    // Status e controle
+    active           Boolean   @default(true)
+
+    // Relacionamento com empresa
+    companyId        Int
+    company          Company   @relation(fields: [companyId], references: [id])
+
+    // Relacionamentos
+    financialRecords FinancialRecords[]  // Uso em transações
+
+    // Timestamps
+    createdAt        DateTime  @default(now())
+    updatedAt        DateTime  @default(now()) @updatedAt
+    inactiveAt       DateTime?
+
+    // Índices para performance
+    @@unique([code, companyId])  // Código único por empresa
+    @@index([sellerId])
+    @@index([active, validFrom, validUntil])
+    @@index([companyId, active])
+  }
+
+ 

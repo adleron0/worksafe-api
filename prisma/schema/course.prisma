@@ -27,6 +27,7 @@ model Course {
   classes              CourseClass[]
   onlineCourseModels   OnlineCourseModel[]
   onlineLessons        OnlineLesson[]
+  coupons              Coupon[]
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt

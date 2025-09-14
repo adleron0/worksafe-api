@@ -33,4 +33,13 @@ model CourseClassSubscription {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
+
+  // ÍNDICES ESSENCIAIS
+  @@index([cpf])                          // Busca por CPF
+  @@index([email])                        // Busca por email
+  @@index([classId, subscribeStatus])     // Inscritos por turma
+  @@index([traineeId])                    // Inscrições do aluno
+  @@index([companyId, subscribeStatus])   // Dashboard empresa
+  @@index([createdAt])                    // Ordenação temporal
+  @@index([phone])                        // Busca por telefone
 }

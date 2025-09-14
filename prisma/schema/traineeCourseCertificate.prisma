@@ -19,4 +19,12 @@ model TraineeCourseCertificate {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
+
+  // ÍNDICES ESSENCIAIS
+  @@index([traineeId])                    // Certificados do aluno
+  @@index([courseId])                     // Certificados por curso
+  @@index([classId])                      // Certificados por turma
+  @@index([companyId])                    // Certificados da empresa
+  @@index([expirationDate])               // Certificados vencendo
+  @@index([key])                          // Busca por chave única
 }

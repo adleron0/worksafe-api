@@ -36,4 +36,11 @@ model Trainee {
   inactiveAt DateTime?
 
   @@unique([cpf, customerId])
+
+  // ÍNDICES ESSENCIAIS
+  @@index([email])                        // Login/busca por email
+  @@index([customerId])                   // Alunos por cliente
+  @@index([active])                       // Filtro de ativos
+  @@index([cpf])                          // Já tem unique, mas útil
+  @@index([name])                         // Busca por nome
 }

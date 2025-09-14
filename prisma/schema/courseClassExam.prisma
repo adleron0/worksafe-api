@@ -15,4 +15,9 @@ model CourseClassExam {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
+
+  // ÍNDICES ÚTEIS
+  @@index([traineeId, courseId])          // Provas do aluno por curso
+  @@index([classId, result])              // Taxa de aprovação por turma
+  @@index([companyId, createdAt])         // Relatórios temporais
 }
