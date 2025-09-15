@@ -134,4 +134,21 @@ export class CouponController extends GenericController<
   async inactivate(@Param('id') id: number, @Req() request: Request) {
     return super.inactivate(id, request);
   }
+
+  /**
+   * Rota pública para validar cupom no checkout
+   */
+  @Public()
+  @Post('validate')
+  @UseInterceptors(FileInterceptor('file'))
+  async validateCoupon(@Req() request: Request) {
+    const { cpf, code, classId } = request.body;
+
+    // Converter classId para número se vier como string
+    const classIdNumber =
+      typeof classId === 'string' ? parseInt(classId, 10) : classId;
+
+    // Rota pública não retorna dados de comissão (internal = false)
+    return this.Service.validateCoupon(cpf, code, classIdNumber, false);
+  }
 }

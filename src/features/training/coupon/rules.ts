@@ -34,6 +34,7 @@ export function formaterPreUpdate(UpdateDto: any) {
   // Campos booleanos detectados automaticamente
   if (UpdateDto.firstPurchaseOnly === undefined)
     UpdateDto.firstPurchaseOnly = false;
+  if (!UpdateDto.usageLimit) UpdateDto.usageLimit = null;
 
   // Exemplos de outros tipos de campos
   // if (UpdateDto.numberField === undefined) UpdateDto.numberField = 0;
