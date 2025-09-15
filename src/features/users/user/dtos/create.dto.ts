@@ -5,10 +5,12 @@ import {
   IsNotEmpty,
   IsInt,
   MinLength,
-  Matches,
+  IsBoolean,
   IsOptional,
   IsUrl,
   Length,
+  IsJSON,
+  IsDateString,
 } from 'class-validator';
 import { IsCpf } from 'src/validators/is-cpf.constraint';
 
@@ -35,6 +37,10 @@ export class CreateDto {
   @IsCpf({ message: 'CPF informado não é válido' })
   cpf: string;
 
+  @IsDateString()
+  @IsOptional()
+  birthDate?: string;
+
   @IsInt()
   @Type(() => Number)
   @IsNotEmpty({ message: 'Role ID is required' })
@@ -46,4 +52,50 @@ export class CreateDto {
 
   @IsOptional() // Opcional, pois a imagem pode ou não ser enviada
   image?: any; // Permitir que seja tratado como arquivo no Controller
+
+  @IsBoolean()
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  })
+  @IsOptional()
+  isSeller?: boolean;
+
+  @IsString()
+  @IsOptional()
+  sellerStatus?: string;
+
+  @IsJSON()
+  @IsOptional()
+  sellerConfig?: any;
+
+  @IsString()
+  @IsOptional()
+  address?: string;
+
+  @IsString()
+  @IsOptional()
+  addressNumber?: string;
+
+  @IsString()
+  @IsOptional()
+  addressComplement?: string;
+
+  @IsString()
+  @IsOptional()
+  neighborhood?: string;
+
+  @IsString()
+  @IsOptional()
+  city?: string;
+
+  @IsString()
+  @IsOptional()
+  state?: string;
+
+  @IsString()
+  @Length(8, 9, { message: 'CEP deve ter 8 ou 9 caracteres' })
+  @IsOptional()
+  zipCode?: string;
 }

@@ -32,8 +32,8 @@ model CourseClass {
   initialDate       DateTime?
   finalDate         DateTime?
   landingPagesDates String?
-  allowExam         Boolean
-  allowReview       Boolean
+  allowExam         Boolean @default(false)
+  allowReview       Boolean @default(false)
   minimumQuorum     Int?
   maxSubscriptions  Int?
   unlimitedSubscriptions Boolean @default(false)

@@ -75,7 +75,10 @@ export class StudentLessonsController extends GenericController<
     @Query('modelId') modelId: string,
     @Req() request: Request,
   ) {
-    console.log("🚀 ~ StudentLessonsController ~ getLessonContent ~ modelId:", modelId)
+    console.log(
+      '🚀 ~ StudentLessonsController ~ getLessonContent ~ modelId:',
+      modelId,
+    );
     const traineeId = request['traineeId'];
     return this.Service.getLessonContent(
       traineeId,

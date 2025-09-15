@@ -297,7 +297,10 @@ export class StudentLessonsService extends GenericService<
               },
             },
           );
-          console.log("🚀 ~ StudentLessonsService ~ getLessonContent ~ nextModelLesson:", nextModelLesson)
+          console.log(
+            '🚀 ~ StudentLessonsService ~ getLessonContent ~ nextModelLesson:',
+            nextModelLesson,
+          );
 
           // Verificar se a lesson está ativa
           if (nextModelLesson && nextModelLesson.lesson?.isActive) {

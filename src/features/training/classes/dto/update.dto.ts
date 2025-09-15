@@ -119,8 +119,14 @@ export class UpdateDto {
   })
   imageUrl?: string | null;
 
-  @IsUrl({}, { message: 'Invalid URL format for video' })
   @IsOptional()
+  @Transform(({ value }) => {
+    if (!value || value === '' || value === null) {
+      return undefined;
+    }
+    return value;
+  })
+  @IsUrl({}, { message: 'Invalid URL format for video' })
   videoUrl?: string;
 
   @IsString()

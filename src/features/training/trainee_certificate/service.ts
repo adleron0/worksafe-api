@@ -530,7 +530,10 @@ export class TraineeCertificateService extends GenericService<
         },
       };
     } catch (error) {
-      console.error('[UPDATE PDF] Erro ao atualizar PDF do certificado:', error);
+      console.error(
+        '[UPDATE PDF] Erro ao atualizar PDF do certificado:',
+        error,
+      );
 
       if (error instanceof HttpException) {
         throw error;

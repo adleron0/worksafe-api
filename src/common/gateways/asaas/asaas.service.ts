@@ -205,6 +205,13 @@ export class AsaasService {
     const headers = this.getHeaders(token);
     const url = `${baseUrl}${ENDPOINTS.customers}`;
 
+    // Validar dados obrigatórios
+    if (!customer.document) {
+      throw new BadRequestException(
+        'CPF/CNPJ é obrigatório para criar customer',
+      );
+    }
+
     const data = {
       cpfCnpj: customer.document.replace(/[^\d]/g, ''),
       name: customer.name,
@@ -231,6 +238,11 @@ export class AsaasService {
   async getCustomer(customer: CustomerData, companyId: number) {
     const { baseUrl, token } = await this.getConfig(companyId);
     const headers = this.getHeaders(token);
+
+    if (!customer.document) {
+      throw new BadRequestException('CPF/CNPJ é obrigatório');
+    }
+
     const documentoLimpo = customer.document.replace(/[^\d]/g, '');
     const url = `${baseUrl}${ENDPOINTS.customers}?cpfCnpj=${documentoLimpo}`;
 
@@ -890,6 +902,427 @@ export class AsaasService {
         'Erro ao salvar pagamento no banco de dados',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
+    }
+  }
+
+  async getSubAccountById(accountId: string, companyId: number) {
+    const { baseUrl, token } = await this.getConfig(companyId);
+    const headers = this.getHeaders(token);
+    const url = `${baseUrl}/accounts/${accountId}`;
+
+    try {
+      const response = await axios.get(url, headers);
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao buscar subconta:', error);
+      return null;
+    }
+  }
+
+  async getAccountByEmail(email: string, companyId: number) {
+    try {
+      const { baseUrl, token } = await this.getConfig(companyId);
+      const headers = this.getHeaders(token);
+      const url = `${baseUrl}/accounts?email=${encodeURIComponent(email)}`;
+
+      console.log(`Buscando ACCOUNT (subconta) por email: ${email}`);
+
+      const response = await axios.get(url, headers);
+      if (response.data?.data?.length > 0) {
+        const account = response.data.data[0];
+        console.log(`Subconta encontrada por email:`, {
+          id: account.id,
+          walletId: account.walletId,
+          email: account.email,
+        });
+
+        return {
+          accountId: account.id,
+          walletId: account.walletId,
+          accountStatus: account.accountStatus || 'ACTIVE',
+        };
+      }
+
+      console.log('Nenhuma subconta encontrada com este email');
+      return null;
+    } catch (error) {
+      console.error('Erro ao buscar account por email:', error);
+      return null;
+    }
+  }
+
+  async getSubAccountByEmail(email: string, companyId: number) {
+    // Primeiro tenta buscar como ACCOUNT (subconta)
+    const account = await this.getAccountByEmail(email, companyId);
+    if (account) {
+      return account;
+    }
+
+    // Se não encontrou account, busca como customer (para verificar se tem walletId)
+    try {
+      const { baseUrl, token } = await this.getConfig(companyId);
+      const headers = this.getHeaders(token);
+      const url = `${baseUrl}${ENDPOINTS.customers}?email=${encodeURIComponent(email)}`;
+
+      console.log(`Buscando customer por email: ${email}`);
+
+      const response = await axios.get(url, headers);
+      if (response.data?.data?.length > 0) {
+        const customer = response.data.data[0];
+
+        if (customer.walletId) {
+          console.log(
+            `Customer com walletId encontrado por email: ${customer.id}`,
+          );
+          return {
+            accountId: customer.id,
+            walletId: customer.walletId,
+            accountStatus: 'ACTIVE',
+          };
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error('Erro ao buscar customer por email:', error);
+      return null;
+    }
+  }
+
+  async getAccountByCpf(cpf: string, companyId: number) {
+    try {
+      const { baseUrl, token } = await this.getConfig(companyId);
+      const headers = this.getHeaders(token);
+      const cpfLimpo = String(cpf).replace(/[^\d]/g, '');
+      const url = `${baseUrl}/accounts?cpfCnpj=${cpfLimpo}`;
+
+      console.log(`Buscando ACCOUNT (subconta) por CPF: ${cpfLimpo}`);
+
+      const response = await axios.get(url, headers);
+      if (response.data?.data?.length > 0) {
+        const account = response.data.data[0];
+        console.log(`Subconta encontrada por CPF:`, {
+          id: account.id,
+          walletId: account.walletId,
+          cpf: account.cpfCnpj,
+        });
+
+        return {
+          accountId: account.id,
+          walletId: account.walletId,
+          accountStatus: account.accountStatus || 'ACTIVE',
+        };
+      }
+
+      console.log('Nenhuma subconta encontrada com este CPF');
+      return null;
+    } catch (error) {
+      console.error('Erro ao buscar account por CPF:', error);
+      return null;
+    }
+  }
+
+  async getSubAccountByCpf(cpf: string, companyId: number) {
+    try {
+      console.log(`Buscando subconta por CPF: ${cpf}`);
+
+      // Primeiro tenta buscar como ACCOUNT (subconta)
+      const account = await this.getAccountByCpf(cpf, companyId);
+      if (account) {
+        return account;
+      }
+
+      // Se não encontrou account, buscar customer por CPF
+      const customer = await this.getCustomerByCpf(cpf, companyId);
+
+      if (!customer) {
+        console.log('Nenhum customer encontrado com este CPF');
+        return null;
+      }
+
+      console.log('Customer encontrado:', {
+        id: customer.id,
+        name: customer.name,
+        walletId: customer.walletId,
+        email: customer.email,
+      });
+
+      // Se tem walletId, é uma subconta
+      if (customer.walletId) {
+        console.log(
+          `Customer com walletId encontrado para CPF ${cpf}:`,
+          customer.id,
+        );
+
+        // Tentar buscar detalhes completos da subconta
+        const subAccountDetails = await this.getSubAccountById(
+          customer.id,
+          companyId,
+        );
+
+        if (subAccountDetails) {
+          return {
+            accountId: subAccountDetails.id || customer.id,
+            walletId: subAccountDetails.walletId || customer.walletId,
+            accountStatus: subAccountDetails.accountStatus || 'ACTIVE',
+          };
+        }
+
+        // Se não conseguiu detalhes, retorna o que tem do customer
+        return {
+          accountId: customer.id,
+          walletId: customer.walletId,
+          accountStatus: 'ACTIVE',
+        };
+      }
+
+      console.log('Customer não tem walletId, não é uma subconta');
+      return null;
+    } catch (error) {
+      console.error('Erro ao buscar subconta por CPF:', error);
+      return null;
+    }
+  }
+
+  async createSubAccount(
+    userData: {
+      name: string;
+      cpfCnpj: string;
+      email: string;
+      mobilePhone: string;
+      birthDate?: Date | string;
+      address?: string;
+      addressNumber?: string;
+      addressComplement?: string;
+      province?: string;
+      city?: string;
+      state?: string;
+      postalCode?: string;
+      incomeValue?: number;
+    },
+    companyId: number,
+  ) {
+    const { baseUrl, token } = await this.getConfig(companyId);
+    const headers = this.getHeaders(token);
+    const url = `${baseUrl}/accounts`;
+
+    const data = {
+      name: userData.name,
+      cpfCnpj: userData.cpfCnpj.replace(/[^\d]/g, ''),
+      email: userData.email,
+      mobilePhone: userData.mobilePhone,
+      birthDate: userData.birthDate,
+      address: userData.address,
+      addressNumber: userData.addressNumber,
+      addressComplement: userData.addressComplement,
+      province: userData.province,
+      city: userData.city,
+      state: userData.state,
+      postalCode: userData.postalCode?.replace(/[^\d]/g, ''),
+      incomeValue: userData.incomeValue || 1000, // Valor padrão se não informado
+    };
+
+    try {
+      const response = await axios.post(url, data, headers);
+      return response.data;
+    } catch (error) {
+      throw new HttpException(
+        this.handleAsaasError(error),
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  async getOrCreateSubAccount(userData: {
+    id: number;
+    name: string;
+    cpf: string;
+    email: string;
+    phone: string;
+    birthDate?: Date | string;
+    address?: string;
+    addressNumber?: string;
+    addressComplement?: string;
+    neighborhood?: string;
+    city?: string;
+    state?: string;
+    zipCode?: string;
+    companyId: number;
+    sellerConfig?: any;
+  }) {
+    try {
+      // Determinar ambiente (sandbox ou production)
+      const isSandbox = this.toBool(this.configService.get('BASE_SETUP'));
+      const environment = isSandbox ? 'sandbox' : 'production';
+
+      // Verificar se já tem walletId para o ambiente atual no banco local
+      const existingConfig =
+        userData.sellerConfig?.gateways?.asaas?.[environment];
+      if (existingConfig?.walletId) {
+        console.log(
+          `User ${userData.id} já possui walletId para ${environment} (cache local)`,
+        );
+        return {
+          environment,
+          config: existingConfig,
+        };
+      }
+
+      // Verificar se já existe subconta no Asaas para este CPF ou email
+      console.log(
+        `Verificando se já existe subconta para CPF ${userData.cpf} ou email ${userData.email}...`,
+      );
+
+      // Buscar por CPF primeiro
+      let existingSubAccount = await this.getSubAccountByCpf(
+        userData.cpf,
+        userData.companyId,
+      );
+
+      // Se não encontrou por CPF, buscar por email
+      if (!existingSubAccount) {
+        console.log('Não encontrou subconta por CPF, tentando por email...');
+        existingSubAccount = await this.getSubAccountByEmail(
+          userData.email,
+          userData.companyId,
+        );
+      }
+
+      if (existingSubAccount) {
+        console.log('=== SUBCONTA JÁ EXISTE NO ASAAS ===');
+        console.log('Account ID:', existingSubAccount.accountId);
+        console.log('Wallet ID:', existingSubAccount.walletId);
+        console.log(
+          '⚠️ ATENÇÃO: apiKey não pode ser recuperada - preencha manualmente se necessário',
+        );
+
+        // Retornar dados da subconta existente
+        const subAccountData = {
+          accountId: existingSubAccount.accountId,
+          walletId: existingSubAccount.walletId,
+          accountStatus: existingSubAccount.accountStatus || 'ACTIVE',
+          createdAt: new Date().toISOString(),
+          recovered: true, // Indica que foi recuperada, não criada
+        };
+
+        return {
+          environment,
+          config: subAccountData,
+        };
+      }
+
+      // Verificar se existe customer sem walletId (não é subconta)
+      const customerExists = await this.getCustomerByCpf(
+        userData.cpf,
+        userData.companyId,
+      );
+      if (customerExists && !customerExists.walletId) {
+        console.log(
+          '⚠️ ATENÇÃO: Existe um CUSTOMER com este CPF/email mas NÃO é uma subconta',
+        );
+        console.log('Customer ID:', customerExists.id);
+        console.log('Para criar subconta, você precisa:');
+        console.log('1. Usar um email diferente, ou');
+        console.log('2. Deletar o customer existente no painel Asaas');
+
+        throw new BadRequestException(
+          `Já existe um customer (${customerExists.id}) com este email/CPF que NÃO é uma subconta. ` +
+            `Use um email diferente ou delete o customer no painel Asaas.`,
+        );
+      }
+
+      // Validar dados obrigatórios antes de criar
+      if (!userData.cpf) {
+        throw new BadRequestException('CPF é obrigatório para criar subconta');
+      }
+      if (!userData.email) {
+        throw new BadRequestException(
+          'Email é obrigatório para criar subconta',
+        );
+      }
+      if (!userData.name) {
+        throw new BadRequestException('Nome é obrigatório para criar subconta');
+      }
+      if (!userData.phone) {
+        throw new BadRequestException(
+          'Telefone é obrigatório para criar subconta',
+        );
+      }
+      if (!userData.zipCode) {
+        throw new BadRequestException('CEP é obrigatório para criar subconta');
+      }
+
+      console.log('=== CRIANDO SUBCONTA ASAAS ===');
+      console.log('User ID:', userData.id);
+      console.log('CPF:', userData.cpf);
+      console.log('Email:', userData.email);
+
+      // Criar subconta no Asaas
+      const newSubAccount = await this.createSubAccount(
+        {
+          name: userData.name,
+          cpfCnpj: userData.cpf,
+          email: userData.email,
+          mobilePhone: userData.phone,
+          birthDate: userData.birthDate,
+          address: userData.address,
+          addressNumber: userData.addressNumber,
+          addressComplement: userData.addressComplement,
+          province: userData.neighborhood, // province = bairro
+          city: userData.city,
+          state: userData.state,
+          postalCode: userData.zipCode,
+          incomeValue: 1000, // Valor padrão
+        },
+        userData.companyId,
+      );
+
+      console.log('=== SUBCONTA CRIADA COM SUCESSO ===');
+      console.log('Account ID:', newSubAccount.id);
+      console.log('Wallet ID:', newSubAccount.walletId);
+      console.log('Environment:', environment);
+      console.log(
+        'API Key:',
+        newSubAccount.apiKey ? '***RECEBIDA***' : 'Not provided',
+      );
+
+      // Preparar dados da subconta
+      const subAccountData = {
+        accountId: newSubAccount.id,
+        walletId: newSubAccount.walletId,
+        accountStatus: 'ACTIVE',
+        createdAt: new Date().toISOString(),
+      };
+
+      // Se retornou apiKey, adicionar aos dados (será responsabilidade do hook proteger)
+      if (newSubAccount.apiKey) {
+        console.log('⚠️ API Key recebida - será armazenada no sellerConfig');
+        console.warn(
+          'ATENÇÃO: Certifique-se de NUNCA expor sellerConfig em APIs públicas!',
+        );
+
+        // Adicionar apiKey aos dados
+        subAccountData['apiKey'] = newSubAccount.apiKey;
+      }
+
+      // Retornar com o ambiente para que o hook saiba onde salvar
+      return {
+        environment,
+        config: subAccountData,
+      };
+    } catch (error) {
+      console.error('Erro ao criar subconta:', error);
+
+      // Capturar erro específico do Asaas
+      if (error.response?.data?.errors?.[0]) {
+        const asaasError = error.response.data.errors[0];
+        throw new Error(`Asaas: ${asaasError.description}`);
+      }
+
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new Error(`Falha ao criar subconta: ${error.message}`);
     }
   }
 }

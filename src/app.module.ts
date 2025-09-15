@@ -42,6 +42,7 @@ import { OnlinecoursesModule } from './features/training/onlinecourses/module';
 import { OnlinemodellessonModule } from './features/training/onlinemodellesson/module';
 import { EnumsModule } from './features/enums/enums.module';
 import { OnlinelessonstepModule } from './features/training/onlinelessonstep/module';
+import { CouponModule } from './features/training/coupon/module';
 
 // Rotas de alunos
 import { StudentModule } from './features/student/student/module';
@@ -99,6 +100,7 @@ import { StudentEvaluationsModule } from './features/student/student-evaluations
     StudentProgressModule,
     StudentCertificatesModule,
     StudentEvaluationsModule,
+    CouponModule,
   ],
   controllers: [],
   providers: [

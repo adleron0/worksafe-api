@@ -27,6 +27,17 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { getMulterOptions } from '../../upload/upload.middleware';
 // Import generic controller
 import { GenericController } from 'src/features/generic/generic.controller';
+// Import de configuraões
+import { paramsIncludes } from './associations';
+import {
+  noCompany,
+  validateCreate,
+  formaterPreUpdate,
+  omitAttributes,
+  hooksCreate,
+  hooksUpdate,
+  encryptFields,
+} from './rules';
 
 // Create a decorator factory for User controller permissions
 function UserPermission(permission: string) {
@@ -55,29 +66,19 @@ export class UserController extends GenericController<
   @UserPermission(`list_${entity.permission}`) // Permissão para rota genérica
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
-    query.omitAttributes = ['password'];
-    const paramsIncludes = {
-      profile: {
-        select: {
-          name: true,
-        },
-      },
-      permissions: {
-        include: {
-          permission: true,
-        },
-        where: {
-          inactiveAt: null,
-        },
-      },
-    };
-    return super.get(request, query, paramsIncludes, false);
+    if (!query.omitAttributes) {
+      query.omitAttributes = omitAttributes;
+    }
+
+    return super.get(request, query, paramsIncludes, noCompany, encryptFields);
   }
 
   @Get('self')
   async getSelf(@Req() request: Request, @Query() query: any) {
     query.self = 'true';
-    query.omitAttributes = ['password'];
+    if (!query.omitAttributes) {
+      query.omitAttributes = omitAttributes;
+    }
     return super.get(request, query);
   }
 
@@ -91,12 +92,8 @@ export class UserController extends GenericController<
     @Body() CreateDto: CreateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
-    const { companyId } = request.user;
-    const search = {
-      email: CreateDto.email,
-      companyId: Number(companyId),
-    };
-    return super.create(request, CreateDto, file, search);
+    const search = validateCreate(request, CreateDto);
+    return super.create(request, CreateDto, file, search, hooksCreate);
   }
 
   @Put('self')
@@ -108,7 +105,8 @@ export class UserController extends GenericController<
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
     const id = Number(request.user.sub);
-    return super.update(id, request, UpdateDto, file);
+    const processedDto = formaterPreUpdate(UpdateDto);
+    return super.update(id, request, processedDto, file);
   }
 
   // Rota intermediária para validação de permissão
@@ -122,7 +120,8 @@ export class UserController extends GenericController<
     @Body() UpdateDto: UpdateDto,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
-    return super.update(id, request, UpdateDto, file);
+    const processedDto = formaterPreUpdate(UpdateDto);
+    return super.update(id, request, processedDto, file, hooksUpdate);
   }
 
   // Rota intermediária para validação de permissão
