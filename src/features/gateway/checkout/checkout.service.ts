@@ -102,7 +102,8 @@ export class CheckoutService {
         originalValue = value;
         value = checkoutData.couponData.finalPrice;
         discount = checkoutData.couponData.discount;
-        commissionPercentage = checkoutData.couponData.commissionPercentage || 0;
+        commissionPercentage =
+          checkoutData.couponData.commissionPercentage || 0;
         commissionValue = checkoutData.couponData.commissionValue || 0;
         couponId = checkoutData.couponData.couponId || null;
         sellerId = checkoutData.couponData.sellerId || null;
@@ -111,7 +112,12 @@ export class CheckoutService {
         console.log('- Valor original:', originalValue);
         console.log('- Desconto:', discount);
         console.log('- Valor final:', value);
-        console.log('- Comissão:', commissionPercentage + '%', '(R$', commissionValue + ')');
+        console.log(
+          '- Comissão:',
+          commissionPercentage + '%',
+          '(R$',
+          commissionValue + ')',
+        );
         if (sellerId) {
           console.log('- Vendedor ID:', sellerId);
         }
@@ -214,9 +220,12 @@ export class CheckoutService {
             // Adiciona dados do cupom se houver
             couponId: couponId,
             sellerId: sellerId,
-            originalValue: checkoutData.couponData?.valid ? originalValue : null,
+            originalValue: checkoutData.couponData?.valid
+              ? originalValue
+              : null,
             discount: discount > 0 ? discount : null,
-            commissionPercentage: commissionPercentage > 0 ? commissionPercentage : null,
+            commissionPercentage:
+              commissionPercentage > 0 ? commissionPercentage : null,
             commissionValue: commissionValue > 0 ? commissionValue : null,
           },
           { companyId }, // logParams com companyId
@@ -252,17 +261,22 @@ export class CheckoutService {
       );
 
       // 9. Cria SplitTransaction se houver comissão de cupom
-      if (checkoutData.couponData?.valid &&
-          checkoutData.couponData?.commissionValue > 0 &&
-          checkoutData.couponData?.sellerWalletId &&
-          checkoutData.couponData?.sellerId) {
-
+      if (
+        checkoutData.couponData?.valid &&
+        checkoutData.couponData?.commissionValue > 0 &&
+        checkoutData.couponData?.sellerWalletId &&
+        checkoutData.couponData?.sellerId
+      ) {
         // Obter o ID do split do Asaas da resposta do pagamento
         let asaasSplitId = null;
-        if (paymentResult && (paymentResult as any).split && Array.isArray((paymentResult as any).split)) {
+        if (
+          paymentResult &&
+          (paymentResult as any).split &&
+          Array.isArray((paymentResult as any).split)
+        ) {
           // O Asaas pode retornar informações do split na resposta
           const splitInfo = (paymentResult as any).split.find(
-            (s: any) => s.walletId === checkoutData.couponData.sellerWalletId
+            (s: any) => s.walletId === checkoutData.couponData.sellerWalletId,
           );
           asaasSplitId = splitInfo?.id || null;
         }
@@ -279,7 +293,10 @@ export class CheckoutService {
           asaasSplitId,
         });
 
-        console.log('SplitTransaction criado para vendedor:', checkoutData.couponData.sellerId);
+        console.log(
+          'SplitTransaction criado para vendedor:',
+          checkoutData.couponData.sellerId,
+        );
       }
 
       // 10. Busca o registro financeiro atualizado com campos específicos
@@ -571,13 +588,17 @@ export class CheckoutService {
             };
 
             // Adiciona split se houver cupom com comissão
-            if (checkoutData.couponData?.valid &&
-                checkoutData.couponData?.commissionValue > 0 &&
-                checkoutData.couponData?.sellerWalletId) {
-              paymentData.splits = [{
-                walletId: checkoutData.couponData.sellerWalletId,
-                fixedValue: checkoutData.couponData.commissionValue,
-              }];
+            if (
+              checkoutData.couponData?.valid &&
+              checkoutData.couponData?.commissionValue > 0 &&
+              checkoutData.couponData?.sellerWalletId
+            ) {
+              paymentData.splits = [
+                {
+                  walletId: checkoutData.couponData.sellerWalletId,
+                  fixedValue: checkoutData.couponData.commissionValue,
+                },
+              ];
             }
 
             payment = await this.asaasService.createPayment(
@@ -623,16 +644,23 @@ export class CheckoutService {
       };
 
       // Adiciona split se houver cupom com comissão
-      if (checkoutData.couponData?.valid &&
-          checkoutData.couponData?.commissionValue > 0 &&
-          checkoutData.couponData?.sellerWalletId) {
-        paymentData.splits = [{
-          walletId: checkoutData.couponData.sellerWalletId,
-          fixedValue: checkoutData.couponData.commissionValue,
-        }];
+      if (
+        checkoutData.couponData?.valid &&
+        checkoutData.couponData?.commissionValue > 0 &&
+        checkoutData.couponData?.sellerWalletId
+      ) {
+        paymentData.splits = [
+          {
+            walletId: checkoutData.couponData.sellerWalletId,
+            fixedValue: checkoutData.couponData.commissionValue,
+          },
+        ];
         console.log('Split configurado para vendedor:');
         console.log('- WalletId:', checkoutData.couponData.sellerWalletId);
-        console.log('- Valor da comissão:', checkoutData.couponData.commissionValue);
+        console.log(
+          '- Valor da comissão:',
+          checkoutData.couponData.commissionValue,
+        );
       }
 
       // Cria o pagamento no gateway

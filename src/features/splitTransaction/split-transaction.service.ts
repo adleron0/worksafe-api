@@ -67,10 +67,7 @@ export class SplitTransactionService {
   /**
    * Atualiza o status de um split transaction
    */
-  async updateSplitTransaction(
-    id: number,
-    data: UpdateSplitTransactionDto,
-  ) {
+  async updateSplitTransaction(id: number, data: UpdateSplitTransactionDto) {
     try {
       const updated = await this.prisma.splitTransaction.update({
         where: { id },
@@ -163,7 +160,8 @@ export class SplitTransactionService {
         case 'PAYMENT_DELETED':
           updateData.status = SplitStatus.FAILED;
           updateData.hasDivergence = true;
-          updateData.divergenceReason = data.reason || 'Falha no processamento do split';
+          updateData.divergenceReason =
+            data.reason || 'Falha no processamento do split';
           break;
 
         case 'PAYMENT_REFUNDED':
@@ -190,7 +188,11 @@ export class SplitTransactionService {
   /**
    * Calcula totais de splits por vendedor
    */
-  async calculateSellerTotals(sellerId: number, startDate?: Date, endDate?: Date) {
+  async calculateSellerTotals(
+    sellerId: number,
+    startDate?: Date,
+    endDate?: Date,
+  ) {
     const where: any = { sellerId };
 
     if (startDate || endDate) {
@@ -213,7 +215,7 @@ export class SplitTransactionService {
       total: 0,
     };
 
-    splits.forEach(split => {
+    splits.forEach((split) => {
       const value = Number(split.splitValue);
       totals.total += value;
 

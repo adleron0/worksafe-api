@@ -72,6 +72,9 @@ export class SubscriptionService extends GenericService<
           price: true,
           discountPrice: true,
           companyId: true,
+          periodSubscriptionsType: true,
+          periodSubscriptionsInitialDate: true,
+          periodSubscriptionsFinalDate: true,
         },
       });
 
@@ -156,21 +159,49 @@ export class SubscriptionService extends GenericService<
       throw new BadRequestException(`Esta turma não permite inscrições`);
     }
 
-    if (!courseClass.unlimitedSubscriptions) {
-      // Verifica se o limite de inscrições foi atingido
-      if (courseClass && courseClass.maxSubscriptions) {
-        const total = await this.prisma.select(entity.model, {
+    // Validação do período de inscrições
+    if (courseClass.periodSubscriptionsType === 'LIMITED') {
+      const now = new Date();
+
+      if (
+        courseClass.periodSubscriptionsInitialDate &&
+        now < new Date(courseClass.periodSubscriptionsInitialDate)
+      ) {
+        throw new BadRequestException(
+          `As inscrições para esta turma ainda não foram abertas. ` +
+            `Início em: ${new Date(courseClass.periodSubscriptionsInitialDate).toLocaleDateString('pt-BR')}`,
+        );
+      }
+
+      if (
+        courseClass.periodSubscriptionsFinalDate &&
+        now > new Date(courseClass.periodSubscriptionsFinalDate)
+      ) {
+        throw new BadRequestException(
+          `O período de inscrições para esta turma já foi encerrado. ` +
+            `Término em: ${new Date(courseClass.periodSubscriptionsFinalDate).toLocaleDateString('pt-BR')}`,
+        );
+      }
+    }
+
+    // Validação de limite de inscrições
+    if (!courseClass.unlimitedSubscriptions && courseClass.maxSubscriptions) {
+      const subscriptions = await this.prisma.select(
+        'courseClassSubscription',
+        {
           where: {
-            companyId: Number(search.companyId),
             classId: Number(search.classId),
             subscribeStatus: 'confirmed',
           },
-        });
-        if (total.length >= Number(courseClass.maxSubscriptions)) {
-          throw new BadRequestException(
-            `O limite de inscrições para a turma ${courseClass.name} foi atingido`,
-          );
-        }
+        },
+      );
+
+      const totalConfirmed = subscriptions.length;
+
+      if (totalConfirmed >= courseClass.maxSubscriptions) {
+        throw new BadRequestException(
+          `O limite de ${courseClass.maxSubscriptions} inscrições para a turma "${courseClass.name}" foi atingido`,
+        );
       }
     }
 

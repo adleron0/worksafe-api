@@ -102,9 +102,10 @@ export class CouponService extends GenericService<
     }
 
     try {
-      const config = typeof seller.sellerConfig === 'string'
-        ? JSON.parse(seller.sellerConfig)
-        : seller.sellerConfig;
+      const config =
+        typeof seller.sellerConfig === 'string'
+          ? JSON.parse(seller.sellerConfig)
+          : seller.sellerConfig;
 
       // Verifica se tem a estrutura correta
       if (!config.gateways?.asaas) {
@@ -124,7 +125,7 @@ export class CouponService extends GenericService<
 
       // Valida campos obrigatórios
       const requiredFields = ['apiKey', 'walletId', 'accountId'];
-      const hasAllFields = requiredFields.every(field => asaasConfig[field]);
+      const hasAllFields = requiredFields.every((field) => asaasConfig[field]);
 
       if (!hasAllFields) {
         return null;

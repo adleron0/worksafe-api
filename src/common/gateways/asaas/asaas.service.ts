@@ -373,7 +373,7 @@ export class AsaasService {
 
     // Adiciona splits se houver
     if (paymentData.splits && paymentData.splits.length > 0) {
-      data.split = paymentData.splits.map(split => ({
+      data.split = paymentData.splits.map((split) => ({
         walletId: split.walletId,
         fixedValue: split.fixedValue,
         percentualValue: split.percentualValue,
