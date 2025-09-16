@@ -39,6 +39,13 @@ export class UpdateDto {
 
   @IsDateString()
   @IsOptional()
+  @Transform(({ value }) => {
+    if (!value) return value;
+    // Se já for uma data ISO-8601 completa, retorna como está
+    if (value.includes('T')) return value;
+    // Se for apenas data (YYYY-MM-DD), adiciona tempo padrão
+    return `${value}T00:00:00.000Z`;
+  })
   birthDate?: string;
 
   @IsInt()
