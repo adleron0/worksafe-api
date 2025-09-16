@@ -9,7 +9,6 @@ import {
 import { PrismaService } from 'src/prisma/prisma.service';
 import { AsaasService } from 'src/common/gateways/asaas/asaas.service';
 import { SubscriptionService } from 'src/features/training/subscription/service';
-import { SplitTransactionService } from 'src/features/splitTransaction/split-transaction.service';
 import { paymentMethods, gateways } from '@prisma/client';
 import {
   CreditCardData,
@@ -58,7 +57,6 @@ export class CheckoutService {
     private readonly asaasService: AsaasService,
     @Inject(forwardRef(() => SubscriptionService))
     private readonly subscriptionService: SubscriptionService,
-    private readonly splitTransactionService: SplitTransactionService,
   ) {}
 
   /**
@@ -263,7 +261,7 @@ export class CheckoutService {
       // 9. Cria SplitTransaction se houver comissão de cupom
       if (
         checkoutData.couponData?.valid &&
-        checkoutData.couponData?.commissionValue > 0 &&
+        checkoutData.couponData?.commissionPercentage > 0 &&
         checkoutData.couponData?.sellerWalletId &&
         checkoutData.couponData?.sellerId
       ) {
@@ -281,17 +279,31 @@ export class CheckoutService {
           asaasSplitId = splitInfo?.id || null;
         }
 
-        await this.splitTransactionService.createSplitTransaction({
-          financialRecordId,
-          toWalletId: checkoutData.couponData.sellerWalletId,
-          sellerId: checkoutData.couponData.sellerId,
-          originalValue: value,
-          splitValue: checkoutData.couponData.commissionValue,
-          splitPercentage: checkoutData.couponData.commissionPercentage,
-          splitDescription: `Comissão cupom - ${subscription.courseClass.name}`,
-          companyId,
-          asaasSplitId,
-        });
+        // Calcula o valor líquido (estimado - 2.99% de taxa do Asaas)
+        const netValue = checkoutData.couponData.commissionValue * 0.9701;
+
+        try {
+          await this.prisma.insert(
+            'splitTransaction',
+            {
+              financialRecordId,
+              toWalletId: checkoutData.couponData.sellerWalletId,
+              sellerId: checkoutData.couponData.sellerId,
+              originalValue: value,
+              splitValue: checkoutData.couponData.commissionValue,
+              splitPercentage: checkoutData.couponData.commissionPercentage,
+              netValue,
+              splitDescription: `Comissão cupom - ${subscription.courseClass.name}`,
+              companyId,
+              status: 'PENDING',
+              asaasSplitId,
+            },
+            { companyId },
+          );
+        } catch (error) {
+          console.error('Erro ao criar SplitTransaction:', error);
+          // Não lança erro para não bloquear o fluxo principal
+        }
 
         console.log(
           'SplitTransaction criado para vendedor:',
@@ -590,13 +602,13 @@ export class CheckoutService {
             // Adiciona split se houver cupom com comissão
             if (
               checkoutData.couponData?.valid &&
-              checkoutData.couponData?.commissionValue > 0 &&
+              checkoutData.couponData?.commissionPercentage > 0 &&
               checkoutData.couponData?.sellerWalletId
             ) {
               paymentData.splits = [
                 {
                   walletId: checkoutData.couponData.sellerWalletId,
-                  fixedValue: checkoutData.couponData.commissionValue,
+                  percentualValue: checkoutData.couponData.commissionPercentage,
                 },
               ];
             }
@@ -646,20 +658,20 @@ export class CheckoutService {
       // Adiciona split se houver cupom com comissão
       if (
         checkoutData.couponData?.valid &&
-        checkoutData.couponData?.commissionValue > 0 &&
+        checkoutData.couponData?.commissionPercentage > 0 &&
         checkoutData.couponData?.sellerWalletId
       ) {
         paymentData.splits = [
           {
             walletId: checkoutData.couponData.sellerWalletId,
-            fixedValue: checkoutData.couponData.commissionValue,
+            percentualValue: checkoutData.couponData.commissionPercentage,
           },
         ];
         console.log('Split configurado para vendedor:');
         console.log('- WalletId:', checkoutData.couponData.sellerWalletId);
         console.log(
-          '- Valor da comissão:',
-          checkoutData.couponData.commissionValue,
+          '- Percentual de comissão:',
+          checkoutData.couponData.commissionPercentage + '%',
         );
       }
 
@@ -861,7 +873,7 @@ export class CheckoutService {
     await this.prisma.update(
       'financialRecords',
       updateData,
-      { companyId }, // logParams com companyId
+      companyId ? { companyId } : null, // logParams com companyId se existir
       null,
       financialRecordId,
     );

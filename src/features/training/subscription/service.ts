@@ -392,7 +392,33 @@ export class SubscriptionService extends GenericService<
     console.log('=== REPROCESSANDO PAGAMENTO ===');
     console.log('Inscrição existente:', subscription.id);
 
-    const { paymentMethod, creditCard, customerData } = dto;
+    const { paymentMethod, creditCard, customerData, couponCode } = dto;
+
+    // Valida cupom se fornecido
+    let couponData = null;
+    if (couponCode && courseClass.allowCheckout) {
+      try {
+        console.log('Validando cupom no reprocessamento:', couponCode);
+        const couponValidation = await this.couponService.validateCoupon(
+          dto.cpf,
+          couponCode,
+          courseClass.id,
+          true, // internal = true para receber dados de comissão
+        );
+
+        if (couponValidation.valid) {
+          couponData = couponValidation;
+          console.log('Cupom válido no reprocessamento:', couponData);
+        } else {
+          console.log(
+            'Cupom inválido no reprocessamento:',
+            couponValidation.message,
+          );
+        }
+      } catch (error) {
+        console.error('Erro ao validar cupom no reprocessamento:', error);
+      }
+    }
 
     // Busca o registro financeiro mais recente
     const existingFinancialRecord = await this.prisma.selectFirst(
@@ -419,7 +445,7 @@ export class SubscriptionService extends GenericService<
     if (shouldProcessPayment) {
       return await this.processNewPayment(
         subscription,
-        { paymentMethod, creditCard, customerData },
+        { paymentMethod, creditCard, customerData, couponData },
         courseClass.companyId,
         existingFinancialRecord?.id,
       );
@@ -437,7 +463,12 @@ export class SubscriptionService extends GenericService<
    */
   private async processNewPayment(
     subscription: any,
-    paymentData: { paymentMethod: any; creditCard?: any; customerData?: any },
+    paymentData: {
+      paymentMethod: any;
+      creditCard?: any;
+      customerData?: any;
+      couponData?: any;
+    },
     companyId: number,
     financialRecordId?: number,
   ): Promise<any> {
@@ -552,14 +583,16 @@ export class SubscriptionService extends GenericService<
       let traineeId = subscription.traineeId;
 
       if (!traineeId) {
-        console.log(`Inscrição ${subscriptionId} sem trainee, criando...`);
+        console.log(`⭐ Inscrição ${subscriptionId} sem trainee, criando...`);
         traineeId = await this.alunosService.findOrCreateTrainee(
           subscription,
           subscription.companyId,
           subscriptionId,
         );
       } else {
-        console.log(`Inscrição ${subscriptionId} já tem trainee: ${traineeId}`);
+        console.log(
+          `✌️ Inscrição ${subscriptionId} já tem trainee: ${traineeId}`,
+        );
       }
 
       // Só atualiza se não estava confirmada ou se não tinha trainee
@@ -580,11 +613,43 @@ export class SubscriptionService extends GenericService<
         );
 
         console.log(
-          `Inscrição ${subscriptionId} atualizada com trainee ${traineeId}`,
+          `✅ Inscrição ${subscriptionId} atualizada com trainee ${traineeId}`,
         );
-
         return updatedSubscription;
       }
+
+      // atualiza os financialRecords da subscription com o traineeId
+      console.log('=== ATUALIZANDO TRAINEEID NA FINANCIAL RECORD ===');
+      if (traineeId) {
+        try {
+          const result = await this.prisma.bulkUpdate(
+            'financialRecords',
+            { traineeId: traineeId },
+            {
+              subscriptionId,
+              traineeId: null,
+            },
+            { companyId: subscription.companyId }, // logParams com companyId
+          );
+          console.log(
+            '🚀 ~ SubscriptionService ~ confirmSubscriptionPayment ~ result:',
+            result,
+          );
+
+          if (result.count > 0) {
+            console.log(
+              `✅ ${result.count} FinancialRecords da inscrição ${subscriptionId} atualizados com traineeId ${traineeId}`,
+            );
+          }
+        } catch (error) {
+          console.error(
+            'Erro ao atualizar financialRecords com traineeId',
+            error,
+          );
+          // Não lança erro para não interromper o fluxo principal
+        }
+      }
+      console.log('=== FIM DE ATUALIZANDO TRAINEEID NA FINANCIAL RECORD ===');
 
       // Invalida o cache da turma após confirmar a inscrição
       if (subscription.classId) {

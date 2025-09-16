@@ -164,7 +164,7 @@ export class PrismaService
           .create({
             data: {
               companyId: logParams.companyId,
-              userId: logParams.userId,
+              userId: logParams.userId || 0,
               action: 'create',
               entity: String(model),
               entityId: result.id,
@@ -173,8 +173,9 @@ export class PrismaService
               newValue: JSON.stringify(data),
             },
           })
-          .catch((logError) => {
-            console.error('Error creating log:', logError);
+          .catch(() => {
+            // Ignora silenciosamente erros de auditoria
+            console.log('⚠️  Log de auditoria não registrado');
           });
       }
       return result;
@@ -203,6 +204,57 @@ export class PrismaService
         skipDuplicates: true,
       });
       // createMany não retorna o resultado da inserção, então ainda não sei como fazer os logs dele [evitar usar]
+      return result;
+    } catch (error) {
+      throw new BadRequestException(error);
+    }
+  }
+
+  /**
+   * bulkUpdate: Atualiza múltiplos registros no banco
+   * @param model Model do prisma
+   * @param data Dados para atualizar
+   * @param where Condições para filtrar os registros
+   * @param logParams Parametros para o log (opcional)
+   * @param tx Transação
+   * @returns Retorna o número de registros atualizados
+   */
+  async bulkUpdate<Model extends keyof PrismaClient>(
+    model: Model,
+    data: any,
+    where: any,
+    logParams?: any,
+    tx?: any,
+  ) {
+    const use = tx ? tx : this;
+    try {
+      // Usa o updateMany nativo do Prisma
+      const result = await use[model].updateMany({
+        where,
+        data,
+      });
+
+      // Log simplificado para operações em massa
+      if (result && result.count > 0 && logParams) {
+        use.system_Logs
+          .create({
+            data: {
+              companyId: logParams.companyId,
+              userId: logParams.userId || 0, // Usa 0 como padrão se não tiver usuário
+              action: 'bulk_update',
+              entity: String(model),
+              entityId: 0, // Não tem ID específico em bulk
+              column: 'bulk',
+              oldValue: JSON.stringify({ count: result.count }),
+              newValue: JSON.stringify(data),
+            },
+          })
+          .catch(() => {
+            // Ignora silenciosamente erros de auditoria
+            console.log('⚠️  Log de auditoria não registrado');
+          });
+      }
+
       return result;
     } catch (error) {
       throw new BadRequestException(error);
@@ -249,7 +301,7 @@ export class PrismaService
           .createMany({
             data: changes.map((change) => ({
               companyId: logParams.companyId,
-              userId: logParams.userId,
+              userId: logParams.userId || 0,
               action: 'update',
               entity: String(model),
               entityId: Number(result.id),
@@ -258,8 +310,9 @@ export class PrismaService
               newValue: JSON.stringify(change.newValue),
             })),
           })
-          .catch((logError) => {
-            console.error('Error creating log:', logError);
+          .catch(() => {
+            // Ignora silenciosamente erros de auditoria
+            console.log('⚠️  Log de auditoria não registrado');
           });
       }
       return result;
@@ -310,7 +363,7 @@ export class PrismaService
           .create({
             data: {
               companyId: logParams.companyId,
-              userId: logParams.userId,
+              userId: logParams.userId || 0,
               action: 'create',
               entity: String(model),
               entityId: result.id,
@@ -319,8 +372,9 @@ export class PrismaService
               newValue: JSON.stringify(data),
             },
           })
-          .catch((logError) => {
-            console.error('Error creating log:', logError);
+          .catch(() => {
+            // Ignora silenciosamente erros de auditoria
+            console.log('⚠️  Log de auditoria não registrado');
           });
       }
 
@@ -369,7 +423,7 @@ export class PrismaService
             .createMany({
               data: changes.map((change) => ({
                 companyId: logParams.companyId,
-                userId: logParams.userId,
+                userId: logParams.userId || 0,
                 action: 'update',
                 entity: String(model),
                 entityId: Number(result.id),
@@ -378,8 +432,9 @@ export class PrismaService
                 newValue: JSON.stringify(change.newValue),
               })),
             })
-            .catch((logError) => {
-              console.error('Error creating log:', logError);
+            .catch(() => {
+              // Ignora silenciosamente erros de auditoria
+              console.log('⚠️  Log de auditoria não registrado');
             });
         }
       } else {
@@ -392,7 +447,7 @@ export class PrismaService
             .create({
               data: {
                 companyId: logParams.companyId,
-                userId: logParams.userId,
+                userId: logParams.userId || 0,
                 action: 'create',
                 entity: String(model),
                 entityId: result.id,
@@ -401,8 +456,9 @@ export class PrismaService
                 newValue: JSON.stringify(data),
               },
             })
-            .catch((logError) => {
-              console.error('Error creating log:', logError);
+            .catch(() => {
+              // Ignora silenciosamente erros de auditoria
+              console.log('⚠️  Log de auditoria não registrado');
             });
         }
       }
@@ -455,7 +511,7 @@ export class PrismaService
             .create({
               data: {
                 companyId: logParams.companyId,
-                userId: logParams.userId,
+                userId: logParams.userId || 0,
                 action: 'soft_delete',
                 entity: String(model),
                 entityId: result.id,
@@ -464,8 +520,9 @@ export class PrismaService
                 newValue: JSON.stringify(result.inactiveAt),
               },
             })
-            .catch((logError) => {
-              console.error('Error creating log:', logError);
+            .catch(() => {
+              // Ignora silenciosamente erros de auditoria
+              console.log('⚠️  Log de auditoria não registrado');
             });
         }
       } else {
@@ -477,7 +534,7 @@ export class PrismaService
             .create({
               data: {
                 companyId: logParams.companyId,
-                userId: logParams.userId,
+                userId: logParams.userId || 0,
                 action: 'delete',
                 entity: String(model),
                 entityId: oldValues.id,
@@ -486,8 +543,9 @@ export class PrismaService
                 newValue: null,
               },
             })
-            .catch((logError) => {
-              console.error('Error creating log:', logError);
+            .catch(() => {
+              // Ignora silenciosamente erros de auditoria
+              console.log('⚠️  Log de auditoria não registrado');
             });
         }
       }
