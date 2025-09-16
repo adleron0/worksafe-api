@@ -33,8 +33,11 @@ model FinancialRecords {
   coupon          Coupon?   @relation(fields: [couponId], references: [id])
 
   // Valores aplicados (snapshot no momento do uso)
-  discountApplied Decimal?  @db.Decimal(18, 2)  // Desconto aplicado
-  commissionValue Decimal?  @db.Decimal(18, 2)  // Comissão calculada
+  originalValue       Decimal?  @db.Decimal(18, 2)  // Valor original antes do desconto
+  discount            Decimal?  @db.Decimal(18, 2)  // Valor do desconto aplicado
+  discountApplied     Decimal?  @db.Decimal(18, 2)  // Desconto aplicado (legado)
+  commissionPercentage Decimal? @db.Decimal(5, 2)   // Percentual de comissão
+  commissionValue     Decimal?  @db.Decimal(18, 2)  // Comissão calculada
 
   // Seller beneficiado (pode vir do cupom ou de outra fonte)
   sellerId        Int?

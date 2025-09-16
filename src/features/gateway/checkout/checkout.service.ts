@@ -9,6 +9,7 @@ import {
 import { PrismaService } from 'src/prisma/prisma.service';
 import { AsaasService } from 'src/common/gateways/asaas/asaas.service';
 import { SubscriptionService } from 'src/features/training/subscription/service';
+import { SplitTransactionService } from 'src/features/splitTransaction/split-transaction.service';
 import { paymentMethods, gateways } from '@prisma/client';
 import {
   CreditCardData,
@@ -28,12 +29,26 @@ interface CustomerData {
   zipCode?: string;
 }
 
+// Interface para dados do cupom validado
+interface CouponData {
+  valid: boolean;
+  finalPrice: number;
+  discount: number;
+  message: string;
+  commissionPercentage?: number;
+  commissionValue?: number;
+  couponId?: number; // ID do cupom usado
+  sellerId?: number; // ID do vendedor associado ao cupom
+  sellerWalletId?: string | null; // WalletId do vendedor para o ambiente correto
+}
+
 export interface CheckoutData {
   subscriptionId: number;
   paymentMethod: paymentMethods;
   creditCard?: CreditCardData;
   customerData?: CustomerData;
   financialRecordId?: number; // ID do registro financeiro existente para atualizar
+  couponData?: CouponData; // Dados do cupom validado
 }
 
 @Injectable()
@@ -43,6 +58,7 @@ export class CheckoutService {
     private readonly asaasService: AsaasService,
     @Inject(forwardRef(() => SubscriptionService))
     private readonly subscriptionService: SubscriptionService,
+    private readonly splitTransactionService: SplitTransactionService,
   ) {}
 
   /**
@@ -53,6 +69,11 @@ export class CheckoutService {
     companyId: number,
   ): Promise<any> {
     try {
+      // Debug: verificar dados recebidos
+      console.log('=== CHECKOUT DATA RECEBIDO ===');
+      console.log('checkoutData.couponData:', checkoutData.couponData);
+      console.log('===============================');
+
       // 1. Busca os dados da inscrição com a turma
       const subscription = await this.getSubscriptionWithClass(
         checkoutData.subscriptionId,
@@ -67,8 +88,34 @@ export class CheckoutService {
         checkoutData.paymentMethod,
       );
 
-      // 4. Calcula o valor correto
-      const value = this.calculatePrice(subscription.courseClass);
+      // 4. Calcula o valor correto (com desconto se houver cupom)
+      let value = this.calculatePrice(subscription.courseClass);
+      let couponId = null;
+      let sellerId = null;
+      let originalValue = value;
+      let discount = 0;
+      let commissionPercentage = 0;
+      let commissionValue = 0;
+
+      // Aplica desconto do cupom se houver
+      if (checkoutData.couponData?.valid) {
+        originalValue = value;
+        value = checkoutData.couponData.finalPrice;
+        discount = checkoutData.couponData.discount;
+        commissionPercentage = checkoutData.couponData.commissionPercentage || 0;
+        commissionValue = checkoutData.couponData.commissionValue || 0;
+        couponId = checkoutData.couponData.couponId || null;
+        sellerId = checkoutData.couponData.sellerId || null;
+
+        console.log('Aplicando cupom de desconto:');
+        console.log('- Valor original:', originalValue);
+        console.log('- Desconto:', discount);
+        console.log('- Valor final:', value);
+        console.log('- Comissão:', commissionPercentage + '%', '(R$', commissionValue + ')');
+        if (sellerId) {
+          console.log('- Vendedor ID:', sellerId);
+        }
+      }
 
       // 4.1. Para pagamento parcelado, calcula o valor da primeira parcela
       let financialRecordValue = value;
@@ -129,7 +176,7 @@ export class CheckoutService {
               value: installmentValue, // Atualiza para o valor da parcela
               description: `Parcela 1 de ${installments}. Inscrição - ${subscription.courseClass.name}`,
             },
-            {}, // logParams
+            { companyId }, // logParams com companyId
             null,
             checkoutData.financialRecordId,
           );
@@ -164,8 +211,15 @@ export class CheckoutService {
               Number(checkoutData.creditCard.installments) > 1
                 ? `Parcela 1 de ${checkoutData.creditCard.installments}. Inscrição - ${subscription.courseClass.name}`
                 : `Inscrição - ${subscription.courseClass.name}`,
+            // Adiciona dados do cupom se houver
+            couponId: couponId,
+            sellerId: sellerId,
+            originalValue: checkoutData.couponData?.valid ? originalValue : null,
+            discount: discount > 0 ? discount : null,
+            commissionPercentage: commissionPercentage > 0 ? commissionPercentage : null,
+            commissionValue: commissionValue > 0 ? commissionValue : null,
           },
-          { companyId, userId: subscription.traineeId }, // logParams
+          { companyId }, // logParams com companyId
         );
 
         financialRecordId = financialRecord.id;
@@ -194,9 +248,41 @@ export class CheckoutService {
         paymentResult,
         checkoutData.paymentMethod,
         financialRecord.externalId, // Passa o externalId original se existir
+        companyId, // Passa o companyId para os logs
       );
 
-      // 9. Busca o registro financeiro atualizado com campos específicos
+      // 9. Cria SplitTransaction se houver comissão de cupom
+      if (checkoutData.couponData?.valid &&
+          checkoutData.couponData?.commissionValue > 0 &&
+          checkoutData.couponData?.sellerWalletId &&
+          checkoutData.couponData?.sellerId) {
+
+        // Obter o ID do split do Asaas da resposta do pagamento
+        let asaasSplitId = null;
+        if (paymentResult && (paymentResult as any).split && Array.isArray((paymentResult as any).split)) {
+          // O Asaas pode retornar informações do split na resposta
+          const splitInfo = (paymentResult as any).split.find(
+            (s: any) => s.walletId === checkoutData.couponData.sellerWalletId
+          );
+          asaasSplitId = splitInfo?.id || null;
+        }
+
+        await this.splitTransactionService.createSplitTransaction({
+          financialRecordId,
+          toWalletId: checkoutData.couponData.sellerWalletId,
+          sellerId: checkoutData.couponData.sellerId,
+          originalValue: value,
+          splitValue: checkoutData.couponData.commissionValue,
+          splitPercentage: checkoutData.couponData.commissionPercentage,
+          splitDescription: `Comissão cupom - ${subscription.courseClass.name}`,
+          companyId,
+          asaasSplitId,
+        });
+
+        console.log('SplitTransaction criado para vendedor:', checkoutData.couponData.sellerId);
+      }
+
+      // 10. Busca o registro financeiro atualizado com campos específicos
       const updatedFinancialRecord = await this.prisma.selectOne(
         'financialRecords',
         {
@@ -221,11 +307,18 @@ export class CheckoutService {
             createdAt: true,
             updatedAt: true,
             key: true,
+            // Incluir dados do cupom se houver
+            couponId: true,
+            sellerId: true,
+            originalValue: true,
+            discount: true,
+            commissionPercentage: true,
+            commissionValue: true,
           },
         },
       );
 
-      // 10. Retorna os dados para o frontend
+      // 11. Retorna os dados para o frontend
       return {
         success: true,
         financialRecordId,
@@ -466,7 +559,7 @@ export class CheckoutService {
             }
 
             // Cria novo pagamento com cartão
-            const paymentData = {
+            const paymentData: any = {
               customerId: customer.id,
               paymentType: mappedPaymentType,
               value,
@@ -476,6 +569,16 @@ export class CheckoutService {
               creditCard: checkoutData.creditCard,
               creditCardHolderInfo: customerData,
             };
+
+            // Adiciona split se houver cupom com comissão
+            if (checkoutData.couponData?.valid &&
+                checkoutData.couponData?.commissionValue > 0 &&
+                checkoutData.couponData?.sellerWalletId) {
+              paymentData.splits = [{
+                walletId: checkoutData.couponData.sellerWalletId,
+                fixedValue: checkoutData.couponData.commissionValue,
+              }];
+            }
 
             payment = await this.asaasService.createPayment(
               paymentData,
@@ -508,7 +611,7 @@ export class CheckoutService {
       console.log(`Criando novo pagamento com método ${mappedPaymentType}`);
 
       // Prepara os dados do pagamento
-      const paymentData = {
+      const paymentData: any = {
         customerId: customer.id,
         paymentType: mappedPaymentType,
         value,
@@ -518,6 +621,19 @@ export class CheckoutService {
         creditCard: checkoutData.creditCard,
         creditCardHolderInfo: customerData,
       };
+
+      // Adiciona split se houver cupom com comissão
+      if (checkoutData.couponData?.valid &&
+          checkoutData.couponData?.commissionValue > 0 &&
+          checkoutData.couponData?.sellerWalletId) {
+        paymentData.splits = [{
+          walletId: checkoutData.couponData.sellerWalletId,
+          fixedValue: checkoutData.couponData.commissionValue,
+        }];
+        console.log('Split configurado para vendedor:');
+        console.log('- WalletId:', checkoutData.couponData.sellerWalletId);
+        console.log('- Valor da comissão:', checkoutData.couponData.commissionValue);
+      }
 
       // Cria o pagamento no gateway
       payment = await this.asaasService.createPayment(paymentData, companyId);
@@ -641,6 +757,7 @@ export class CheckoutService {
     payment: PaymentResponse,
     paymentMethod: paymentMethods,
     existingPaymentId?: string,
+    companyId?: number,
   ): Promise<void> {
     const updateData: any = {
       responseData: payment,
@@ -716,7 +833,7 @@ export class CheckoutService {
     await this.prisma.update(
       'financialRecords',
       updateData,
-      {}, // logParams vazio - operação interna
+      { companyId }, // logParams com companyId
       null,
       financialRecordId,
     );

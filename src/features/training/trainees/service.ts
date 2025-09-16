@@ -56,7 +56,7 @@ export class AlunosService extends GenericService<
       'trainee',
       whereCondition,
       traineeData,
-      {}, // logParams vazio - operação interna do sistema
+      { companyId }, // logParams com companyId
     );
 
     // cria relacionamento trainee empresa
@@ -72,7 +72,7 @@ export class AlunosService extends GenericService<
           companyId: companyId,
         },
       },
-      {}, // logParams vazio - operação interna do sistema
+      { companyId }, // logParams com companyId
     );
 
     if (trainee.created) {

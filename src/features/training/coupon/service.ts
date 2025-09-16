@@ -1,5 +1,5 @@
 import { GenericService } from 'src/features/generic/generic.service';
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { IEntity } from './interfaces/interface';
 import { CreateDto } from './dto/create.dto';
 import { UpdateDto } from './dto/update.dto';
@@ -17,6 +17,130 @@ export class CouponService extends GenericService<
     protected uploadService: UploadService,
   ) {
     super(prisma, uploadService);
+  }
+
+  /**
+   * Cria uma resposta padronizada para validação de cupom
+   */
+  private createValidationResponse(
+    valid: boolean,
+    finalPrice: number,
+    discount: number,
+    message: string,
+    internal: boolean,
+    extras?: {
+      commissionPercentage?: number;
+      commissionValue?: number;
+      couponId?: number;
+      sellerId?: number;
+      sellerWalletId?: string | null;
+    },
+  ): any {
+    const response: any = {
+      valid,
+      finalPrice,
+      discount,
+      message,
+    };
+
+    if (internal) {
+      if (valid && extras) {
+        response.commissionPercentage = extras.commissionPercentage || 0;
+        response.commissionValue = extras.commissionValue || 0;
+        response.couponId = extras.couponId;
+        response.sellerId = extras.sellerId;
+        response.sellerWalletId = extras.sellerWalletId;
+      } else {
+        response.commissionPercentage = 0;
+        response.commissionValue = 0;
+      }
+    }
+
+    return response;
+  }
+
+  /**
+   * Calcula o preço base da turma (com desconto se houver)
+   */
+  private getClassPrice(courseClass: any): number {
+    return Number(courseClass.discountPrice) || Number(courseClass.price);
+  }
+
+  /**
+   * Calcula comissão baseada no cupom e valor final
+   */
+  private calculateCommission(
+    coupon: any,
+    finalPrice: number,
+  ): {
+    commissionPercentage: number;
+    commissionValue: number;
+  } {
+    let commissionPercentage = 0;
+    let commissionValue = 0;
+
+    if (coupon.commissionType === 'percentage' && coupon.commissionValue) {
+      commissionPercentage = Number(coupon.commissionValue);
+      commissionValue = (finalPrice * commissionPercentage) / 100;
+    } else if (coupon.commissionType === 'fixed' && coupon.commissionValue) {
+      commissionValue = Number(coupon.commissionValue);
+      commissionPercentage = (commissionValue / finalPrice) * 100;
+    }
+
+    return {
+      commissionPercentage: Number(commissionPercentage.toFixed(2)),
+      commissionValue: Number(commissionValue.toFixed(2)),
+    };
+  }
+
+  /**
+   * Valida e retorna o walletId do vendedor para o ambiente correto
+   */
+  private getSellerWalletId(seller: any): string | null {
+    if (!seller?.sellerConfig) {
+      return null;
+    }
+
+    try {
+      const config = typeof seller.sellerConfig === 'string'
+        ? JSON.parse(seller.sellerConfig)
+        : seller.sellerConfig;
+
+      // Verifica se tem a estrutura correta
+      if (!config.gateways?.asaas) {
+        return null;
+      }
+
+      // Determina o ambiente baseado na variável de ambiente
+      const isDevelopment = process.env.BASE_SETUP === 'development';
+      const environment = isDevelopment ? 'sandbox' : 'production';
+
+      // Verifica se existe configuração para o ambiente
+      const asaasConfig = config.gateways.asaas[environment];
+
+      if (!asaasConfig) {
+        return null;
+      }
+
+      // Valida campos obrigatórios
+      const requiredFields = ['apiKey', 'walletId', 'accountId'];
+      const hasAllFields = requiredFields.every(field => asaasConfig[field]);
+
+      if (!hasAllFields) {
+        return null;
+      }
+
+      // Valida se a conta está ativa
+      if (asaasConfig.accountStatus !== 'ACTIVE') {
+        return null;
+      }
+
+      // Retorna apenas o walletId do ambiente correto
+      return asaasConfig.walletId;
+    } catch (error) {
+      console.error('Erro ao validar sellerConfig:', error);
+      return null;
+    }
   }
 
   /**
@@ -41,19 +165,13 @@ export class CouponService extends GenericService<
       });
 
       if (!courseClass || !courseClass.active) {
-        const response: any = {
-          valid: false,
-          finalPrice: 0,
-          discount: 0,
-          message: 'Turma não encontrada ou inativa',
-        };
-
-        if (internal) {
-          response.commissionPercentage = 0;
-          response.commissionValue = 0;
-        }
-
-        return response;
+        return this.createValidationResponse(
+          false,
+          0, // finalPrice = 0 quando turma não encontrada
+          0,
+          'Turma não encontrada ou inativa',
+          internal,
+        );
       }
 
       // 2. Buscar cupom - USANDO PRISMASERVICE
@@ -74,22 +192,15 @@ export class CouponService extends GenericService<
           },
         },
       });
-      console.log('🚀 ~ CouponService ~ validateCoupon ~ coupon:', coupon);
 
       if (!coupon) {
-        const response: any = {
-          valid: false,
-          finalPrice: Number(courseClass.price),
-          discount: 0,
-          message: 'Cupom não encontrado',
-        };
-
-        if (internal) {
-          response.commissionPercentage = 0;
-          response.commissionValue = 0;
-        }
-
-        return response;
+        return this.createValidationResponse(
+          false,
+          this.getClassPrice(courseClass),
+          0,
+          'Cupom não encontrado',
+          internal,
+        );
       }
 
       // 3. Validar data de validade
@@ -98,52 +209,34 @@ export class CouponService extends GenericService<
         coupon.validFrom > now ||
         (coupon.validUntil && coupon.validUntil < now)
       ) {
-        const response: any = {
-          valid: false,
-          finalPrice: Number(courseClass.price),
-          discount: 0,
-          message: 'Cupom fora do período de validade',
-        };
-
-        if (internal) {
-          response.commissionPercentage = 0;
-          response.commissionValue = 0;
-        }
-
-        return response;
+        return this.createValidationResponse(
+          false,
+          this.getClassPrice(courseClass),
+          0,
+          'Cupom fora do período de validade',
+          internal,
+        );
       }
 
       // 4. Validar restrições de curso/turma
       if (coupon.courseId && coupon.courseId !== courseClass.courseId) {
-        const response: any = {
-          valid: false,
-          finalPrice: Number(courseClass.price),
-          discount: 0,
-          message: 'Cupom não válido para este curso',
-        };
-
-        if (internal) {
-          response.commissionPercentage = 0;
-          response.commissionValue = 0;
-        }
-
-        return response;
+        return this.createValidationResponse(
+          false,
+          this.getClassPrice(courseClass),
+          0,
+          'Cupom não válido para este curso',
+          internal,
+        );
       }
 
       if (coupon.classId && coupon.classId !== courseClass.id) {
-        const response: any = {
-          valid: false,
-          finalPrice: Number(courseClass.price),
-          discount: 0,
-          message: 'Cupom não válido para esta turma',
-        };
-
-        if (internal) {
-          response.commissionPercentage = 0;
-          response.commissionValue = 0;
-        }
-
-        return response;
+        return this.createValidationResponse(
+          false,
+          this.getClassPrice(courseClass),
+          0,
+          'Cupom não válido para esta turma',
+          internal,
+        );
       }
 
       // 5. Verificar limite total de uso
@@ -151,24 +244,20 @@ export class CouponService extends GenericService<
         coupon.usageLimit &&
         coupon._count.financialRecords >= coupon.usageLimit
       ) {
-        const response: any = {
-          valid: false,
-          finalPrice: Number(courseClass.price),
-          discount: 0,
-          message: 'Cupom esgotado',
-        };
-
-        if (internal) {
-          response.commissionPercentage = 0;
-          response.commissionValue = 0;
-        }
-
-        return response;
+        return this.createValidationResponse(
+          false,
+          this.getClassPrice(courseClass),
+          0,
+          'Cupom esgotado',
+          internal,
+        );
       }
 
       // 6. Buscar trainee e verificar limite por aluno - USANDO PRISMASERVICE
       const trainee = await this.prisma.selectFirst('trainee', {
-        where: { cpf, customerId: courseClass.customerId },
+        where: {
+          cpf,
+        },
       });
 
       if (trainee) {
@@ -182,19 +271,13 @@ export class CouponService extends GenericService<
         });
 
         if (traineeUsage >= coupon.usagePerCustomer) {
-          const response: any = {
-            valid: false,
-            finalPrice: Number(courseClass.price),
-            discount: 0,
-            message: 'Limite de uso por aluno excedido',
-          };
-
-          if (internal) {
-            response.commissionPercentage = 0;
-            response.commissionValue = 0;
-          }
-
-          return response;
+          return this.createValidationResponse(
+            false,
+            this.getClassPrice(courseClass),
+            0,
+            'Limite de uso por aluno excedido',
+            internal,
+          );
         }
       }
 
@@ -209,19 +292,13 @@ export class CouponService extends GenericService<
         });
 
         if (hasOrders > 0) {
-          const response: any = {
-            valid: false,
-            finalPrice: Number(courseClass.price),
-            discount: 0,
-            message: 'Cupom válido apenas para primeira compra',
-          };
-
-          if (internal) {
-            response.commissionPercentage = 0;
-            response.commissionValue = 0;
-          }
-
-          return response;
+          return this.createValidationResponse(
+            false,
+            this.getClassPrice(courseClass),
+            0,
+            'Cupom válido apenas para primeira compra',
+            internal,
+          );
         }
       }
 
@@ -247,66 +324,50 @@ export class CouponService extends GenericService<
         coupon.minPurchaseValue &&
         originalPrice < Number(coupon.minPurchaseValue)
       ) {
-        const response: any = {
-          valid: false,
-          finalPrice: originalPrice,
-          discount: 0,
-          message: `Valor mínimo de compra: R$ ${coupon.minPurchaseValue}`,
-        };
-
-        if (internal) {
-          response.commissionPercentage = 0;
-          response.commissionValue = 0;
-        }
-
-        return response;
+        return this.createValidationResponse(
+          false,
+          originalPrice, // Usa o preço original calculado, não o getClassPrice
+          0,
+          `Valor mínimo de compra: R$ ${coupon.minPurchaseValue}`,
+          internal,
+        );
       }
 
       const finalPrice = originalPrice - discount;
 
       // 10. Calcular comissão (sobre valor final)
-      let commissionPercentage = 0;
-      let commissionValue = 0;
+      const commission = this.calculateCommission(coupon, finalPrice);
 
-      if (coupon.commissionType === 'percentage' && coupon.commissionValue) {
-        commissionPercentage = Number(coupon.commissionValue);
-        commissionValue = (finalPrice * commissionPercentage) / 100;
-      } else if (coupon.commissionType === 'fixed' && coupon.commissionValue) {
-        commissionValue = Number(coupon.commissionValue);
-        // Converter valor fixo em percentual sobre o valor final
-        commissionPercentage = (commissionValue / finalPrice) * 100;
+      // 11. Obter walletId do vendedor se internal = true
+      let sellerWalletId = null;
+      if (internal && coupon.seller) {
+        sellerWalletId = this.getSellerWalletId(coupon.seller);
       }
 
       // ✅ Cupom válido!
-      const response: any = {
-        valid: true,
-        finalPrice: Number(finalPrice.toFixed(2)),
-        discount: Number(discount.toFixed(2)),
-        message: 'Cupom aplicado com sucesso',
-      };
-
-      // Só retorna dados de comissão se internal for true
-      if (internal) {
-        response.commissionPercentage = Number(commissionPercentage.toFixed(2));
-        response.commissionValue = Number(commissionValue.toFixed(2));
-      }
-
-      return response;
+      return this.createValidationResponse(
+        true,
+        Number(finalPrice.toFixed(2)),
+        Number(discount.toFixed(2)),
+        'Cupom aplicado com sucesso',
+        internal,
+        {
+          commissionPercentage: commission.commissionPercentage,
+          commissionValue: commission.commissionValue,
+          couponId: coupon.id,
+          sellerId: coupon.sellerId,
+          sellerWalletId: sellerWalletId,
+        },
+      );
     } catch (error) {
       console.error('Erro ao validar cupom:', error);
-      const response: any = {
-        valid: false,
-        finalPrice: 0,
-        discount: 0,
-        message: 'Erro ao processar cupom',
-      };
-
-      if (internal) {
-        response.commissionPercentage = 0;
-        response.commissionValue = 0;
-      }
-
-      return response;
+      return this.createValidationResponse(
+        false,
+        0, // finalPrice = 0 em caso de erro
+        0,
+        'Erro ao processar cupom',
+        internal,
+      );
     }
   }
 }

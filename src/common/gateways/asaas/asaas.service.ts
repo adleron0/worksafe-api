@@ -58,6 +58,12 @@ interface CustomerData {
   zipCode?: string;
 }
 
+interface SplitData {
+  walletId: string;
+  fixedValue?: number;
+  percentualValue?: number;
+}
+
 interface PaymentData {
   customerId: string;
   paymentType: 'boleto' | 'pix' | 'cartao';
@@ -67,6 +73,7 @@ interface PaymentData {
   externalReference?: string;
   creditCard?: CreditCardData;
   creditCardHolderInfo?: CustomerData;
+  splits?: SplitData[]; // Array de splits para divisão de pagamento
 }
 
 interface CreditCardData {
@@ -363,6 +370,16 @@ export class AsaasService {
       externalReference: paymentData.externalReference,
       description: paymentData.description,
     };
+
+    // Adiciona splits se houver
+    if (paymentData.splits && paymentData.splits.length > 0) {
+      data.split = paymentData.splits.map(split => ({
+        walletId: split.walletId,
+        fixedValue: split.fixedValue,
+        percentualValue: split.percentualValue,
+      }));
+      console.log('Splits configurados:', data.split);
+    }
 
     if (paymentData.paymentType === 'cartao' && paymentData.creditCard) {
       if (paymentData.creditCard.token) {

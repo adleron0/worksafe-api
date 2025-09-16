@@ -230,6 +230,17 @@ export class SubscriptionController extends GenericController<
       body.companyId = Number(body.companyId);
     }
 
+    // Garante que couponCode seja string se existir
+    if (body.couponCode && typeof body.couponCode !== 'string') {
+      body.couponCode = String(body.couponCode);
+    }
+
+    // Debug: verificar campos recebidos
+    console.log('=== BODY RECEBIDO NA SUBSCRIPTION ===');
+    console.log('couponCode:', body.couponCode);
+    console.log('paymentMethod:', body.paymentMethod);
+    console.log('=====================================');
+
     const CreateDto = body as CreateDto;
     CreateDto.subscribeStatus = 'pending';
     const search = getSearchParams(request, CreateDto);

@@ -113,4 +113,9 @@ export class CreateDto {
 
   @IsOptional()
   customerData?: any;
+
+  // Campo para cupom de desconto
+  @IsString()
+  @IsOptional()
+  couponCode?: string;
 }

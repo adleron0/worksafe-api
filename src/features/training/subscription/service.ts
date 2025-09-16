@@ -13,6 +13,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { CheckoutService } from 'src/features/gateway/checkout/checkout.service';
 import { CacheService } from 'src/common/cache/cache.service';
 import { AlunosService } from '../trainees/service';
+import { CouponService } from '../coupon/service';
 
 type entity = {
   model: keyof PrismaClient;
@@ -33,6 +34,7 @@ export class SubscriptionService extends GenericService<
     private checkoutService: CheckoutService,
     private cacheService: CacheService,
     private alunosService: AlunosService,
+    private couponService: CouponService,
   ) {
     super(prisma, null);
   }
@@ -111,7 +113,6 @@ export class SubscriptionService extends GenericService<
     const trainee = await this.prisma.selectFirst('trainee', {
       where: {
         cpf: dto.cpf,
-        companyId: courseClass.companyId,
       },
     });
 
@@ -229,11 +230,45 @@ export class SubscriptionService extends GenericService<
       }
     }
 
-    // Usa logParams vazio para evitar problemas com o sistema de logs
-    const logParams = {};
+    // Usa logParams com companyId para o sistema de logs
+    const logParams = {
+      companyId: courseClass.companyId,
+      userId: trainee?.id || null,
+    };
 
     // Remove campos de pagamento e endereço do DTO antes de criar a inscrição
-    const { paymentMethod, creditCard, customerData } = dto;
+    const { paymentMethod, creditCard, customerData, couponCode } = dto;
+
+    // Debug: verificar se cupom está chegando
+    console.log('=== DEBUG CUPOM ===');
+    console.log('dto.couponCode:', dto.couponCode);
+    console.log('courseClass.allowCheckout:', courseClass.allowCheckout);
+    console.log('===================');
+
+    // Valida cupom se fornecido
+    let couponData = null;
+    if (dto.couponCode && courseClass.allowCheckout) {
+      try {
+        console.log('Validando cupom:', dto.couponCode);
+        const couponValidation = await this.couponService.validateCoupon(
+          dto.cpf,
+          dto.couponCode,
+          Number(search.classId),
+          true, // internal = true para receber dados de comissão
+        );
+
+        if (couponValidation.valid) {
+          couponData = couponValidation;
+          console.log('Cupom válido:', couponData);
+        } else {
+          console.log('Cupom inválido:', couponValidation.message);
+          // Não lança erro, apenas ignora o cupom inválido
+        }
+      } catch (error) {
+        console.error('Erro ao validar cupom:', error);
+        // Continua sem cupom em caso de erro
+      }
+    }
 
     // Garante que os dados corretos sejam salvos para a inscrição
     const dataToCreate = {
@@ -273,6 +308,7 @@ export class SubscriptionService extends GenericService<
             paymentMethod,
             creditCard,
             customerData,
+            couponData, // Passa dados do cupom para o checkout
           },
           courseClass.companyId,
         );
@@ -507,7 +543,7 @@ export class SubscriptionService extends GenericService<
             confirmedAt: subscription.confirmedAt || new Date(),
             traineeId: traineeId,
           },
-          {}, // logParams vazio - operação do webhook
+          { companyId: subscription.companyId }, // logParams com companyId
           null,
           subscriptionId,
         );

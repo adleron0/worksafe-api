@@ -35,6 +35,9 @@ export function formaterPreUpdate(UpdateDto: any) {
   if (UpdateDto.firstPurchaseOnly === undefined)
     UpdateDto.firstPurchaseOnly = false;
   if (!UpdateDto.usageLimit) UpdateDto.usageLimit = null;
+  if (!UpdateDto.minPurchaseValue) UpdateDto.minPurchaseValue = null;
+  if (!UpdateDto.maxDiscountValue) UpdateDto.maxDiscountValue = null;
+  if (!UpdateDto.commissionValue) UpdateDto.commissionValue = null;
 
   // Exemplos de outros tipos de campos
   // if (UpdateDto.numberField === undefined) UpdateDto.numberField = 0;
