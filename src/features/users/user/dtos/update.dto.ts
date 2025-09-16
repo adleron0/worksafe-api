@@ -106,7 +106,6 @@ export class UpdateDto {
   state?: string;
 
   @IsString()
-  @Length(8, 9, { message: 'CEP deve ter 8 ou 9 caracteres' })
   @IsOptional()
   zipCode?: string;
 }

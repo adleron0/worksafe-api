@@ -73,6 +73,29 @@ export class CompanyController extends GenericController<
     return super.get(request, query, paramsIncludes, noCompany, encryptFields);
   }
 
+  @Get('first-steps')
+  async validateFirstSteps(@Req() request: Request) {
+    const companyId = Number(request.user.companyId);
+    const validation = await this.Service.validateFirstSteps(companyId);
+
+    // Retorna o status detalhado de cada passo
+    return {
+      hasCourse: validation.hasCourse,
+      hasInstructor: validation.hasInstructor,
+      hasInstructorSignature: validation.hasInstructorSignature,
+      hasCertificate: validation.hasCertificate,
+      hasAsaasToken: validation.hasAsaasToken,
+      hasClass: validation.hasClass,
+      allCompleted:
+        validation.hasCourse &&
+        validation.hasInstructor &&
+        validation.hasInstructorSignature &&
+        validation.hasCertificate &&
+        validation.hasAsaasToken &&
+        validation.hasClass,
+    };
+  }
+
   @Public() // descomente para tornar publica
   @Cache({ prefix: 'companies', ttl: 172800 }) // cache (48 horas)
   @Get('public')

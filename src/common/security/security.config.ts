@@ -38,6 +38,18 @@ export const defaultSecurityConfig: SecurityConfig = {
       maxBurst: 80,
       blockDuration: 30000,
     },
+    '/profiles': {
+      windowMs: 60000,
+      maxRequests: 200,
+      maxBurst: 100,
+      blockDuration: 30000,
+    },
+    '/permissions': {
+      windowMs: 60000,
+      maxRequests: 200,
+      maxBurst: 100,
+      blockDuration: 30000,
+    },
     '/api': {
       windowMs: 60000,
       maxRequests: 300,

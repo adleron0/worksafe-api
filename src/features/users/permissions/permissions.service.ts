@@ -56,10 +56,8 @@ export class PermissionsService {
         },
         {
           where: {
-            profileId_permissionId: {
-              profileId: payload.profileId,
-              permissionId: payload.permissionId,
-            },
+            profileId: payload.profileId,
+            permissionId: payload.permissionId,
           },
         },
         logParams,
