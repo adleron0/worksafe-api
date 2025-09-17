@@ -532,8 +532,8 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       }
       return created;
     } catch (error) {
-      console.log('🚀 ~ GenericService<TCreateDto, ~ error:', error);
-      throw new BadRequestException(error);
+      console.log('🛑 POST~ ERRO AO CRIAR: ' + entity.name, error);
+      throw new BadRequestException('Erro ao Criar: ' + entity.name);
     }
   }
 
@@ -543,7 +543,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
     paramsIncludes = {},
     noCompany = false,
     encryptionFields: string[] | boolean = false, // Pode ser array de campos ou boolean
-  ): Promise<{ total: number; rows: TEntity[] }> {
+  ): Promise<{ total: number; rows: TEntity[]; aggregations?: any }> {
     try {
       const params: any = {};
 
@@ -827,6 +827,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       delete params.where.endedAt;
       delete params.where.createdAt;
       delete params.where.omitAttributes;
+      delete params.where['-aggregate']; // Remove o parâmetro -aggregate
       Object.keys(params.where).forEach((key) => {
         if (key.startsWith('order-')) {
           delete params.where[key];
@@ -923,6 +924,99 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       let orderBy = [{ id: 'desc' }]; // Ordenação padrão
       if (filters.orderBy.length) orderBy = filters.orderBy; // Ordenação customizada da busca
 
+      // Sub-busca com aggregate (antes da busca principal)
+      let aggregations;
+      if (filters['-aggregate']) {
+        console.log('📊 AGGREGATE - Config recebido:', filters['-aggregate']);
+
+        try {
+          const aggregateConfig = filters['-aggregate'];
+
+          // Novo parser: formato campo:count:sum:value,discount:avg:field
+          // Primeiro elemento é sempre o campo de agrupamento
+          const parts = aggregateConfig.split(':');
+          const groupByField = parts[0];
+
+          // Resto são as operações
+          const operations = parts.slice(1);
+
+          console.log('📊 AGGREGATE - Campo para agrupar:', groupByField);
+          console.log('📊 AGGREGATE - Operações:', operations);
+
+          // Usa uma abordagem dinâmica para acessar o modelo
+          const modelDelegate = (this.prisma as any)[entity.model];
+
+          if (modelDelegate && typeof modelDelegate.groupBy === 'function') {
+            const aggregateOptions: any = {
+              by: [groupByField],
+              where: params.where,
+            };
+
+            if (operations.length > 0) {
+              // Processa cada operação no formato: count:sum:value,discount:avg:field
+              for (let i = 0; i < operations.length; i++) {
+                const item = operations[i];
+
+                if (item === 'count') {
+                  aggregateOptions._count = true;
+                } else if (['sum', 'avg', 'min', 'max'].includes(item)) {
+                  // É uma operação, próximo item deve ser o(s) campo(s)
+                  const operation = item;
+
+                  // Próximo item contém os campos (separados por vírgula)
+                  i++;
+                  if (i < operations.length) {
+                    const fields = operations[i].split(',');
+
+                    aggregateOptions[`_${operation}`] = fields.reduce(
+                      (acc, field) => ({
+                        ...acc,
+                        [field.trim()]: true,
+                      }),
+                      {},
+                    );
+                  }
+                }
+              }
+            } else {
+              // Se não especificar operações, assume count por padrão
+              aggregateOptions._count = true;
+            }
+
+            console.log('📊 AGGREGATE - Opções montadas:', JSON.stringify(aggregateOptions, null, 2));
+
+            const aggregateResults =
+              await modelDelegate.groupBy(aggregateOptions);
+
+            console.log('📊 AGGREGATE - Resultados:', JSON.stringify(aggregateResults, null, 2));
+
+            // Formata o resultado
+            aggregations = aggregateResults.reduce(
+              (acc, curr) => ({
+                ...acc,
+                [curr[groupByField]]: {
+                  ...(curr._count !== undefined && { _count: curr._count }),
+                  ...(curr._sum && { _sum: curr._sum }),
+                  ...(curr._avg && { _avg: curr._avg }),
+                  ...(curr._min && { _min: curr._min }),
+                  ...(curr._max && { _max: curr._max }),
+                },
+              }),
+              {},
+            );
+
+            console.log('📊 AGGREGATE - Resultado final formatado:', JSON.stringify(aggregations, null, 2));
+          } else {
+            console.log(
+              `⚠️ groupBy não disponível para o modelo ${String(entity.model)}`,
+            );
+          }
+        } catch (error) {
+          console.log(`⚠️ Erro ao fazer aggregate:`, error);
+          // Continua sem aggregations em caso de erro
+        }
+      }
+
       let result;
       if (filters.all || isLimitAll) {
         const rows = await this.prisma.select(entity.model, params, orderBy);
@@ -979,11 +1073,16 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
         }
       }
 
+      // Adiciona aggregations ao resultado se existir
+      if (aggregations) {
+        result.aggregations = aggregations;
+      }
+
       // Retornando a lista de usuários e a contagem total
       return result;
     } catch (error) {
-      console.log('🚀 ~ GenericService<TCreateDto, ~ error:', error);
-      throw new BadRequestException(error);
+      console.log('🛑 GET~ ERRO AO BUSCAR: ' + entity.name, error);
+      throw new BadRequestException('Erro ao buscar: ' + entity.name);
     }
   }
 
@@ -1075,7 +1174,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
           // Arquivo único - mantém compatibilidade com imageUrl
           if (verifyExist.imageUrl) {
             console.log(
-              '🚀 ~ GenericService ~ update ~ verifyExist.imageUrl:',
+              '🚀 ~ UPDATE: verifyExist.imageUrl:',
               verifyExist.imageUrl,
             );
             await this.uploadService.deleteImageFromS3(verifyExist.imageUrl);
@@ -1114,8 +1213,8 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       }
       return updated;
     } catch (error) {
-      console.log('🚀 ~ GenericService<TCreateDto, ~ error:', error);
-      throw new BadRequestException(error);
+      console.log('🛑 PUT~ ERRO AO ATUALIZAR: ' + entity.name, error);
+      throw new BadRequestException('Erro ao atualizar: ' + entity.name);
     }
   }
 
@@ -1170,8 +1269,8 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
 
       return user;
     } catch (error) {
-      console.log('🚀 ~ GenericService<TCreateDto, ~ error:', error);
-      throw new BadRequestException(error);
+      console.log('🛑 PATCH~ ERRO AO MUDAR STATUS: ' + entity.name, error);
+      throw new BadRequestException('Erro ao mudar Status: ' + entity.name);
     }
   }
 
@@ -1260,8 +1359,10 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
 
       return upserted;
     } catch (error) {
-      console.log('🚀 ~ GenericService<TCreateDto, ~ error:', error);
-      throw new BadRequestException(error);
+      console.log('🛑 UPSERT~ ERRO AO TENTAR UPSERT: ' + entity.name, error);
+      throw new BadRequestException(
+        'Erro ao tentar atualizar ou Criar: ' + entity.name,
+      );
     }
   }
 }

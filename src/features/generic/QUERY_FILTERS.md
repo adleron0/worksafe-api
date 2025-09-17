@@ -58,17 +58,109 @@ Permite passar um array de condições, onde pelo menos uma deve ser satisfeita.
 - **name**: busca por nome (case insensitive, contém)
   - `?name=joao`
 - **active**: busca ativos/inativos
-  - `?active=true` (apenas ativos)
-  - `?active=false` (apenas inativos)
+  - `?active=true` (apenas ativos - inactiveAt IS NULL)
+  - `?active=false` (apenas inativos - inactiveAt IS NOT NULL)
 - **createdAt**: busca por data de criação
   - `?createdAt[0]=2024-01-01&createdAt[1]=2024-12-31` (intervalo)
+- **show**: define quais associações incluir na resposta
+  - `?show=trainee,subscription,company` (equivale ao include do Prisma)
+- **omitAttributes**: campos a serem omitidos da resposta
+  - `?omitAttributes=password,key` (remove campos sensíveis)
+- **companyId**: filtro automático por empresa (quando aplicável)
+- **self**: parâmetro especial para filtros personalizados
 
 ## Paginação e Ordenação
 
 - **page**: página (começa em 0)
-- **limit**: quantidade por página
+- **limit**: quantidade por página (ou 'all' para buscar todos)
+- **all**: buscar todos os registros sem paginação (`?all=true`)
 - **orderBy**: ordenação (array de objetos)
   - Exemplo: `orderBy[0][id]=desc`
+  - Ordem padrão: `id desc`
+
+## Agregações com -aggregate
+
+O parâmetro `-aggregate` permite realizar operações de agregação (count, sum, avg, min, max) agrupadas por um campo específico. Muito útil para dashboards e relatórios.
+
+### Sintaxe
+
+```
+-aggregate=CAMPO_AGRUPAR:operacao1:campo1,campo2:operacao2:campo3
+```
+
+### Operações disponíveis
+
+- **count**: Conta a quantidade de registros
+- **sum**: Soma valores de campos numéricos
+- **avg**: Calcula a média de campos numéricos
+- **min**: Retorna o valor mínimo
+- **max**: Retorna o valor máximo
+
+### Exemplos práticos
+
+1. **Contar registros por status**:
+   ```
+   ?-aggregate=status:count
+   ```
+   Retorno:
+   ```json
+   {
+     "aggregations": {
+       "paid": { "_count": 45 },
+       "processing": { "_count": 10 }
+     }
+   }
+   ```
+
+2. **Somar valores por status**:
+   ```
+   ?-aggregate=status:sum:value
+   ```
+   Retorno:
+   ```json
+   {
+     "aggregations": {
+       "paid": { "_sum": { "value": 22500 } },
+       "processing": { "_sum": { "value": 5000 } }
+     }
+   }
+   ```
+
+3. **Múltiplas operações combinadas**:
+   ```
+   ?-aggregate=status:count:sum:value,discount:avg:commissionPercentage
+   ```
+   Retorno:
+   ```json
+   {
+     "aggregations": {
+       "paid": {
+         "_count": 45,
+         "_sum": { "value": 22500, "discount": 2000 },
+         "_avg": { "commissionPercentage": 12.5 }
+       }
+     }
+   }
+   ```
+
+4. **Agregação por gateway com todas operações**:
+   ```
+   ?-aggregate=gateway:count:sum:value:avg:commissionPercentage:min:value:max:value
+   ```
+
+5. **Agregação por seller (comissões)**:
+   ```
+   ?-aggregate=sellerId:count:sum:commissionValue:avg:commissionPercentage
+   ```
+
+### Observações sobre -aggregate
+
+- O campo de agrupamento é sempre o primeiro elemento
+- Use `:` para separar campo/operações
+- Use `,` para separar múltiplos campos dentro da mesma operação
+- As agregações respeitam todos os filtros aplicados na busca
+- O resultado retorna no campo `aggregations` junto com os dados paginados
+- Funciona com qualquer modelo que tenha o método `groupBy` do Prisma
 
 ## Filtros em Associações (Includes)
 
@@ -174,12 +266,67 @@ Todos os operadores do serviço genérico funcionam com associações:
      - ⚠️ Não pode ter `select` junto com `where` (limitação do Prisma)
      - ✅ O filtro é aplicado no `where` do include
 
-## Observações
-- Todos os filtros podem ser combinados.
-- O filtro `or` aceita todos os operadores acima.
-- Os filtros são processados automaticamente pelo serviço genérico.
-- Filtros de associações aninhadas são aplicados recursivamente.
-- Filtros não válidos (associação não incluída) são silenciosamente ignorados.
+## Criptografia/Encriptação
+
+O serviço genérico suporta encriptação automática de campos sensíveis na resposta:
+
+```typescript
+// No controller
+await this.genericService.get(
+  filters,
+  entity,
+  paramsIncludes,
+  false, // noCompany
+  ['cpf', 'rg', 'telefone'] // campos para encriptar
+);
+
+// Ou usando configuração padrão
+await this.genericService.get(
+  filters,
+  entity,
+  paramsIncludes,
+  false,
+  true // usa encryptionConfig[entityName]
+);
+```
+
+## Upload de Arquivos
+
+O serviço genérico processa uploads automaticamente:
+
+- **Arquivo único**: Campo `imageUrl` é preenchido automaticamente
+- **Múltiplos arquivos**: Campos `{fieldName}Url` são preenchidos
+- **Update**: Remove arquivos antigos do S3 automaticamente
+- **Delete**: Suporte a exclusão de imagens existentes
+
+## Hooks Personalizados
+
+```typescript
+await this.genericService.create(dto, logParams, entity, file, searchVerify, {
+  hookPreCreate: async ({ dto, entity, prisma, logParams }) => {
+    // Lógica antes de criar
+  },
+  hookPosCreate: async (params, created) => {
+    // Lógica após criar
+  }
+});
+```
+
+Hooks disponíveis:
+- `hookPreCreate` / `hookPosCreate`
+- `hookPreUpdate` / `hookPosUpdate`
+- `hookPreUpsert` / `hookPosUpsert`
+
+## Observações Gerais
+
+- Todos os filtros podem ser combinados
+- O filtro `or` aceita todos os operadores acima
+- Os filtros são processados automaticamente pelo serviço genérico
+- Filtros de associações aninhadas são aplicados recursivamente
+- Filtros não válidos (associação não incluída) são silenciosamente ignorados
+- Suporte a soft delete através de `inactiveAt` e `deletedAt`
+- Logs automáticos de todas as operações
+- Tratamento de erros padronizado
 
 ---
 
