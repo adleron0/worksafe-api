@@ -58,9 +58,51 @@ export const defaultSecurityConfig: SecurityConfig = {
     },
     '/auth': {
       windowMs: 60000,
-      maxRequests: 30,
-      maxBurst: 10,
+      maxRequests: 60,
+      maxBurst: 20,
       blockDuration: 180000,
+    },
+    '/auth/student': {
+      windowMs: 60000,
+      maxRequests: 300, // Aumentado 5x - de 60 para 300
+      maxBurst: 100, // Aumentado 5x - de 20 para 100
+      blockDuration: 30000, // Reduzido de 3 min para 30 seg
+    },
+    '/student-progress': {
+      windowMs: 60000,
+      maxRequests: 500, // Alto volume esperado para progresso
+      maxBurst: 200, // Permite rajadas durante navegação
+      blockDuration: 30000, // Bloqueio curto de 30 seg
+    },
+    '/student': {
+      windowMs: 60000,
+      maxRequests: 400, // Tolerância alta para rotas gerais de student
+      maxBurst: 150,
+      blockDuration: 30000,
+    },
+    '/student-courses': {
+      windowMs: 60000,
+      maxRequests: 400,
+      maxBurst: 150,
+      blockDuration: 30000,
+    },
+    '/student-lessons': {
+      windowMs: 60000,
+      maxRequests: 400,
+      maxBurst: 150,
+      blockDuration: 30000,
+    },
+    '/student-evaluations': {
+      windowMs: 60000,
+      maxRequests: 400,
+      maxBurst: 150,
+      blockDuration: 30000,
+    },
+    '/student-certificates': {
+      windowMs: 60000,
+      maxRequests: 300, // Menos frequente que outras
+      maxBurst: 100,
+      blockDuration: 30000,
     },
     '/upload': {
       windowMs: 60000,
