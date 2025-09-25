@@ -81,6 +81,10 @@ export class UpdateDto {
   @IsOptional()
   sellerConfig?: any;
 
+  @IsJSON()
+  @IsOptional()
+  bankAccount?: any;
+
   @IsString()
   @IsOptional()
   address?: string;
