@@ -13,7 +13,6 @@ import {
 } from 'class-validator';
 
 export class CreateDto {
-
   @IsInt()
   @Type(() => Number)
   @IsNotEmpty({ message: 'financialRecordId is required' })

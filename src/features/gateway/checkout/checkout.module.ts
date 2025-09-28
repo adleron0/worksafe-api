@@ -5,11 +5,7 @@ import { AsaasModule } from 'src/common/gateways/asaas/asaas.module';
 import { SubscriptionModule } from 'src/features/training/subscription/module';
 
 @Module({
-  imports: [
-    PrismaModule,
-    AsaasModule,
-    forwardRef(() => SubscriptionModule),
-  ],
+  imports: [PrismaModule, AsaasModule, forwardRef(() => SubscriptionModule)],
   providers: [CheckoutService],
   exports: [CheckoutService],
 })

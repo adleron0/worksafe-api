@@ -28,6 +28,90 @@ type entity = {
   permission: string;
 };
 
+// Função auxiliar para detectar e processar valores de data
+function processDateValue(
+  value: any,
+  operator: 'gt' | 'lt' | 'gte' | 'lte',
+): any {
+  // Primeiro tenta parsear como número
+  const numValue = ifNumberParseNumber(value);
+
+  // Se for um número válido e não for uma data timestamp, retorna o número
+  if (
+    typeof numValue === 'number' &&
+    !isNaN(numValue) &&
+    numValue < 10000000000
+  ) {
+    return numValue;
+  }
+
+  // Verifica se é uma string que pode ser uma data
+  if (typeof value === 'string') {
+    // Padrões de data comuns
+    const dateOnlyPattern = /^\d{4}-\d{2}-\d{2}$/; // YYYY-MM-DD
+    const dateTimePattern = /^\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}(:\d{2})?/; // Com horário
+
+    // Se match com padrão de data apenas (sem horário)
+    if (dateOnlyPattern.test(value)) {
+      const baseDate = new Date(value);
+
+      // Valida se é uma data válida
+      if (!isNaN(baseDate.getTime())) {
+        switch (operator) {
+          case 'lt':
+          case 'lte':
+            // Para menor/menor igual, adiciona 23:59:59.999
+            const endDate = new Date(value);
+            endDate.setHours(23, 59, 59, 999);
+            return endDate;
+          case 'gt':
+          case 'gte':
+            // Para maior/maior igual, adiciona 00:00:00.000
+            const startDate = new Date(value);
+            startDate.setHours(0, 0, 0, 0);
+            return startDate;
+        }
+      }
+    } else if (dateTimePattern.test(value)) {
+      // Já tem horário, usa como está
+      const dateValue = new Date(value);
+      if (!isNaN(dateValue.getTime())) {
+        return dateValue;
+      }
+    } else {
+      // Tenta criar uma data diretamente
+      const dateValue = new Date(value);
+      if (!isNaN(dateValue.getTime())) {
+        // É uma data válida
+        // Verifica se tem componente de tempo significativo
+        const hasTime =
+          value.includes('T') || value.includes(' ') || value.includes(':');
+
+        if (!hasTime) {
+          // Não tem horário, ajusta baseado no operador
+          switch (operator) {
+            case 'lt':
+            case 'lte':
+              const endDate = new Date(dateValue);
+              endDate.setHours(23, 59, 59, 999);
+              return endDate;
+            case 'gt':
+            case 'gte':
+              const startDate = new Date(dateValue);
+              startDate.setHours(0, 0, 0, 0);
+              return startDate;
+          }
+        }
+
+        return dateValue;
+      }
+    }
+  }
+
+  // Se não for data nem número, retorna o valor original
+  return value;
+}
+
 // Função utilitária para processar filtros
 function parseFilterObject(filterObj: any, skipNestedFilters = false) {
   const condition: any = {};
@@ -97,7 +181,7 @@ function parseFilterObject(filterObj: any, skipNestedFilters = false) {
 
       if (!fieldPath.includes('.')) {
         if (!condition[fieldPath]) condition[fieldPath] = {};
-        condition[fieldPath].gt = ifNumberParseNumber(filterObj[key]);
+        condition[fieldPath].gt = processDateValue(filterObj[key], 'gt');
       }
     } else if (key.includes('lt-')) {
       const fieldPath = key.substring(3); // Remove 'lt-' prefix
@@ -105,7 +189,7 @@ function parseFilterObject(filterObj: any, skipNestedFilters = false) {
 
       if (!fieldPath.includes('.')) {
         if (!condition[fieldPath]) condition[fieldPath] = {};
-        condition[fieldPath].lt = ifNumberParseNumber(filterObj[key]);
+        condition[fieldPath].lt = processDateValue(filterObj[key], 'lt');
       }
     } else if (key.includes('gte-')) {
       const fieldPath = key.substring(4); // Remove 'gte-' prefix
@@ -113,7 +197,7 @@ function parseFilterObject(filterObj: any, skipNestedFilters = false) {
 
       if (!fieldPath.includes('.')) {
         if (!condition[fieldPath]) condition[fieldPath] = {};
-        condition[fieldPath].gte = ifNumberParseNumber(filterObj[key]);
+        condition[fieldPath].gte = processDateValue(filterObj[key], 'gte');
       }
     } else if (key.includes('lte-')) {
       const fieldPath = key.substring(4); // Remove 'lte-' prefix
@@ -121,7 +205,7 @@ function parseFilterObject(filterObj: any, skipNestedFilters = false) {
 
       if (!fieldPath.includes('.')) {
         if (!condition[fieldPath]) condition[fieldPath] = {};
-        condition[fieldPath].lte = ifNumberParseNumber(filterObj[key]);
+        condition[fieldPath].lte = processDateValue(filterObj[key], 'lte');
       }
     } else {
       // Para campos sem operador
@@ -669,16 +753,20 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
               not: ifNumberParseNumber(filterValue),
             };
           } else if (operator === 'gt') {
-            currentLevel[finalField] = { gt: ifNumberParseNumber(filterValue) };
+            currentLevel[finalField] = {
+              gt: processDateValue(filterValue, 'gt'),
+            };
           } else if (operator === 'lt') {
-            currentLevel[finalField] = { lt: ifNumberParseNumber(filterValue) };
+            currentLevel[finalField] = {
+              lt: processDateValue(filterValue, 'lt'),
+            };
           } else if (operator === 'gte') {
             currentLevel[finalField] = {
-              gte: ifNumberParseNumber(filterValue),
+              gte: processDateValue(filterValue, 'gte'),
             };
           } else if (operator === 'lte') {
             currentLevel[finalField] = {
-              lte: ifNumberParseNumber(filterValue),
+              lte: processDateValue(filterValue, 'lte'),
             };
           } else {
             currentLevel[finalField] = ifNumberParseNumber(filterValue);
@@ -747,13 +835,21 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
             } else if (operator === 'not') {
               whereCondition[fieldName] = { not: filterValue };
             } else if (operator === 'gt') {
-              whereCondition[fieldName] = { gt: filterValue };
+              whereCondition[fieldName] = {
+                gt: processDateValue(filterValue, 'gt'),
+              };
             } else if (operator === 'lt') {
-              whereCondition[fieldName] = { lt: filterValue };
+              whereCondition[fieldName] = {
+                lt: processDateValue(filterValue, 'lt'),
+              };
             } else if (operator === 'gte') {
-              whereCondition[fieldName] = { gte: filterValue };
+              whereCondition[fieldName] = {
+                gte: processDateValue(filterValue, 'gte'),
+              };
             } else if (operator === 'lte') {
-              whereCondition[fieldName] = { lte: filterValue };
+              whereCondition[fieldName] = {
+                lte: processDateValue(filterValue, 'lte'),
+              };
             } else {
               whereCondition[fieldName] = filterValue;
             }
@@ -983,12 +1079,18 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
               aggregateOptions._count = true;
             }
 
-            console.log('📊 AGGREGATE - Opções montadas:', JSON.stringify(aggregateOptions, null, 2));
+            console.log(
+              '📊 AGGREGATE - Opções montadas:',
+              JSON.stringify(aggregateOptions, null, 2),
+            );
 
             const aggregateResults =
               await modelDelegate.groupBy(aggregateOptions);
 
-            console.log('📊 AGGREGATE - Resultados:', JSON.stringify(aggregateResults, null, 2));
+            console.log(
+              '📊 AGGREGATE - Resultados:',
+              JSON.stringify(aggregateResults, null, 2),
+            );
 
             // Formata o resultado
             aggregations = aggregateResults.reduce(
@@ -1005,7 +1107,10 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
               {},
             );
 
-            console.log('📊 AGGREGATE - Resultado final formatado:', JSON.stringify(aggregations, null, 2));
+            console.log(
+              '📊 AGGREGATE - Resultado final formatado:',
+              JSON.stringify(aggregations, null, 2),
+            );
           } else {
             console.log(
               `⚠️ groupBy não disponível para o modelo ${String(entity.model)}`,
