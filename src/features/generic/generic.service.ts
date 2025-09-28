@@ -33,20 +33,26 @@ function processDateValue(
   value: any,
   operator: 'gt' | 'lt' | 'gte' | 'lte',
 ): any {
-  // Primeiro tenta parsear como número
-  const numValue = ifNumberParseNumber(value);
-
-  // Se for um número válido e não for uma data timestamp, retorna o número
-  if (
-    typeof numValue === 'number' &&
-    !isNaN(numValue) &&
-    numValue < 10000000000
-  ) {
-    return numValue;
+  // 1. Se já for número, retorna direto
+  if (typeof value === 'number') {
+    return value;
   }
 
-  // Verifica se é uma string que pode ser uma data
+  // 2. Se for string, primeiro tenta converter para número
   if (typeof value === 'string') {
+    // Tenta conversão direta para número
+    const numValue = Number(value);
+
+    // Se for um número válido (incluindo 0, decimais, negativos), retorna como número
+    if (!isNaN(numValue)) {
+      // Verifica se a string original era puramente numérica (não uma data que coincidentemente converte)
+      // Aceita formatos: "123", "12.5", "-10", "0", "0.0", etc.
+      if (/^-?\d+(\.\d+)?$/.test(value.trim())) {
+        return numValue;
+      }
+    }
+
+    // 3. Agora verifica se é uma data
     // Padrões de data comuns
     const dateOnlyPattern = /^\d{4}-\d{2}-\d{2}$/; // YYYY-MM-DD
     const dateTimePattern = /^\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}(:\d{2})?/; // Com horário
@@ -78,17 +84,15 @@ function processDateValue(
       if (!isNaN(dateValue.getTime())) {
         return dateValue;
       }
-    } else {
-      // Tenta criar uma data diretamente
+    } else if (value.includes('T') || value.includes(':')) {
+      // Tenta criar uma data se tem indicadores de data/hora
       const dateValue = new Date(value);
       if (!isNaN(dateValue.getTime())) {
         // É uma data válida
-        // Verifica se tem componente de tempo significativo
-        const hasTime =
-          value.includes('T') || value.includes(' ') || value.includes(':');
+        const hasTime = value.includes(':');
 
         if (!hasTime) {
-          // Não tem horário, ajusta baseado no operador
+          // Não tem horário completo, ajusta baseado no operador
           switch (operator) {
             case 'lt':
             case 'lte':
@@ -108,7 +112,7 @@ function processDateValue(
     }
   }
 
-  // Se não for data nem número, retorna o valor original
+  // 4. Se não for número nem data válida, retorna o valor original
   return value;
 }
 
