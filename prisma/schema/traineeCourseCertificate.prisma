@@ -11,6 +11,8 @@ model TraineeCourseCertificate {
   expirationDate       DateTime?
   fabricJsonFront      Json?       @map("fabric_json_front") @db.JsonB
   fabricJsonBack       Json?       @map("fabric_json_back") @db.JsonB
+  canvasWidth     Int     @default(800) @map("canvas_width")
+  canvasHeight    Int     @default(600) @map("canvas_height")
   variableToReplace    Json?       @map("variable_to_replace") @db.JsonB
   showOnWebsiteConsent Boolean     @default(true)
   pdfUrl               String?     @db.VarChar(255)

@@ -174,6 +174,8 @@ export class TraineeCertificateService extends GenericService<
         certificatesData.push({
           fabricJsonFront: classData.certificate.fabricJsonFront,
           fabricJsonBack: classData.certificate.fabricJsonBack,
+          canvasWidth: classData.certificate.canvasWidth,
+          canvasHeight: classData.certificate.canvasHeight,
           courseId: classData.courseId,
           traineeId: subscription.traineeId,
           classId: classId,

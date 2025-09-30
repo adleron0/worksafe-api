@@ -621,7 +621,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       return created;
     } catch (error) {
       console.log('🛑 POST~ ERRO AO CRIAR: ' + entity.name, error);
-      throw new BadRequestException('Erro ao Criar: ' + entity.name);
+      throw new BadRequestException(error.message);
     }
   }
 
@@ -1323,7 +1323,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       return updated;
     } catch (error) {
       console.log('🛑 PUT~ ERRO AO ATUALIZAR: ' + entity.name, error);
-      throw new BadRequestException('Erro ao atualizar: ' + entity.name);
+      throw new BadRequestException(error.message);
     }
   }
 
@@ -1469,9 +1469,7 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
       return upserted;
     } catch (error) {
       console.log('🛑 UPSERT~ ERRO AO TENTAR UPSERT: ' + entity.name, error);
-      throw new BadRequestException(
-        'Erro ao tentar atualizar ou Criar: ' + entity.name,
-      );
+      throw new BadRequestException(error.message);
     }
   }
 }

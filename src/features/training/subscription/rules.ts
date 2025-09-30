@@ -144,6 +144,103 @@ async function hookPosCreate(
   // Personalize aqui se necessário
 }
 
+/**
+ * Valida se a subscription confirmada pode ter seu status alterado
+ * Só valida quando está tentando SAIR de 'confirmed' (dto.subscribeStatus !== 'confirmed')
+ */
+async function validateStatusChangeFromConfirmed(params: {
+  id: number;
+  dto: any;
+  prisma: PrismaService;
+}): Promise<void> {
+  const { id, dto, prisma } = params;
+
+  // 1. Verifica se está tentando alterar o status E o novo status NÃO é 'confirmed'
+  if (!dto.subscribeStatus || dto.subscribeStatus === 'confirmed') {
+    return; // Não precisa validar
+  }
+
+  // 2. Busca a subscription atual do banco
+  const currentSubscription = await prisma.selectFirst(
+    'courseClassSubscription',
+    {
+      where: { id, inactiveAt: null },
+      select: {
+        subscribeStatus: true,
+        traineeId: true,
+        classId: true,
+      },
+    },
+  );
+
+  // Se não encontrou ou não existe, deixa seguir (erro será tratado depois)
+  if (!currentSubscription) {
+    return;
+  }
+
+  // 3. Se o status atual NÃO é 'confirmed', pode alterar à vontade
+  if (currentSubscription.subscribeStatus !== 'confirmed') {
+    return;
+  }
+
+  // 4. Se não tem traineeId, pode alterar à vontade
+  if (!currentSubscription.traineeId) {
+    return;
+  }
+
+  // DAQUI PRA FRENTE: Status atual é 'confirmed', tem traineeId, e está tentando mudar
+
+  // 5. Validação 1: Verifica se tem certificado
+  const certificate = await prisma.selectFirst('traineeCourseCertificate', {
+    where: {
+      traineeId: currentSubscription.traineeId,
+      classId: currentSubscription.classId,
+      inactiveAt: null,
+    },
+    select: { id: true },
+  });
+
+  if (certificate) {
+    throw new BadRequestException(
+      'Não é possível alterar o status desta inscrição pois o aluno já possui certificado emitido',
+    );
+  }
+
+  // 6. Validação 2: Verifica se tem presença registrada
+  const attendance = await prisma.selectFirst('courseClassAttendanceList', {
+    where: {
+      traineeId: currentSubscription.traineeId,
+      classId: currentSubscription.classId,
+      inactiveAt: null,
+    },
+    select: { id: true },
+  });
+
+  if (attendance) {
+    throw new BadRequestException(
+      'Não é possível alterar o status desta inscrição pois o aluno já possui presença registrada',
+    );
+  }
+
+  // 7. Validação 3: Verifica se tem exame realizado
+  const exam = await prisma.selectFirst('courseClassExam', {
+    where: {
+      traineeId: currentSubscription.traineeId,
+      classId: currentSubscription.classId,
+      inactiveAt: null,
+    },
+    select: { id: true },
+  });
+
+  if (exam) {
+    throw new BadRequestException(
+      'Não é possível alterar o status desta inscrição pois o aluno já realizou exame',
+    );
+  }
+
+  // Se chegou até aqui, pode alterar o status
+}
+
 /*
  * Hook de pré update
  */
@@ -155,6 +252,13 @@ async function hookPreUpdate(params: {
   logParams: logParams;
 }) {
   const { id, dto, entity, logParams, prisma } = params;
+
+  // Validação de alteração de status
+  await validateStatusChangeFromConfirmed({
+    id,
+    dto,
+    prisma,
+  });
 
   // Verifica se está confirmando a inscrição e seleciona ou cria o trainee
   if (dto.subscribeStatus === 'confirmed') {

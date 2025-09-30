@@ -154,6 +154,7 @@ export class ClassesController extends GenericController<
       console.log('✅ DEBUG - imageUrl adicionada ao DTO:', CreateDto.imageUrl);
     }
     const search = {
+      name: CreateDto.name,
       courseId: CreateDto.courseId,
       initialDate: CreateDto.initialDate,
     }; // Customize search parameters if needed
