@@ -1,0 +1,21 @@
+// Tabela Blog_Comment - Comentários nos posts com avaliação opcional
+model Blog_Comment {
+  id        Int               @id @default(autoincrement())
+  companyId Int
+  company   Company           @relation(fields: [companyId], references: [id])
+  postId    Int
+  post      Blog_Post         @relation(fields: [postId], references: [id], onDelete: Cascade)
+  parentId  Int?
+  parent    Blog_Comment?     @relation("CommentReplies", fields: [parentId], references: [id])
+  replies   Blog_Comment[]    @relation("CommentReplies")
+  depth     Int               @default(0)
+  visitorId Int
+  visitor   Blog_Visitor      @relation(fields: [visitorId], references: [id])
+  content   String            @db.Text
+  rating    Int?
+  status    BlogCommentStatus @default(published)
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+}

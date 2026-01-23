@@ -1,0 +1,23 @@
+// Tabela Blog_Visitor - Visitantes autenticados via Google OAuth
+model Blog_Visitor {
+  id            Int       @id @default(autoincrement())
+  companyId     Int
+  company       Company   @relation(fields: [companyId], references: [id])
+  name          String    @db.VarChar(255)
+  email         String    @db.VarChar(255)
+  avatarUrl     String?   @db.VarChar(500)
+  googleId      String    @db.VarChar(255)
+  userId        Int?
+  user          User?     @relation(fields: [userId], references: [id])
+  blocked       Boolean   @default(false)
+  blockedReason String?   @db.VarChar(255)
+
+  comments Blog_Comment[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([companyId, email])
+  @@unique([companyId, googleId])
+}

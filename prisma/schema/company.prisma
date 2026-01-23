@@ -61,6 +61,11 @@ model Company {
   traineeCompanies                TraineeCompany[] // Relacionamento com a tabela TraineeCompany
   splitTransactions               SplitTransaction[] // Relacionamento com a tabela SplitTransaction
   coupons                         Coupon[] // Relacionamento com a tabela Coupon
+  blogVisitors                    Blog_Visitor[] // Relacionamento com a tabela Blog_Visitor
+  blogCategories                  Blog_Category[] // Relacionamento com a tabela Blog_Category
+  blogTags                        Blog_Tag[] // Relacionamento com a tabela Blog_Tag
+  blogPosts                       Blog_Post[] // Relacionamento com a tabela Blog_Post
+  blogComments                    Blog_Comment[] // Relacionamento com a tabela Blog_Comment
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
