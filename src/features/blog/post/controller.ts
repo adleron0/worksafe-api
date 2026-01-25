@@ -89,7 +89,7 @@ export class PostController extends GenericController<
 
   @UserPermission(`create_${entity.permission}`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
-  @CacheEvictAll('blog/posts:*', 'cache:*/blog/posts*')
+  @CacheEvictAll('blog/posts:*', 'blog-posts-public:*', 'blog-post-slug:*', 'cache:*/blog/posts*', 'cache:*/blog-posts-public*', 'cache:*/blog-post-slug*')
   @Post()
   @UseInterceptors(
     FileInterceptor('image', getOptimizedMulterOptions()),
@@ -129,7 +129,7 @@ export class PostController extends GenericController<
 
   @UserPermission(`update_${entity.permission}`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
-  @CacheEvictAll('blog/posts:*', 'cache:*/blog/posts*')
+  @CacheEvictAll('blog/posts:*', 'blog-posts-public:*', 'blog-post-slug:*', 'cache:*/blog/posts*', 'cache:*/blog-posts-public*', 'cache:*/blog-post-slug*')
   @Put(':id')
   @UseInterceptors(
     FileInterceptor('image', getOptimizedMulterOptions()),
@@ -164,21 +164,21 @@ export class PostController extends GenericController<
   }
 
   @UserPermission(`activate_${entity.permission}`)
-  @CacheEvictAll('blog/posts:*', 'cache:*/blog/posts*')
+  @CacheEvictAll('blog/posts:*', 'blog-posts-public:*', 'blog-post-slug:*', 'cache:*/blog/posts*', 'cache:*/blog-posts-public*', 'cache:*/blog-post-slug*')
   @Patch('publish/:id')
   async publish(@Param('id') id: number) {
     return this.Service.publish(id);
   }
 
   @UserPermission(`inactive_${entity.permission}`)
-  @CacheEvictAll('blog/posts:*', 'cache:*/blog/posts*')
+  @CacheEvictAll('blog/posts:*', 'blog-posts-public:*', 'blog-post-slug:*', 'cache:*/blog/posts*', 'cache:*/blog-posts-public*', 'cache:*/blog-post-slug*')
   @Patch('archive/:id')
   async archive(@Param('id') id: number) {
     return this.Service.archive(id);
   }
 
   @UserPermission(`update_${entity.permission}`)
-  @CacheEvictAll('blog/posts:*', 'cache:*/blog/posts*')
+  @CacheEvictAll('blog/posts:*', 'blog-posts-public:*', 'blog-post-slug:*', 'cache:*/blog/posts*', 'cache:*/blog-posts-public*', 'cache:*/blog-post-slug*')
   @Patch('draft/:id')
   async toDraft(@Param('id') id: number) {
     return this.Service.toDraft(id);
@@ -263,6 +263,7 @@ export class PostController extends GenericController<
   }
 
   @Public()
+  @Cache({ prefix: 'blog-post-slug', ttl: 300 })
   @Get('public/:slug')
   async getBySlug(
     @Param('slug') slug: string,
