@@ -13,6 +13,8 @@ import {
   ValidationPipe,
   Query,
   applyDecorators,
+  UseGuards,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { Request } from 'express';
@@ -28,6 +30,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 // Import generic controller
 import { GenericController } from 'src/features/generic/generic.controller';
 import { Public } from 'src/auth/decorators/public.decorator';
+// Import visitor guard
+import { VisitorAuthGuard } from '../auth/guards/visitor-auth.guard';
 // Import cache
 import { Cache, CacheEvictAll } from 'src/common/cache';
 import { CacheService } from 'src/common/cache/cache.service';
@@ -132,5 +136,60 @@ export class CommentController extends GenericController<
   @Patch('inactive/:id')
   async inactivate(@Param('id') id: number, @Req() request: Request) {
     return super.inactivate(id, request);
+  }
+
+  // ==================== ROTAS PÚBLICAS ====================
+
+  /**
+   * Lista comentários publicados de um post
+   */
+  @Public()
+  @Get('public')
+  async getPublicComments(@Query() query: any) {
+    // Suporta companyId direto ou busca por company.lp_domain
+    let companyId = query.companyId;
+
+    if (!companyId && query['company.lp_domain']) {
+      const company = await this.Service.findCompanyByDomain(query['company.lp_domain']);
+      if (!company) {
+        throw new BadRequestException('Empresa não encontrada');
+      }
+      companyId = company.id;
+    }
+
+    if (!companyId) {
+      throw new BadRequestException('companyId ou company.lp_domain é obrigatório');
+    }
+    if (!query.postId) {
+      throw new BadRequestException('postId é obrigatório');
+    }
+
+    const page = query.page ? Number(query.page) : 0;
+    const limit = query.limit ? Number(query.limit) : 10;
+
+    return this.Service.getPublicComments(
+      Number(companyId),
+      Number(query.postId),
+      page,
+      limit,
+    );
+  }
+
+  /**
+   * Cria comentário (requer visitante autenticado)
+   */
+  @Public()
+  @UseGuards(VisitorAuthGuard)
+  @Post('public')
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+  async createPublicComment(@Req() req: any, @Body() body: any) {
+    console.log('🔍 createPublicComment - body:', body);
+    console.log('🔍 createPublicComment - visitor:', req.visitor);
+
+    if (!body || !body.postId) {
+      throw new BadRequestException('postId é obrigatório no body');
+    }
+
+    return this.Service.createPublicComment(req.visitor, body);
   }
 }

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -177,5 +178,47 @@ export class PostController extends GenericController<
   @Patch('draft/:id')
   async toDraft(@Param('id') id: number) {
     return this.Service.toDraft(id);
+  }
+
+  // ==================== ROTAS PÚBLICAS ====================
+
+  @Public()
+  @Cache({ prefix: 'blog-posts-public', ttl: 1800 })
+  @Get('public')
+  async getPublic(@Query() query: any) {
+    query.status = 'published';
+    query.active = 'true';
+    const noCompanyPublic = true; // Usa companyId da query, não do token
+    return super.get(
+      { user: { companyId: query.companyId } } as any,
+      query,
+      paramsIncludes,
+      noCompanyPublic,
+      encryptFields,
+    );
+  }
+
+  @Public()
+  @Get('public/:slug')
+  async getBySlug(
+    @Param('slug') slug: string,
+    @Query() query: any,
+  ) {
+    // Suporta companyId direto ou busca por company.lp_domain
+    let companyId = query.companyId;
+
+    if (!companyId && query['company.lp_domain']) {
+      const company = await this.Service.findCompanyByDomain(query['company.lp_domain']);
+      if (!company) {
+        throw new BadRequestException('Empresa não encontrada');
+      }
+      companyId = company.id;
+    }
+
+    if (!companyId) {
+      throw new BadRequestException('companyId ou company.lp_domain é obrigatório');
+    }
+
+    return this.Service.findBySlugAndIncrementViews(Number(companyId), slug);
   }
 }

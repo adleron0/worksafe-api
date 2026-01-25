@@ -133,4 +133,21 @@ export class TagController extends GenericController<
   async inactivate(@Param('id') id: number, @Req() request: Request) {
     return super.inactivate(id, request);
   }
+
+  // ==================== ROTAS PÚBLICAS ====================
+
+  @Public()
+  @Cache({ prefix: 'blog-tags-public', ttl: 3600 })
+  @Get('public')
+  async getPublic(@Query() query: any) {
+    query.active = 'true';
+    const noCompanyPublic = true; // Usa companyId da query, não do token
+    return super.get(
+      { user: { companyId: query.companyId } } as any,
+      query,
+      paramsIncludes,
+      noCompanyPublic,
+      encryptFields,
+    );
+  }
 }

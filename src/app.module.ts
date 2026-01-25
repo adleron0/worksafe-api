@@ -58,6 +58,7 @@ import { TagModule } from './features/blog/tag/module';
 import { PostModule } from './features/blog/post/module';
 import { VisitorModule } from './features/blog/visitor/module';
 import { CommentModule } from './features/blog/comment/module';
+import { BlogAuthModule } from './features/blog/auth/auth.module';
 
 @Module({
   imports: [
@@ -114,6 +115,7 @@ import { CommentModule } from './features/blog/comment/module';
     PostModule,
     VisitorModule,
     CommentModule,
+    BlogAuthModule,
   ],
   controllers: [],
   providers: [
