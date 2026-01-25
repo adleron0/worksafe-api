@@ -81,8 +81,20 @@ export class UpdateDto {
   @IsOptional()
   sellerConfig?: any;
 
-  @IsJSON()
   @IsOptional()
+  @Transform(({ value }) => {
+    // Se for string vazia ou undefined, retorna undefined para não enviar ao Prisma
+    if (!value || value === '' || value === 'undefined') return undefined;
+    // Se for string JSON, faz parse
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return undefined;
+      }
+    }
+    return value;
+  })
   bankAccount?: any;
 
   @IsString()
