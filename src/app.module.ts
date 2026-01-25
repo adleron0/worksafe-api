@@ -52,6 +52,13 @@ import { StudentProgressModule } from './features/student/student-progress/modul
 import { StudentCertificatesModule } from './features/student/student-certificates/module';
 import { StudentEvaluationsModule } from './features/student/student-evaluations/module';
 
+// Rotas do Blog
+import { CategoryModule } from './features/blog/category/module';
+import { TagModule } from './features/blog/tag/module';
+import { PostModule } from './features/blog/post/module';
+import { VisitorModule } from './features/blog/visitor/module';
+import { CommentModule } from './features/blog/comment/module';
+
 @Module({
   imports: [
     SecurityModule, // Módulo de segurança primeiro
@@ -101,6 +108,12 @@ import { StudentEvaluationsModule } from './features/student/student-evaluations
     StudentCertificatesModule,
     StudentEvaluationsModule,
     CouponModule,
+    // Blog
+    CategoryModule,
+    TagModule,
+    PostModule,
+    VisitorModule,
+    CommentModule,
   ],
   controllers: [],
   providers: [
