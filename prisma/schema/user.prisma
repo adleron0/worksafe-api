@@ -37,6 +37,8 @@ model User {
   financialRecords FinancialRecords[]  // Registros financeiros associados ao seller
   coupons          Coupon[]            // Cupons associados ao seller
   splitTransactions SplitTransaction[] // Transações de split associadas ao seller
+  blogPosts        Blog_Post[]         // Posts do blog criados pelo usuário
+  blogVisitors     Blog_Visitor[]      // Visitantes vinculados a este usuário (mesmo email)
 
   @@unique([email, companyId]) // Garante que o email seja único dentro da mesma empresa
   @@unique([id, companyId]) // Índice composto para id e companyId

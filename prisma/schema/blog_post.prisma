@@ -1,0 +1,28 @@
+// Tabela Blog_Post - Posts/Artigos do blog
+model Blog_Post {
+  id          Int            @id @default(autoincrement())
+  companyId   Int
+  company     Company        @relation(fields: [companyId], references: [id])
+  authorId    Int
+  author      User           @relation(fields: [authorId], references: [id])
+  categoryId  Int?
+  category    Blog_Category? @relation(fields: [categoryId], references: [id])
+  title       String         @db.VarChar(255)
+  slug        String         @db.VarChar(255)
+  excerpt     String?        @db.VarChar(500)
+  content     String         @db.Text
+  coverImage  String?        @db.VarChar(500)
+  status      BlogPostStatus @default(draft)
+  featured    Boolean        @default(false)
+  publishedAt DateTime?
+  viewCount   Int            @default(0)
+
+  tags     Blog_PostTag[]
+  comments Blog_Comment[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([companyId, slug])
+}

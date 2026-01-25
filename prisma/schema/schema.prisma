@@ -85,3 +85,17 @@ enum SplitStatus {
   REFUNDED         // Estornado
   BLOCKED          // Bloqueado por divergência
 }
+
+// Status dos posts do blog
+enum BlogPostStatus {
+  draft
+  published
+  archived
+}
+
+// Status dos comentários do blog
+enum BlogCommentStatus {
+  published
+  hidden
+  spam
+}
