@@ -33,6 +33,8 @@ import { Public } from 'src/auth/decorators/public.decorator';
 // Import cache
 import { Cache, CacheEvictAll } from 'src/common/cache';
 import { CacheService } from 'src/common/cache/cache.service';
+// Import AI
+import { AIService } from 'src/common/ai';
 // Import de configuraões
 import { paramsIncludes } from './associations';
 import {
@@ -67,6 +69,8 @@ export class PostController extends GenericController<
     private readonly Service: Service,
     // cacheService é usado pelos decorators de cache
     private readonly cacheService: CacheService,
+    // AI Service para geração de conteúdo
+    private readonly aiService: AIService,
   ) {
     super(Service, entity);
   }
@@ -178,6 +182,66 @@ export class PostController extends GenericController<
   @Patch('draft/:id')
   async toDraft(@Param('id') id: number) {
     return this.Service.toDraft(id);
+  }
+
+  // ==================== ROTAS DE IA ====================
+
+  /**
+   * Gera um artigo completo usando IA
+   * Recebe título, resumo e categoria e retorna o conteúdo do artigo
+   * Aceita JSON ou FormData
+   */
+  @UserPermission(`create_${entity.permission}`)
+  @Post('ai/generate')
+  @UseInterceptors(FileInterceptor('file')) // Permite FormData
+  async generateArticle(
+    @Body() body: { title: string; summary: string; category: string; tone?: 'formal' | 'informal' | 'technical' },
+  ) {
+    if (!body || !body.title || !body.summary || !body.category) {
+      throw new BadRequestException('title, summary e category são obrigatórios');
+    }
+
+    const content = await this.aiService.generateArticle({
+      title: body.title,
+      summary: body.summary,
+      category: body.category,
+      tone: body.tone || 'technical',
+      language: 'português brasileiro',
+      minWords: 800,
+    });
+
+    return {
+      content,
+      supplier: this.aiService.getActiveSupplier(),
+    };
+  }
+
+  /**
+   * Revisa e melhora um artigo existente usando IA
+   * Retorna o texto melhorado, correções, sugestões e referências
+   * Aceita JSON ou FormData
+   */
+  @UserPermission(`update_${entity.permission}`)
+  @Post('ai/review')
+  @UseInterceptors(FileInterceptor('file')) // Permite FormData
+  async reviewArticle(
+    @Body() body: { content: string; title?: string; category?: string; includeReferences?: boolean },
+  ) {
+    if (!body || !body.content) {
+      throw new BadRequestException('content é obrigatório');
+    }
+
+    const result = await this.aiService.reviewAndImprove({
+      content: body.content,
+      title: body.title,
+      category: body.category,
+      includeReferences: body.includeReferences !== false,
+    });
+
+    return {
+      ...result,
+      supplier: this.aiService.getActiveSupplier(),
+    };
   }
 
   // ==================== ROTAS PÚBLICAS ====================

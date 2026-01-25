@@ -60,6 +60,9 @@ import { VisitorModule } from './features/blog/visitor/module';
 import { CommentModule } from './features/blog/comment/module';
 import { BlogAuthModule } from './features/blog/auth/auth.module';
 
+// AI
+import { AIModule } from './common/ai';
+
 @Module({
   imports: [
     SecurityModule, // Módulo de segurança primeiro
@@ -116,6 +119,8 @@ import { BlogAuthModule } from './features/blog/auth/auth.module';
     VisitorModule,
     CommentModule,
     BlogAuthModule,
+    // AI
+    AIModule,
   ],
   controllers: [],
   providers: [
