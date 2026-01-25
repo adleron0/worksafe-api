@@ -222,4 +222,19 @@ export class CommentService extends GenericService<
       totalPages: Math.ceil(totalItems / limit),
     };
   }
+
+  /**
+   * Define o status de um comentário
+   */
+  async setStatus(id: number, status: BlogCommentStatus): Promise<IEntity> {
+    try {
+      const result = await this.prisma.blog_Comment.update({
+        where: { id },
+        data: { status },
+      });
+      return result as IEntity;
+    } catch (error) {
+      throw new BadRequestException(error);
+    }
+  }
 }

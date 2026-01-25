@@ -1,5 +1,6 @@
 export const paramsIncludes = {
-  // Configure aqui os relacionamentos que devem ser incluídos nas consultas
-  // Exemplo: 'user': true,
-  // Exemplo: 'company': { select: { id: true, name: true } },
+  // Usuário interno vinculado (se houver)
+  user: { select: { id: true, name: true, email: true, imageUrl: true } },
+  // Contagem de comentários do visitante
+  _count: { select: { comments: true } },
 };

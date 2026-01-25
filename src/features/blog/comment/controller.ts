@@ -16,7 +16,7 @@ import {
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { BlogCommentStatus, PrismaClient } from '@prisma/client';
 import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 // Import entity template
@@ -136,6 +136,20 @@ export class CommentController extends GenericController<
   @Patch('inactive/:id')
   async inactivate(@Param('id') id: number, @Req() request: Request) {
     return super.inactivate(id, request);
+  }
+
+  // ==================== ROTAS DE MODERAÇÃO ====================
+
+  @UserPermission(`update_${entity.permission}`)
+  @Patch('approve/:id')
+  async approve(@Param('id') id: number) {
+    return this.Service.setStatus(Number(id), BlogCommentStatus.published);
+  }
+
+  @UserPermission(`update_${entity.permission}`)
+  @Patch('disapprove/:id')
+  async disapprove(@Param('id') id: number) {
+    return this.Service.setStatus(Number(id), BlogCommentStatus.hidden);
   }
 
   // ==================== ROTAS PÚBLICAS ====================

@@ -133,4 +133,18 @@ export class VisitorController extends GenericController<
   async inactivate(@Param('id') id: number, @Req() request: Request) {
     return super.inactivate(id, request);
   }
+
+  // ==================== ROTAS DE BLOQUEIO ====================
+
+  @UserPermission(`inactive_${entity.permission}`)
+  @Patch('block/:id')
+  async block(@Param('id') id: number) {
+    return this.Service.setBlocked(Number(id), true);
+  }
+
+  @UserPermission(`activate_${entity.permission}`)
+  @Patch('unblock/:id')
+  async unblock(@Param('id') id: number) {
+    return this.Service.setBlocked(Number(id), false);
+  }
 }

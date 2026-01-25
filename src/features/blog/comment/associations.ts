@@ -1,19 +1,28 @@
 export const paramsIncludes = {
+  // Visitante que fez o comentário
   visitor: {
-    include: {
-      user: { select: { id: true, name: true, imageUrl: true } },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      avatarUrl: true,
+      blocked: true,
     },
   },
+  // Post relacionado
+  post: { select: { id: true, title: true, slug: true } },
+  // Respostas ao comentário
   replies: {
-    where: { status: 'published', inactiveAt: null },
     include: {
       visitor: {
-        include: {
-          user: { select: { id: true, name: true, imageUrl: true } },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          avatarUrl: true,
         },
       },
     },
-    orderBy: { createdAt: 'asc' },
+    orderBy: { createdAt: 'asc' as const },
   },
-  post: { select: { id: true, title: true, slug: true } },
 };

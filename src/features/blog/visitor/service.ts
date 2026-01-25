@@ -20,17 +20,17 @@ export class VisitorService extends GenericService<
   }
 
   /**
-   * Método específico customizado
+   * Define o status de bloqueio de um visitante
    */
-  // async customMethod(params: any): Promise<IEntity | null> {
-  //   try {
-  //     const result = await this.prisma.selectOne('modelName', {
-  //       where: {
-  //         id: Number(params.id),
-  //       },
-  //     });
-  //   } catch (error) {
-  //     throw new BadRequestException(error);
-  //   }
-  // }
+  async setBlocked(id: number, blocked: boolean): Promise<IEntity> {
+    try {
+      const result = await this.prisma.blog_Visitor.update({
+        where: { id },
+        data: { blocked },
+      });
+      return result as IEntity;
+    } catch (error) {
+      throw new BadRequestException(error);
+    }
+  }
 }
