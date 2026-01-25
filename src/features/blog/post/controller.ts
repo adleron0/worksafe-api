@@ -158,19 +158,24 @@ export class PostController extends GenericController<
     return updated;
   }
 
-  @UserPermission(`activate_${entity.permission}`) // comente para tirar permissao
-  // @Public() // descomente para tornar publica
+  @UserPermission(`activate_${entity.permission}`)
   @CacheEvictAll('blog/posts:*', 'cache:*/blog/posts*')
-  @Patch('active/:id')
-  async activate(@Param('id') id: number, @Req() request: Request) {
-    return super.activate(id, request);
+  @Patch('publish/:id')
+  async publish(@Param('id') id: number) {
+    return this.Service.publish(id);
   }
 
-  @UserPermission(`inactive_${entity.permission}`) // comente para tirar permissao
-  // @Public() // descomente para tornar publica
+  @UserPermission(`inactive_${entity.permission}`)
   @CacheEvictAll('blog/posts:*', 'cache:*/blog/posts*')
-  @Patch('inactive/:id')
-  async inactivate(@Param('id') id: number, @Req() request: Request) {
-    return super.inactivate(id, request);
+  @Patch('archive/:id')
+  async archive(@Param('id') id: number) {
+    return this.Service.archive(id);
+  }
+
+  @UserPermission(`update_${entity.permission}`)
+  @CacheEvictAll('blog/posts:*', 'cache:*/blog/posts*')
+  @Patch('draft/:id')
+  async toDraft(@Param('id') id: number) {
+    return this.Service.toDraft(id);
   }
 }

@@ -51,4 +51,44 @@ export class PostService extends GenericService<
       });
     }
   }
+
+  /**
+   * Publica um post (status = published)
+   */
+  async publish(postId: number) {
+    return this.prisma.blog_Post.update({
+      where: { id: Number(postId) },
+      data: {
+        status: 'published',
+        publishedAt: new Date(),
+        inactiveAt: null,
+      },
+    });
+  }
+
+  /**
+   * Arquiva um post (status = archived)
+   */
+  async archive(postId: number) {
+    return this.prisma.blog_Post.update({
+      where: { id: Number(postId) },
+      data: {
+        status: 'archived',
+        inactiveAt: new Date(),
+      },
+    });
+  }
+
+  /**
+   * Volta para rascunho (status = draft)
+   */
+  async toDraft(postId: number) {
+    return this.prisma.blog_Post.update({
+      where: { id: Number(postId) },
+      data: {
+        status: 'draft',
+        inactiveAt: null,
+      },
+    });
+  }
 }
