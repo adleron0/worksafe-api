@@ -263,7 +263,15 @@ export class PostController extends GenericController<
   }
 
   @Public()
-  @Cache({ prefix: 'blog-post-slug', ttl: 300 })
+  @Cache({
+    prefix: 'blog-post-slug',
+    ttl: 300,
+    key: (req) => {
+      const slug = req.params.slug;
+      const companyId = req.query.companyId || req.query['company.lp_domain'] || 'unknown';
+      return `blog-post-slug:${companyId}:${slug}`;
+    },
+  })
   @Get('public/:slug')
   async getBySlug(
     @Param('slug') slug: string,
