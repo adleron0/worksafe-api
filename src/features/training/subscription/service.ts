@@ -14,6 +14,7 @@ import { CheckoutService } from 'src/features/gateway/checkout/checkout.service'
 import { CacheService } from 'src/common/cache/cache.service';
 import { AlunosService } from '../trainees/service';
 import { CouponService } from '../coupon/service';
+import { CheckoutLockService } from 'src/payments/application/checkout-lock.service';
 
 type entity = {
   model: keyof PrismaClient;
@@ -35,6 +36,7 @@ export class SubscriptionService extends GenericService<
     private cacheService: CacheService,
     private alunosService: AlunosService,
     private couponService: CouponService,
+    private checkoutLock: CheckoutLockService,
   ) {
     super(prisma, null);
   }
@@ -91,13 +93,26 @@ export class SubscriptionService extends GenericService<
         search.companyId = courseClass.companyId;
       }
 
-      // Cria a inscrição e processa pagamento se necessário
-      return await this.createSubscriptionWithPayment(
-        null,
-        search,
-        entity,
-        dto,
-        courseClass,
+      // Duas requisições simultâneas do mesmo CPF nesta turma passariam as
+      // duas pelo check-then-act abaixo e gerariam cobrança duplicada. O lock
+      // serializa por (turma, cpf); a segunda tentativa é recusada em vez de
+      // virar uma segunda cobrança.
+      return await this.checkoutLock.runExclusive(
+        Number(search.classId),
+        dto.cpf,
+        () =>
+          this.createSubscriptionWithPayment(
+            null,
+            search,
+            entity,
+            dto,
+            courseClass,
+          ),
+        () => {
+          throw new BadRequestException(
+            'Já existe um pagamento em processamento para este CPF nesta turma. Aguarde alguns instantes.',
+          );
+        },
       );
     } catch (error) {
       console.log('🚀 ~ SubscriptionService ~ subscription ~ error:', error);

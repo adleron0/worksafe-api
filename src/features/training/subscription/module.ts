@@ -5,6 +5,7 @@ import { UploadModule } from '../../upload/upload.module';
 import { CheckoutModule } from 'src/features/gateway/checkout/checkout.module';
 import { AlunosModule } from '../trainees/module';
 import { CouponModule } from '../coupon/module';
+import { PaymentsModule } from 'src/payments/payments.module';
 
 @Module({
   controllers: [Controller],
@@ -14,6 +15,7 @@ import { CouponModule } from '../coupon/module';
     forwardRef(() => CheckoutModule),
     AlunosModule,
     CouponModule, // Importa o módulo de cupons
+    PaymentsModule,
   ],
   exports: [Service], // Exporta o service para outros módulos poderem usar
 })

@@ -6,6 +6,7 @@ import { AsaasAdapter } from './infrastructure/adapters/asaas/asaas.adapter';
 import { GatewayResolver } from './infrastructure/gateway-resolver';
 import { SellerAccountService } from './application/seller-account.service';
 import { GatewayCredentialsService } from './application/gateway-credentials.service';
+import { CheckoutLockService } from './application/checkout-lock.service';
 
 /**
  * Módulo do domínio financeiro.
@@ -25,7 +26,13 @@ import { GatewayCredentialsService } from './application/gateway-credentials.ser
     GatewayResolver,
     SellerAccountService,
     GatewayCredentialsService,
+    CheckoutLockService,
   ],
-  exports: [GatewayResolver, SellerAccountService, GatewayCredentialsService],
+  exports: [
+    GatewayResolver,
+    SellerAccountService,
+    GatewayCredentialsService,
+    CheckoutLockService,
+  ],
 })
 export class PaymentsModule {}
