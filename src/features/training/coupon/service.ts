@@ -5,6 +5,7 @@ import { CreateDto } from './dto/create.dto';
 import { UpdateDto } from './dto/update.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { UploadService } from 'src/features/upload/upload.service';
+import { GatewayResolver } from 'src/payments/infrastructure/gateway-resolver';
 
 @Injectable()
 export class CouponService extends GenericService<
@@ -15,6 +16,7 @@ export class CouponService extends GenericService<
   constructor(
     protected prisma: PrismaService,
     protected uploadService: UploadService,
+    private readonly gatewayResolver: GatewayResolver,
   ) {
     super(prisma, uploadService);
   }
@@ -96,7 +98,7 @@ export class CouponService extends GenericService<
   /**
    * Valida e retorna o walletId do vendedor para o ambiente correto
    */
-  private getSellerWalletId(seller: any): string | null {
+  private getSellerWalletId(seller: any, gatewayKey = 'asaas'): string | null {
     if (!seller?.sellerConfig) {
       return null;
     }
@@ -107,37 +109,34 @@ export class CouponService extends GenericService<
           ? JSON.parse(seller.sellerConfig)
           : seller.sellerConfig;
 
-      // Verifica se tem a estrutura correta
-      if (!config.gateways?.asaas) {
+      // O gateway deixou de ser literal: quem chama informa qual é. O formato
+      // interno (por ambiente, com walletId) segue o mesmo.
+      const gatewayConfig = config.gateways?.[gatewayKey];
+      if (!gatewayConfig) {
         return null;
       }
 
-      // Determina o ambiente baseado na variável de ambiente
       const isDevelopment = process.env.BASE_SETUP === 'development';
       const environment = isDevelopment ? 'sandbox' : 'production';
 
-      // Verifica se existe configuração para o ambiente
-      const asaasConfig = config.gateways.asaas[environment];
-
-      if (!asaasConfig) {
+      const envConfig = gatewayConfig[environment];
+      if (!envConfig) {
         return null;
       }
 
-      // Valida campos obrigatórios
+      // Sem estes três campos o repasse não sai; devolver null aqui é o que
+      // faz a venda seguir sem split em vez de falhar.
       const requiredFields = ['apiKey', 'walletId', 'accountId'];
-      const hasAllFields = requiredFields.every((field) => asaasConfig[field]);
-
+      const hasAllFields = requiredFields.every((field) => envConfig[field]);
       if (!hasAllFields) {
         return null;
       }
 
-      // Valida se a conta está ativa
-      if (asaasConfig.accountStatus !== 'ACTIVE') {
+      if (envConfig.accountStatus !== 'ACTIVE') {
         return null;
       }
 
-      // Retorna apenas o walletId do ambiente correto
-      return asaasConfig.walletId;
+      return envConfig.walletId;
     } catch (error) {
       console.error('Erro ao validar sellerConfig:', error);
       return null;
@@ -342,7 +341,13 @@ export class CouponService extends GenericService<
       // 11. Obter walletId do vendedor se internal = true
       let sellerWalletId = null;
       if (internal && coupon.seller) {
-        sellerWalletId = this.getSellerWalletId(coupon.seller);
+        // Qual gateway a empresa usa é decisão do resolver, não deste service.
+        const { adapter } = await this.gatewayResolver.forCompany(
+          courseClass.companyId,
+        );
+        sellerWalletId = adapter.capabilities.split
+          ? this.getSellerWalletId(coupon.seller, adapter.gateway)
+          : null;
       }
 
       // ✅ Cupom válido!

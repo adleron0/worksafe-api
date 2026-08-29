@@ -2,11 +2,13 @@ import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { gateways } from '@prisma/client';
 import { CheckoutService } from '../checkout/checkout.service';
+import { GatewayResolver } from 'src/payments/infrastructure/gateway-resolver';
 
 @Injectable()
 export class WebhooksService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly gatewayResolver: GatewayResolver,
     @Inject(forwardRef(() => CheckoutService))
     private readonly checkoutService: CheckoutService,
   ) {}
@@ -28,11 +30,16 @@ export class WebhooksService {
         },
       });
 
-      // Processa o webhook de acordo com o gateway
-      if (gateway === 'asaas') {
-        await this.processAsaasWebhook(payload, companyId);
+      // O dispatch deixou de ser `if (gateway === 'asaas')`: qualquer gateway
+      // com adapter registrado é processado. Somar um fornecedor não toca
+      // este arquivo.
+      if (this.gatewayResolver.supports(gateway as gateways)) {
+        await this.processPaymentEvent(payload, companyId);
+      } else {
+        console.log(
+          `Gateway ${gateway} sem adapter registrado — webhook apenas armazenado`,
+        );
       }
-      // Adicionar outros gateways conforme necessário
 
       // Marca o webhook como processado
       await this.prisma.webhooks.update({
@@ -58,6 +65,12 @@ export class WebhooksService {
       });
 
       console.error('Erro ao processar webhook:', error);
+
+      // ATENÇÃO (R2): continua respondendo sucesso de propósito. O webhook do
+      // Asaas é registrado com sendType SEQUENTIALLY — devolver não-2xx faz o
+      // gateway INTERROMPER a fila e parar de entregar todos os eventos
+      // seguintes, o que deixaria pagamentos legítimos sem confirmação.
+      // Endurecer isto exige antes retry interno + reconciliação (fase 3).
       return {
         success: false,
         message: 'Webhook registrado com erro',
@@ -66,18 +79,10 @@ export class WebhooksService {
     }
   }
 
-  /**
-   * Processa webhook do Asaas
-   */
-  private async processAsaasWebhook(payload: any, companyId: number) {
-    try {
-      // Verifica se é um evento de pagamento
-      if (payload.event && payload.event.startsWith('PAYMENT_')) {
-        await this.checkoutService.processPaymentWebhook(payload, companyId);
-      }
-    } catch (error) {
-      console.error('Erro ao processar webhook Asaas:', error);
-      throw error;
+  /** Encaminha eventos de pagamento; outros eventos são só armazenados. */
+  private async processPaymentEvent(payload: any, companyId: number) {
+    if (payload?.event && String(payload.event).startsWith('PAYMENT_')) {
+      await this.checkoutService.processPaymentWebhook(payload, companyId);
     }
   }
 }

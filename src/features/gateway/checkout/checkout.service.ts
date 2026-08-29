@@ -13,8 +13,8 @@ import { GatewayResolver } from 'src/payments/infrastructure/gateway-resolver';
 import {
   CreditCardData,
   PaymentGatewayPort,
+  PaymentResponse,
 } from 'src/payments/domain/ports/payment-gateway.port';
-import { PaymentResponse } from 'src/common/gateways/interfaces/payment-gateway.interface';
 
 // Usa o tipo CustomerData da interface, mas com todos campos opcionais
 interface CustomerData {

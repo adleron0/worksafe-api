@@ -1,8 +1,11 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from 'src/prisma/prisma.module';
 import { AsaasModule } from 'src/common/gateways/asaas/asaas.module';
+import { CacheModule } from 'src/common/cache/cache.module';
 import { AsaasAdapter } from './infrastructure/adapters/asaas/asaas.adapter';
 import { GatewayResolver } from './infrastructure/gateway-resolver';
+import { SellerAccountService } from './application/seller-account.service';
+import { GatewayCredentialsService } from './application/gateway-credentials.service';
 
 /**
  * Módulo do domínio financeiro.
@@ -16,8 +19,13 @@ import { GatewayResolver } from './infrastructure/gateway-resolver';
  * dependência sai.
  */
 @Module({
-  imports: [PrismaModule, AsaasModule],
-  providers: [AsaasAdapter, GatewayResolver],
-  exports: [GatewayResolver],
+  imports: [PrismaModule, AsaasModule, CacheModule],
+  providers: [
+    AsaasAdapter,
+    GatewayResolver,
+    SellerAccountService,
+    GatewayCredentialsService,
+  ],
+  exports: [GatewayResolver, SellerAccountService, GatewayCredentialsService],
 })
 export class PaymentsModule {}

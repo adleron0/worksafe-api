@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { paymentMethods, gateways } from '@prisma/client';
 import { AsaasService } from 'src/common/gateways/asaas/asaas.service';
+import { CacheService } from 'src/common/cache/cache.service';
+import {
+  SellerIdentity,
+  SubAccountCapablePort,
+  SubAccountResult,
+} from 'src/payments/domain/ports/subaccount-capable.port';
 import {
   CreatePaymentInput,
   CustomerData,
@@ -23,7 +29,7 @@ import {
  * `paymentMethods.cartaoCredito`, o Asaas fala `'cartao'` / `'CREDIT_CARD'`.
  */
 @Injectable()
-export class AsaasAdapter implements PaymentGatewayPort {
+export class AsaasAdapter implements SubAccountCapablePort {
   readonly gateway = gateways.asaas;
 
   readonly capabilities: GatewayCapabilities = {
@@ -38,7 +44,20 @@ export class AsaasAdapter implements PaymentGatewayPort {
     clientSideTokenization: false,
   };
 
-  constructor(private readonly asaas: AsaasService) {}
+  constructor(
+    private readonly asaas: AsaasService,
+    private readonly cache: CacheService,
+  ) {}
+
+  /**
+   * O AsaasService resolve o token por `asaasToken:<companyId>` no Redis antes
+   * de cair no banco. Aquecer essa chave aqui mantém o formato dela contido
+   * no adapter, em vez de espalhado pelo rules.ts da entidade.
+   */
+  async primeCredentials(companyId: number, payload: any): Promise<void> {
+    if (!payload?.token) return;
+    await this.cache.set(`asaasToken:${companyId}`, payload.token, 2592000);
+  }
 
   /** Vocabulário do domínio -> tipo aceito pelo AsaasService. */
   private toAsaasType(method: paymentMethods): 'boleto' | 'pix' | 'cartao' {
@@ -145,5 +164,12 @@ export class AsaasAdapter implements PaymentGatewayPort {
 
   async configureWebhook(companyId: number, webhookId?: string) {
     return this.asaas.configureWebhooks(companyId, webhookId);
+  }
+
+  /** SubAccountCapablePort — o Asaas provisiona subcontas com walletId. */
+  async getOrCreateSubAccount(
+    seller: SellerIdentity,
+  ): Promise<SubAccountResult> {
+    return this.asaas.getOrCreateSubAccount(seller as any);
   }
 }

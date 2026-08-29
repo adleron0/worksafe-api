@@ -38,13 +38,11 @@ import {
   getSearchParams,
   formaterPreUpdate,
   omitAttributes,
-  hooksCreate,
-  hooksUpdate,
+  makeHooksCreate,
+  makeHooksUpdate,
   encryptFields,
-  setAsaasService,
-  setCacheService,
-  setGatewayFactory,
 } from './rules';
+import { GatewayCredentialsService } from 'src/payments/application/gateway-credentials.service';
 
 function UserPermission(permission: string) {
   return applyDecorators(Permissions(permission));
@@ -64,17 +62,18 @@ export class CompanygatewaysController extends GenericController<
   IEntity,
   Service
 > {
+  private readonly hooksCreate: any;
+  private readonly hooksUpdate: any;
+
   constructor(
     private readonly Service: Service,
     // cacheService é usado pelos decorators de cache
     private readonly cacheService: CacheService,
+    private readonly credentials: GatewayCredentialsService,
   ) {
     super(Service, entity);
-    // Injeta os serviços nas rules
-    if (Service.asaasService) {
-      setAsaasService(Service.asaasService);
-    }
-    setCacheService(cacheService);
+    this.hooksCreate = makeHooksCreate({ credentials: this.credentials });
+    this.hooksUpdate = makeHooksUpdate({ credentials: this.credentials });
   }
 
   @UserPermission(`list_${entity.permission}`) // comente para tirar permissao
@@ -103,7 +102,7 @@ export class CompanygatewaysController extends GenericController<
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
     const search = getSearchParams(request, CreateDto);
-    return super.create(request, CreateDto, file, search, hooksCreate);
+    return super.create(request, CreateDto, file, search, this.hooksCreate);
   }
 
   @UserPermission(`update_${entity.permission}`) // comente para tirar permissao
@@ -121,7 +120,7 @@ export class CompanygatewaysController extends GenericController<
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
     const processedDto = formaterPreUpdate(UpdateDto);
-    return super.update(id, request, processedDto, file, hooksUpdate);
+    return super.update(id, request, processedDto, file, this.hooksUpdate);
   }
 
   @UserPermission(`activate_${entity.permission}`) // comente para tirar permissao

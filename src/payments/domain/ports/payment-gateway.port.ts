@@ -84,6 +84,35 @@ export interface GatewayCapabilities {
  */
 export type GatewayPayment = any;
 
+/**
+ * Formato normalizado devolvido ao cliente do checkout. É o que o
+ * worksafe-site consome — mexer aqui quebra o checkout público, e o teste
+ * de golden contract existe para travar isso.
+ */
+export interface PaymentResponse {
+  id: string;
+  status: string;
+  value: number;
+  netValue?: number;
+  description: string;
+  billingType: string;
+  dueDate: string;
+  externalReference?: string;
+  transactionReceiptUrl?: string;
+  invoiceUrl?: string;
+  bankSlipUrl?: string;
+  nossoNumero?: string;
+  identificationField?: string;
+  barCode?: string;
+  digitableLine?: string;
+  pixQrCode?: string;
+  pixQrCodeBase64?: string;
+  pixCopyPaste?: string;
+  installmentNumber?: number;
+  installmentCount?: number;
+  error?: string;
+}
+
 export interface PaymentGatewayPort {
   readonly gateway: gateways;
   readonly capabilities: GatewayCapabilities;
@@ -120,4 +149,11 @@ export interface PaymentGatewayPort {
   processWebhook(payload: any, companyId: number): Promise<any>;
 
   configureWebhook(companyId: number, webhookId?: string): Promise<any>;
+
+  /**
+   * Deixa a credencial pronta para uso imediato (ex.: aquecer o cache que o
+   * cliente HTTP consulta). Onde a credencial fica é detalhe do fornecedor,
+   * por isso a decisão pertence ao adapter e não a quem salva o registro.
+   */
+  primeCredentials(companyId: number, payload: any): Promise<void>;
 }

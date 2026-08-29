@@ -34,10 +34,11 @@ import {
   validateCreate,
   formaterPreUpdate,
   omitAttributes,
-  hooksCreate,
-  hooksUpdate,
+  makeHooksCreate,
+  makeHooksUpdate,
   encryptFields,
 } from './rules';
+import { SellerAccountService } from 'src/payments/application/seller-account.service';
 
 // Create a decorator factory for User controller permissions
 function UserPermission(permission: string) {
@@ -58,8 +59,18 @@ export class UserController extends GenericController<
   IEntity,
   Service
 > {
-  constructor(private readonly Service: Service) {
+  private readonly hooksCreate: any;
+  private readonly hooksUpdate: any;
+
+  constructor(
+    private readonly Service: Service,
+    private readonly sellerAccounts: SellerAccountService,
+  ) {
     super(Service, entity);
+    // Os hooks recebem o service pelo container, em vez de instanciar
+    // gateway por conta própria dentro do rules.ts.
+    this.hooksCreate = makeHooksCreate({ sellerAccounts: this.sellerAccounts });
+    this.hooksUpdate = makeHooksUpdate({ sellerAccounts: this.sellerAccounts });
   }
 
   // Rota intermediária para validação de permissão
@@ -93,7 +104,7 @@ export class UserController extends GenericController<
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
     const search = validateCreate(request, CreateDto);
-    return super.create(request, CreateDto, file, search, hooksCreate);
+    return super.create(request, CreateDto, file, search, this.hooksCreate);
   }
 
   @Put('self')
@@ -121,7 +132,7 @@ export class UserController extends GenericController<
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
     const processedDto = formaterPreUpdate(UpdateDto);
-    return super.update(id, request, processedDto, file, hooksUpdate);
+    return super.update(id, request, processedDto, file, this.hooksUpdate);
   }
 
   // Rota intermediária para validação de permissão
