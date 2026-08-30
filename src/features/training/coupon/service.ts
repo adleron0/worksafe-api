@@ -345,9 +345,13 @@ export class CouponService extends GenericService<
         const { adapter } = await this.gatewayResolver.forCompany(
           courseClass.companyId,
         );
-        sellerWalletId = adapter.capabilities.split
-          ? this.getSellerWalletId(coupon.seller, adapter.gateway)
-          : null;
+        // Só faz sentido resolver carteira quando o provedor divide sozinho.
+        // Em 'manualRecord' a comissão é calculada e gravada do mesmo jeito,
+        // mas o repasse é administrado por fora — ver SplitTransaction.
+        sellerWalletId =
+          adapter.capabilities.commission === 'gatewaySplit'
+            ? this.getSellerWalletId(coupon.seller, adapter.gateway)
+            : null;
       }
 
       // ✅ Cupom válido!

@@ -3,6 +3,7 @@ import { gateways } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { PaymentGatewayPort } from 'src/payments/domain/ports/payment-gateway.port';
 import { AsaasAdapter } from './adapters/asaas/asaas.adapter';
+import { ManualAdapter } from './adapters/manual/manual.adapter';
 
 /**
  * Resolve qual gateway atende uma empresa e devolve o adapter correspondente.
@@ -17,10 +18,12 @@ export class GatewayResolver {
   constructor(
     private readonly prisma: PrismaService,
     asaasAdapter: AsaasAdapter,
+    manualAdapter: ManualAdapter,
   ) {
     // Registrar um gateway novo é adicionar uma linha aqui.
     this.adapters = new Map<gateways, PaymentGatewayPort>([
       [gateways.asaas, asaasAdapter],
+      [gateways.manual, manualAdapter],
     ]);
   }
 

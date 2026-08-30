@@ -38,10 +38,24 @@ export class AsaasAdapter implements SubAccountCapablePort {
       paymentMethods.boleto,
       paymentMethods.cartaoCredito,
     ],
-    split: true,
-    subAccounts: true,
+    // Devolve os dados da cobrança e nós renderizamos o checkout.
+    charge: 'apiData',
+    // Webhook confirma sozinho; receiveInCash permite baixa manual também.
+    confirmation: ['webhook', 'manual'],
+    approval: 'onPayment',
+    commission: 'gatewaySplit',
+    // O PAN passa pela nossa API — é isto que coloca o backend em PCI SAQ-D.
+    cardHandling: 'serverSide',
+    webhook: 'registered',
+    // Hoje o webhook é registrado SEM authToken: qualquer POST é aceito.
+    // Passa a 'token' quando a fase 3 re-registrar com autenticação.
+    webhookAuth: 'none',
+    statusQuery: 'byChargeId',
     maxInstallments: 12,
-    clientSideTokenization: false,
+    sellerAccounts: true,
+    updatableCharge: true,
+    refundable: true,
+    minorUnits: false,
   };
 
   constructor(

@@ -1,4 +1,7 @@
 import { paymentMethods, gateways } from '@prisma/client';
+import { GatewayCapabilities } from './gateway-capabilities';
+
+export * from './gateway-capabilities';
 
 /**
  * Contrato que todo gateway de pagamento precisa cumprir.
@@ -61,20 +64,6 @@ export interface UpdatePaymentInput {
   description: string;
   creditCard?: CreditCardData;
   holderInfo?: CustomerData;
-}
-
-/**
- * O que o gateway sabe fazer. É contra isto que o checkout valida — nunca
- * contra o nome do fornecedor. É o que permite somar um gateway sem reabrir
- * o orquestrador.
- */
-export interface GatewayCapabilities {
-  methods: paymentMethods[];
-  split: boolean;
-  subAccounts: boolean;
-  maxInstallments: number;
-  /** Se true, o PAN nunca deve trafegar pela API: o cliente envia um token. */
-  clientSideTokenization: boolean;
 }
 
 /**

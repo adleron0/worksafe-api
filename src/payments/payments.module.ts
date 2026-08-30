@@ -3,6 +3,7 @@ import { PrismaModule } from 'src/prisma/prisma.module';
 import { AsaasModule } from 'src/common/gateways/asaas/asaas.module';
 import { CacheModule } from 'src/common/cache/cache.module';
 import { AsaasAdapter } from './infrastructure/adapters/asaas/asaas.adapter';
+import { ManualAdapter } from './infrastructure/adapters/manual/manual.adapter';
 import { GatewayResolver } from './infrastructure/gateway-resolver';
 import { SellerAccountService } from './application/seller-account.service';
 import { GatewayCredentialsService } from './application/gateway-credentials.service';
@@ -23,6 +24,7 @@ import { CheckoutLockService } from './application/checkout-lock.service';
   imports: [PrismaModule, AsaasModule, CacheModule],
   providers: [
     AsaasAdapter,
+    ManualAdapter,
     GatewayResolver,
     SellerAccountService,
     GatewayCredentialsService,

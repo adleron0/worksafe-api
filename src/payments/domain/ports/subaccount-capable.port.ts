@@ -40,7 +40,7 @@ export function supportsSubAccounts(
   adapter: PaymentGatewayPort,
 ): adapter is SubAccountCapablePort {
   return (
-    adapter.capabilities.subAccounts &&
+    adapter.capabilities.sellerAccounts &&
     typeof (adapter as SubAccountCapablePort).getOrCreateSubAccount ===
       'function'
   );

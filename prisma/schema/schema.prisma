@@ -9,7 +9,11 @@ datasource db {
 
 // tipos de gateways
 enum gateways {
+  // Sem provedor: cobrança combinada fora do sistema e baixa manual.
+  // É um modo de operação de primeira classe, não a ausência de um.
+  manual
   asaas
+  infinitePay
   stripe
   efi
   mercadoPago

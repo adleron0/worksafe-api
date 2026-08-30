@@ -11,6 +11,7 @@ import { SubscriptionService } from 'src/features/training/subscription/service'
 import { paymentMethods } from '@prisma/client';
 import { GatewayResolver } from 'src/payments/infrastructure/gateway-resolver';
 import {
+  capabilityChecks,
   CreditCardData,
   PaymentGatewayPort,
   PaymentResponse,
@@ -260,57 +261,61 @@ export class CheckoutService {
         companyId, // Passa o companyId para os logs
       );
 
-      // 9. Cria SplitTransaction se houver comissão de cupom
+      // 9. Registra a comissão do vendedor, quando houver.
+      //
+      // A condição deixou de exigir carteira: em provedor sem split
+      // automático — e no modo manual — a comissão é devida do mesmo jeito e
+      // precisa ficar registrada para ser conferida e paga por fora. Exigir
+      // sellerWalletId aqui fazia a comissão desaparecer silenciosamente
+      // justamente nos modos em que ela depende de acompanhamento humano.
       if (
         checkoutData.couponData?.valid &&
         checkoutData.couponData?.commissionPercentage > 0 &&
-        checkoutData.couponData?.sellerWalletId &&
         checkoutData.couponData?.sellerId
       ) {
-        // Obter o ID do split do Asaas da resposta do pagamento
-        let asaasSplitId = null;
-        if (
-          paymentResult &&
-          (paymentResult as any).split &&
-          Array.isArray((paymentResult as any).split)
-        ) {
-          // O Asaas pode retornar informações do split na resposta
+        const repasseAutomatico =
+          adapter.capabilities.commission === 'gatewaySplit';
+
+        // Id do split no provedor, quando ele mesmo divide.
+        let externalSplitId = null;
+        if (repasseAutomatico && Array.isArray((paymentResult as any)?.split)) {
           const splitInfo = (paymentResult as any).split.find(
             (s: any) => s.walletId === checkoutData.couponData.sellerWalletId,
           );
-          asaasSplitId = splitInfo?.id || null;
+          externalSplitId = splitInfo?.id || null;
         }
 
-        // Calcula o valor líquido (estimado - 2.99% de taxa do Asaas)
-        const netValue = checkoutData.couponData.commissionValue * 0.9701;
+        // A taxa só é descontada quando o provedor faz o repasse. Em
+        // pagamento manual o vendedor recebe o valor cheio combinado.
+        const TAXA_SPLIT_ASAAS = 0.9701; // 2,99%
+        const netValue = repasseAutomatico
+          ? checkoutData.couponData.commissionValue * TAXA_SPLIT_ASAAS
+          : checkoutData.couponData.commissionValue;
 
         try {
           await this.prisma.insert(
             'splitTransaction',
             {
               financialRecordId,
-              toWalletId: checkoutData.couponData.sellerWalletId,
+              toWalletId: checkoutData.couponData.sellerWalletId || null,
               sellerId: checkoutData.couponData.sellerId,
               originalValue: value,
               splitValue: checkoutData.couponData.commissionValue,
               splitPercentage: checkoutData.couponData.commissionPercentage,
               netValue,
-              splitDescription: `Comissão cupom - ${subscription.courseClass.name}`,
+              splitDescription: repasseAutomatico
+                ? `Comissão cupom - ${subscription.courseClass.name}`
+                : `Comissão cupom (repasse manual) - ${subscription.courseClass.name}`,
               companyId,
               status: 'PENDING',
-              asaasSplitId,
+              asaasSplitId: externalSplitId,
             },
             { companyId },
           );
         } catch (error) {
-          console.error('Erro ao criar SplitTransaction:', error);
-          // Não lança erro para não bloquear o fluxo principal
+          console.error('Erro ao registrar comissão:', error);
+          // Não bloqueia a venda: a comissão pode ser lançada depois.
         }
-
-        console.log(
-          'SplitTransaction criado para vendedor:',
-          checkoutData.couponData.sellerId,
-        );
       }
 
       // 10. Busca o registro financeiro atualizado com campos específicos
@@ -474,6 +479,21 @@ export class CheckoutService {
       existingPaymentId,
     } = params;
 
+    // Modo sem cobrança automatizada: não há provedor a chamar. O registro
+    // financeiro nasce aguardando um pagamento que será combinado por fora e
+    // baixado no painel. Chamar o adapter aqui só produziria erro.
+    if (!capabilityChecks.charges(adapter.capabilities)) {
+      return {
+        id: null,
+        status: 'PENDING',
+        value,
+        description: `Inscrição - ${subscription.courseClass.name}`,
+        billingType: paymentMethod,
+        dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        externalReference: `sub_${subscription.id}`,
+      };
+    }
+
     // Valida contra o que o gateway sabe fazer, não contra o nome dele.
     if (!adapter.capabilities.methods.includes(paymentMethod)) {
       throw new HttpException(
@@ -568,7 +588,7 @@ export class CheckoutService {
               holderInfo: customerData,
             };
 
-            const retrySplit = this.buildSplits(checkoutData);
+            const retrySplit = this.buildSplits(checkoutData, adapter);
             if (retrySplit) paymentData.splits = retrySplit;
 
             payment = await adapter.createPayment(paymentData, companyId);
@@ -607,7 +627,7 @@ export class CheckoutService {
         holderInfo: customerData,
       };
 
-      const splits = this.buildSplits(checkoutData);
+      const splits = this.buildSplits(checkoutData, adapter);
       if (splits) {
         paymentData.splits = splits;
         console.log('Split configurado para vendedor:');
@@ -648,8 +668,13 @@ export class CheckoutService {
    * domínio. Traduzir `recipientId` para o campo do fornecedor (walletId, no
    * caso do Asaas) é responsabilidade do adapter.
    */
-  private buildSplits(checkoutData: CheckoutData) {
+  private buildSplits(checkoutData: CheckoutData, adapter: PaymentGatewayPort) {
     const coupon = checkoutData.couponData;
+    // Em 'manualRecord' a comissão existe e é registrada, mas não vai como
+    // instrução de divisão para o provedor: o repasse é administrado por nós.
+    if (adapter.capabilities.commission !== 'gatewaySplit') {
+      return null;
+    }
     if (
       !coupon?.valid ||
       !(coupon.commissionPercentage > 0) ||
