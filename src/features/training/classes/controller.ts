@@ -35,6 +35,7 @@ import { GenericController } from 'src/features/generic/generic.controller';
 import { Public } from 'src/auth/decorators/public.decorator';
 import { Cache, CacheEvictAll } from 'src/common/cache';
 import { CacheService } from 'src/common/cache/cache.service';
+import { ClassGatewayValidator } from 'src/payments/application/class-gateway-validator.service';
 
 // Create a decorator factory for User controller permissions
 function UserPermission(permission: string) {
@@ -59,6 +60,7 @@ export class ClassesController extends GenericController<
     private readonly Service: Service,
     // cacheService é usado pelos decorators de cache
     private readonly cacheService: CacheService,
+    private readonly gatewayValidator: ClassGatewayValidator,
   ) {
     super(Service, entity);
   }
@@ -158,6 +160,16 @@ export class ClassesController extends GenericController<
       courseId: CreateDto.courseId,
       initialDate: CreateDto.initialDate,
     }; // Customize search parameters if needed
+    // Falha aqui, para quem monta a turma, em vez de na hora do comprador
+    // pagar. Ver ClassGatewayValidator.
+    await this.gatewayValidator.validate({
+      companyGatewayId: (CreateDto as any).companyGatewayId,
+      companyId: request.user?.companyId,
+      allowCheckout: (CreateDto as any).allowCheckout,
+      paymentMethods: (CreateDto as any).paymentMethods,
+      dividedIn: (CreateDto as any).dividedIn,
+    });
+
     return super.create(request, CreateDto, file, search);
   }
 
@@ -184,6 +196,35 @@ export class ClassesController extends GenericController<
 
     if (!UpdateDto.price) UpdateDto.price = null;
     if (!UpdateDto.discountPrice) UpdateDto.discountPrice = null;
+    // Valida o estado FINAL: um update parcial pode trocar só o provedor e
+    // deixar métodos incompatíveis que já estavam salvos.
+    const atual = await this.Service.get(
+      { id: Number(id) } as any,
+      {} as any,
+      entity,
+    ).catch(() => null);
+    const turmaAtual = (atual as any)?.rows?.[0] || {};
+
+    await this.gatewayValidator.validate({
+      companyGatewayId:
+        (UpdateDto as any).companyGatewayId !== undefined
+          ? (UpdateDto as any).companyGatewayId
+          : turmaAtual.companyGatewayId,
+      companyId: request.user?.companyId,
+      allowCheckout:
+        (UpdateDto as any).allowCheckout !== undefined
+          ? (UpdateDto as any).allowCheckout
+          : turmaAtual.allowCheckout,
+      paymentMethods:
+        (UpdateDto as any).paymentMethods !== undefined
+          ? (UpdateDto as any).paymentMethods
+          : turmaAtual.paymentMethods,
+      dividedIn:
+        (UpdateDto as any).dividedIn !== undefined
+          ? (UpdateDto as any).dividedIn
+          : turmaAtual.dividedIn,
+    });
+
     return super.update(id, request, UpdateDto, file);
   }
 

@@ -8,6 +8,7 @@ import { GatewayResolver } from './infrastructure/gateway-resolver';
 import { SellerAccountService } from './application/seller-account.service';
 import { GatewayCredentialsService } from './application/gateway-credentials.service';
 import { CheckoutLockService } from './application/checkout-lock.service';
+import { ClassGatewayValidator } from './application/class-gateway-validator.service';
 
 /**
  * Módulo do domínio financeiro.
@@ -29,12 +30,14 @@ import { CheckoutLockService } from './application/checkout-lock.service';
     SellerAccountService,
     GatewayCredentialsService,
     CheckoutLockService,
+    ClassGatewayValidator,
   ],
   exports: [
     GatewayResolver,
     SellerAccountService,
     GatewayCredentialsService,
     CheckoutLockService,
+    ClassGatewayValidator,
   ],
 })
 export class PaymentsModule {}

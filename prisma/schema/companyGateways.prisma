@@ -10,4 +10,7 @@ model CompanyGateWays {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
+
+  // Turmas que escolheram explicitamente esta configuração.
+  courseClasses CourseClass[]
 }

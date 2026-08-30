@@ -44,6 +44,46 @@ export class GatewayResolver {
   }
 
   /**
+   * Provedor de uma TURMA.
+   *
+   * Precedência: a configuração escolhida na turma vence; sem ela, cai no
+   * provedor ativo da empresa. É isso que permite migrar de provedor uma
+   * turma por vez, ou deixar turmas de baixo valor num provedor mais barato
+   * enquanto as que precisam de boleto seguem no outro.
+   *
+   * A configuração da turma é respeitada mesmo se estiver inativa — desligar
+   * um provedor não pode redirecionar silenciosamente cobranças de turmas que
+   * o escolheram de propósito; melhor falhar e ser corrigido.
+   */
+  async forCourseClass(
+    courseClass: { companyGatewayId?: number | null; companyId?: number | null },
+  ): Promise<{ adapter: PaymentGatewayPort; record: any }> {
+    if (!courseClass.companyGatewayId) {
+      return this.forCompany(courseClass.companyId);
+    }
+
+    const escolhido = await this.prisma.selectFirst('companyGateWays', {
+      where: { id: courseClass.companyGatewayId },
+    });
+
+    if (!escolhido) {
+      throw new HttpException(
+        'O provedor de pagamento configurado para esta turma não existe mais',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if (!this.supports(escolhido.gateway)) {
+      throw new HttpException(
+        `Gateway ${escolhido.gateway} ainda não está implementado`,
+        HttpStatus.NOT_IMPLEMENTED,
+      );
+    }
+
+    return { adapter: this.byName(escolhido.gateway), record: escolhido };
+  }
+
+  /**
    * Gateway ativo da empresa.
    *
    * Desempate explícito (risco R5 do plano): com mais de um gateway ativo — o

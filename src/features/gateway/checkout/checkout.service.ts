@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { SubscriptionService } from 'src/features/training/subscription/service';
-import { paymentMethods } from '@prisma/client';
+import { paymentMethods, gateways } from '@prisma/client';
 import { GatewayResolver } from 'src/payments/infrastructure/gateway-resolver';
 import {
   capabilityChecks,
@@ -138,9 +138,12 @@ export class CheckoutService {
         }
       }
 
-      // 5. Resolve o gateway ativo da empresa e o adapter correspondente
+      // 5. Resolve o provedor DESTA TURMA (com fallback para o da empresa)
       const { adapter, record: gateway } =
-        await this.gatewayResolver.forCompany(companyId);
+        await this.gatewayResolver.forCourseClass({
+          companyGatewayId: subscription.courseClass.companyGatewayId,
+          companyId,
+        });
 
       let financialRecordId: number;
 
@@ -967,9 +970,14 @@ export class CheckoutService {
   async processPaymentWebhook(
     webhookData: any,
     companyId: number,
+    gateway: gateways,
   ): Promise<void> {
     try {
-      const { adapter } = await this.gatewayResolver.forCompany(companyId);
+      // O provedor vem da URL do webhook, não da configuração atual da
+      // empresa. Resolver por empresa aqui só funcionava porque havia um
+      // gateway só: com dois ativos — uma migração, ou gateway por turma —
+      // um webhook do Asaas poderia ser interpretado pelo adapter errado.
+      const adapter = this.gatewayResolver.byName(gateway);
       const processedData = await adapter.processWebhook(
         webhookData,
         companyId,

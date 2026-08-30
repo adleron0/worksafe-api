@@ -1,3 +1,4 @@
+import { PaymentsModule } from 'src/payments/payments.module';
 import { Module } from '@nestjs/common';
 import { ClassesController as Controller } from './controller';
 import { ClassesService as Service } from './service';
@@ -7,6 +8,6 @@ import { TraineeCertificateModule } from '../trainee_certificate/module';
 @Module({
   controllers: [Controller],
   providers: [Service],
-  imports: [UploadModule, TraineeCertificateModule],
+  imports: [UploadModule, TraineeCertificateModule, PaymentsModule],
 })
 export class ClassesModule {}

@@ -34,7 +34,7 @@ export class WebhooksService {
       // com adapter registrado é processado. Somar um fornecedor não toca
       // este arquivo.
       if (this.gatewayResolver.supports(gateway as gateways)) {
-        await this.processPaymentEvent(payload, companyId);
+        await this.processPaymentEvent(payload, companyId, gateway as gateways);
       } else {
         console.log(
           `Gateway ${gateway} sem adapter registrado — webhook apenas armazenado`,
@@ -80,9 +80,17 @@ export class WebhooksService {
   }
 
   /** Encaminha eventos de pagamento; outros eventos são só armazenados. */
-  private async processPaymentEvent(payload: any, companyId: number) {
+  private async processPaymentEvent(
+    payload: any,
+    companyId: number,
+    gateway: gateways,
+  ) {
     if (payload?.event && String(payload.event).startsWith('PAYMENT_')) {
-      await this.checkoutService.processPaymentWebhook(payload, companyId);
+      await this.checkoutService.processPaymentWebhook(
+        payload,
+        companyId,
+        gateway,
+      );
     }
   }
 }
