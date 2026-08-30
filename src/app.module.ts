@@ -9,8 +9,10 @@ import { SecurityModule } from './common/security/security.module';
 import { PermissionsModule } from './features/users/permissions/permissions.module';
 import { UploadModule } from './features/upload/upload.module';
 import { AreaModule } from './features/area/area.module';
-import { CustomerModule } from './features/clientes/customer/module';
-import { DomRanksModule } from './features/dom_ranks/module';
+// Entidades migradas para o núcleo genérico (@adleron/crud-core)
+import { CrudModule } from './common/crud/crud.module';
+import { customerEntity } from './features/clientes/customer/rules.crud';
+import { ranksEntity } from './features/dom_ranks/rules.crud';
 import { DomCitiesModule } from './features/dom_cities/module';
 import { DomStatesModule } from './features/dom_states/module';
 import { CustomerContactsModule } from './features/clientes/customer_contacts/module';
@@ -73,8 +75,7 @@ import { AIModule } from './common/ai';
     PermissionsModule,
     UploadModule,
     AreaModule,
-    CustomerModule,
-    DomRanksModule,
+    CrudModule.forEntities([customerEntity, ranksEntity]),
     DomCitiesModule,
     DomStatesModule,
     CustomerContactsModule,
