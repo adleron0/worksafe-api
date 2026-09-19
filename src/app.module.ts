@@ -9,46 +9,9 @@ import { SecurityModule } from './common/security/security.module';
 import { PermissionsModule } from './features/users/permissions/permissions.module';
 import { UploadModule } from './features/upload/upload.module';
 import { AreaModule } from './features/area/area.module';
-// Entidades migradas para o núcleo genérico (@adleron/crud-core)
+// Entidades servidas pelo núcleo genérico (@adleron/crud-core) — ver common/crud/entities.registry.ts
 import { CrudModule } from './common/crud/crud.module';
-import { FileInterceptor } from '@nestjs/platform-express';
-import { UseInterceptors } from '@nestjs/common';
-import { Cache, CacheEvictAll } from './common/cache';
-import { getMulterOptions } from './features/upload/upload.middleware';
-import { customerEntity } from './features/clientes/customer/rules.crud';
-import { ranksEntity } from './features/dom_ranks/rules.crud';
-import { rolesEntity } from './features/dom_roles/rules.crud';
-import { statesEntity } from './features/dom_states/rules.crud';
-import { citiesEntity } from './features/dom_cities/rules.crud';
-import { siteServicesEntity } from './features/site/site_services/rules.crud';
-import { siteProductsEntity } from './features/site/site_loja/rules.crud';
-import { instructorEntity } from './features/training/instructor/rules.crud';
-import { InstructorSignatureController } from './features/training/instructor/signature.controller';
-import { couponEntity } from './features/training/coupon/rules.crud';
-import { blogTagEntity } from './features/blog/tag/rules.crud';
-import { blogCategoryEntity } from './features/blog/category/rules.crud';
-
-const blogEvict = (name: string) =>
-  CacheEvictAll(`blog/${name}:*`, `blog-${name}-public:*`, `cache:*/blog/${name}*`, `cache:*/blog-${name}-public*`);
-const blogCrud = (rules: typeof blogTagEntity, name: string) => ({
-  rules,
-  controller: {
-    prefix: 'blog',
-    decorators: {
-      list: [Cache({ prefix: `blog/${name}`, ttl: 3600 })],
-      listPublic: [Cache({ prefix: `blog-${name}-public`, ttl: 3600 })],
-      create: [blogEvict(name)], update: [blogEvict(name)],
-      archive: [blogEvict(name)], restore: [blogEvict(name)],
-    },
-  },
-});
-import { getOptimizedMulterOptions } from './features/upload/upload.middleware';
-
-const uploadOptimized = UseInterceptors(FileInterceptor('image', getOptimizedMulterOptions()));
-const evict = (prefix: string, route: string) => CacheEvictAll(`${prefix}:*`, `cache:*/${route}*`);
-
-const upload = (folder: string) => UseInterceptors(FileInterceptor('image', getMulterOptions(folder)));
-const evictSiteServices = CacheEvictAll('site-services:*', 'cache:*/site-services*');
+import { crudEntities, crudExtraControllers, crudExtraImports } from './common/crud/entities.registry';
 import { CustomerContactsModule } from './features/clientes/customer_contacts/module';
 import { ProfileModule } from './features/users/profile/module';
 import { CourseModule } from './features/training/course/module';
@@ -86,7 +49,6 @@ import { StudentEvaluationsModule } from './features/student/student-evaluations
 
 // Rotas do Blog
 import { PostModule } from './features/blog/post/module';
-import { VisitorModule } from './features/blog/visitor/module';
 import { CommentModule } from './features/blog/comment/module';
 import { BlogAuthModule } from './features/blog/auth/auth.module';
 
@@ -103,36 +65,7 @@ import { AIModule } from './common/ai';
     PermissionsModule,
     UploadModule,
     AreaModule,
-    CrudModule.forEntities([
-      { rules: customerEntity, controller: { decorators: {
-        create: [upload('custumer-logo')], update: [upload('custumer-logo')] } } },
-      ranksEntity,
-      rolesEntity,
-      statesEntity,
-      citiesEntity,
-      { rules: siteServicesEntity, controller: { decorators: {
-        list: [Cache({ prefix: 'site-services', ttl: 172800 })],
-        create: [upload('services-image'), evictSiteServices],
-        update: [upload('services-image'), evictSiteServices],
-        archive: [evictSiteServices],
-        restore: [evictSiteServices],
-      } } },
-      { rules: siteProductsEntity, controller: { decorators: {
-        list: [Cache({ prefix: 'site-products', ttl: 172800 })],
-        create: [upload('site_products-image'), evict('site-products', 'site-products')],
-        update: [upload('site_products-image'), evict('site-products', 'site-products')],
-        archive: [evict('site-products', 'site-products')],
-        restore: [evict('site-products', 'site-products')],
-      } } },
-      { rules: instructorEntity, controller: { decorators: {
-        create: [uploadOptimized], update: [uploadOptimized] } } },
-      { rules: couponEntity, controller: { decorators: {
-        create: [evict('coupon', 'coupon')], update: [evict('coupon', 'coupon')],
-        archive: [evict('coupon', 'coupon')], restore: [evict('coupon', 'coupon')],
-      } } },
-      blogCrud(blogTagEntity, 'tags'),
-      blogCrud(blogCategoryEntity, 'categories'),
-    ], [InstructorSignatureController]),
+    CrudModule.forEntities(crudEntities, crudExtraControllers, crudExtraImports),
     CustomerContactsModule,
     ProfileModule,
     CourseModule,
@@ -166,7 +99,6 @@ import { AIModule } from './common/ai';
     CouponModule,
     // Blog
     PostModule,
-    VisitorModule,
     CommentModule,
     BlogAuthModule,
     // AI

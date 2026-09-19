@@ -59,6 +59,7 @@ export class CrudModule {
   static forEntities(
     entities: Array<EntityRules | CrudEntity>,
     extraControllers: Type<unknown>[] = [],
+    extraImports: DynamicModule['imports'] = [],
   ): DynamicModule {
     const controllers = entities.map((entry) => {
       const { rules, controller } = 'rules' in entry ? entry : { rules: entry, controller: undefined };
@@ -70,7 +71,7 @@ export class CrudModule {
     });
     return {
       module: CrudModule,
-      imports: [PrismaModule],
+      imports: [PrismaModule, ...extraImports],
       controllers: [...controllers, ...extraControllers],
       providers: [
         {
@@ -83,6 +84,8 @@ export class CrudModule {
               actor: worksafeActor,
               audit: worksafeAudit(prisma),
               permissions: worksafePermissions,
+              // Disponível em todo hook como `deps.prisma` (tabelas de junção etc.).
+              hookDeps: { prisma },
             }),
         },
         { provide: APP_FILTER, useClass: CrudErrorFilter },

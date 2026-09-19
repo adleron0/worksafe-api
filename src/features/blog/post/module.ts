@@ -1,11 +1,6 @@
 import { Module } from '@nestjs/common';
-import { PostController as Controller } from './controller';
 import { PostService as Service } from './service';
-import { UploadModule } from '../../upload/upload.module';
 
-@Module({
-  controllers: [Controller],
-  providers: [Service],
-  imports: [UploadModule],
-})
+/** O CRUD e as rotas custom do post vivem no CrudModule; aqui só o service (slug público). */
+@Module({ providers: [Service], exports: [Service] })
 export class PostModule {}

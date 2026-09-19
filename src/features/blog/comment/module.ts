@@ -1,12 +1,7 @@
 import { Module } from '@nestjs/common';
-import { CommentController as Controller } from './controller';
 import { CommentService as Service } from './service';
-import { UploadModule } from '../../upload/upload.module';
 import { BlogAuthModule } from '../auth/auth.module';
 
-@Module({
-  controllers: [Controller],
-  providers: [Service],
-  imports: [UploadModule, BlogAuthModule],
-})
+/** CRUD, moderação e rotas públicas vivem no CrudModule; aqui só o service. */
+@Module({ imports: [BlogAuthModule], providers: [Service], exports: [Service, BlogAuthModule] })
 export class CommentModule {}

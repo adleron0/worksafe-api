@@ -1,24 +1,10 @@
-import { GenericService } from 'src/features/generic/generic.service';
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { IEntity } from './interfaces/interface';
-import { CreateDto } from './dto/create.dto';
-import { UpdateDto } from './dto/update.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { UploadService } from 'src/features/upload/upload.service';
 import { BlogCommentStatus } from '@prisma/client';
 
 @Injectable()
-export class CommentService extends GenericService<
-  CreateDto,
-  UpdateDto,
-  IEntity
-> {
-  constructor(
-    protected prisma: PrismaService,
-    protected uploadService: UploadService,
-  ) {
-    super(prisma, uploadService);
-  }
+export class CommentService {
+  constructor(protected prisma: PrismaService) {}
 
   /**
    * Busca empresa por domínio
@@ -221,20 +207,5 @@ export class CommentService extends GenericService<
       limit,
       totalPages: Math.ceil(totalItems / limit),
     };
-  }
-
-  /**
-   * Define o status de um comentário
-   */
-  async setStatus(id: number, status: BlogCommentStatus): Promise<IEntity> {
-    try {
-      const result = await this.prisma.blog_Comment.update({
-        where: { id },
-        data: { status },
-      });
-      return result as IEntity;
-    } catch (error) {
-      throw new BadRequestException(error);
-    }
   }
 }
