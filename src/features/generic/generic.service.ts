@@ -866,48 +866,27 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
         }
       }
 
-      // Suporte ao filtro OR
-      // Faz parse se vier como string JSON
+      // Suporte ao filtro OR. Aceita JSON (inclusive double-encoded, como o
+      // front serializa) e NUNCA cai em eval: era execução de código
+      // arbitrário a partir da query string, alcançável sem autenticação
+      // pelas rotas @Public() que herdam este get.
       if (filters.or) {
-        console.log(
-          '🔍 OR filter before parse:',
-          filters.or,
-          'Type:',
-          typeof filters.or,
-        );
-
-        if (typeof filters.or === 'string') {
+        let orValue = filters.or;
+        if (typeof orValue === 'string') {
           try {
-            // Remove espaços extras e tenta fazer parse
-            const cleanedOr = filters.or.replace(/\s+/g, ' ').trim();
-            filters.or = JSON.parse(cleanedOr);
-            console.log('✅ OR filter after parse:', filters.or);
+            orValue = JSON.parse(orValue);
+            if (typeof orValue === 'string') orValue = JSON.parse(orValue);
           } catch (e) {
-            console.error('❌ Invalid OR filter format:', e);
-            console.error('Original string:', filters.or);
-            // Tenta uma abordagem alternativa com eval (cuidado em produção!)
-            try {
-              filters.or = eval(filters.or);
-              console.log('✅ OR filter parsed with eval:', filters.or);
-            } catch (e2) {
-              console.error('❌ Eval also failed:', e2);
-            }
+            throw new BadRequestException('Filtro "or" inválido: esperado JSON');
           }
         }
-
-        if (Array.isArray(filters.or)) {
-          params.where.OR = filters.or.map(
-            (orFilter: any) => parseFilterObject(orFilter, true), // skipNestedFilters = true para OR
-          );
-          console.log('✅ OR applied to params.where.OR:', params.where.OR);
-          // Remove o filtro 'or' do objeto principal para não duplicar condições
-          delete filters.or;
-        } else {
-          console.error(
-            '❌ filters.or is not an array after parsing:',
-            filters.or,
+        if (Array.isArray(orValue)) {
+          params.where.OR = orValue.map((orFilter: any) =>
+            parseFilterObject(orFilter, true),
           );
         }
+        // Sempre remove: se ficasse em `filters`, viraria coluna inexistente no where.
+        delete filters.or;
       }
 
       // Filtros adicionais (pulando filtros de associações aninhadas)
