@@ -1,4 +1,5 @@
 import { Injectable, Inject, forwardRef } from '@nestjs/common';
+import { timingSafeEqual } from 'crypto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { gateways } from '@prisma/client';
 import { CheckoutService } from '../checkout/checkout.service';
@@ -10,6 +11,38 @@ export class WebhooksService {
     @Inject(forwardRef(() => CheckoutService))
     private readonly checkoutService: CheckoutService,
   ) {}
+
+  /**
+   * Token esperado: `payload.webhookToken` do CompanyGateWays da empresa, com
+   * fallback no env ASAAS_WEBHOOK_TOKEN. FAIL-CLOSED: sem token configurado o
+   * webhook é recusado — configure antes do deploy. Comparação em tempo
+   * constante para não vazar o token por timing.
+   */
+  async verifyWebhookToken(
+    gateway: string,
+    companyId: number,
+    received: string | undefined,
+  ): Promise<boolean> {
+    if (gateway !== 'asaas') return false;
+    if (!received) return false;
+
+    const companyGateway = await this.prisma.companyGateWays.findFirst({
+      where: { companyId, gateway: 'asaas', active: true },
+    });
+    const expected: string | undefined =
+      (companyGateway?.payload as any)?.webhookToken ||
+      process.env.ASAAS_WEBHOOK_TOKEN;
+    if (!expected) {
+      console.error(
+        `[webhook] nenhum webhookToken configurado para a empresa ${companyId} — requisição recusada`,
+      );
+      return false;
+    }
+
+    const a = Buffer.from(received);
+    const b = Buffer.from(expected);
+    return a.length === b.length && timingSafeEqual(a, b);
+  }
 
   async registerWebhook(
     gateway: string,
