@@ -66,9 +66,9 @@ export class UserController extends GenericController<
   @UserPermission(`list_${entity.permission}`) // Permissão para rota genérica
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
-    if (!query.omitAttributes) {
+    // Sempre do servidor: o cliente não escolhe o que omitir (senão
+      // ?omitAttributes[]=id devolveria hash de senha e sellerConfig).
       query.omitAttributes = omitAttributes;
-    }
 
     return super.get(request, query, paramsIncludes, noCompany, encryptFields);
   }
@@ -76,9 +76,9 @@ export class UserController extends GenericController<
   @Get('self')
   async getSelf(@Req() request: Request, @Query() query: any) {
     query.self = 'true';
-    if (!query.omitAttributes) {
+    // Sempre do servidor: o cliente não escolhe o que omitir (senão
+      // ?omitAttributes[]=id devolveria hash de senha e sellerConfig).
       query.omitAttributes = omitAttributes;
-    }
     return super.get(request, query);
   }
 
@@ -105,6 +105,12 @@ export class UserController extends GenericController<
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
     const id = Number(request.user.sub);
+    // Autoatualização nunca altera identidade nem papel: com esses campos no
+    // corpo, qualquer usuário virava admin (profileId) ou mudava de empresa
+    // (companyId). sellerStatus/sellerConfig são geridos pelo servidor.
+    for (const field of ['profileId', 'companyId', 'sellerStatus', 'sellerConfig']) {
+      delete UpdateDto[field];
+    }
     const processedDto = formaterPreUpdate(UpdateDto);
     return super.update(id, request, processedDto, file);
   }
