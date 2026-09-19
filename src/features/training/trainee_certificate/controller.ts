@@ -79,9 +79,9 @@ export class TraineeCertificateController extends GenericController<
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
     // Adiciona omitAttributes aos filtros se não estiver presente
-    if (!query.omitAttributes) {
+    // Sempre do servidor: o cliente não escolhe o que omitir (senão
+      // ?omitAttributes[]=id devolveria hash de senha e sellerConfig).
       query.omitAttributes = omitAttributes;
-    }
 
     return super.get(request, query, paramsIncludes, noCompany, encryptFields);
   }
@@ -97,9 +97,9 @@ export class TraineeCertificateController extends GenericController<
   @Throttle({ default: { limit: 500, ttl: 60000 } })
   @Get('public')
   async getPublic(@Req() request: Request, @Query() query: any) {
-    if (!query.omitAttributes) {
+    // Sempre do servidor: o cliente não escolhe o que omitir (senão
+      // ?omitAttributes[]=id devolveria hash de senha e sellerConfig).
       query.omitAttributes = omitAttributes;
-    }
 
     query.showOnWebsiteConsent = true;
     query.active = 'true';

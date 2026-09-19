@@ -74,9 +74,9 @@ export class CertificateController extends GenericController<
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
     // Adiciona omitAttributes aos filtros se não estiver presente
-    if (!query.omitAttributes) {
+    // Sempre do servidor: o cliente não escolhe o que omitir (senão
+      // ?omitAttributes[]=id devolveria hash de senha e sellerConfig).
       query.omitAttributes = omitAttributes;
-    }
     return super.get(request, query, paramsIncludes, noCompany);
   }
 
