@@ -1,23 +1,9 @@
-import { GenericService } from 'src/features/generic/generic.service';
 import { Injectable } from '@nestjs/common';
-import { IEntity } from './interfaces/interface';
-import { CreateDto } from './dto/create.dto';
-import { UpdateDto } from './dto/update.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { UploadService } from 'src/features/upload/upload.service';
 
 @Injectable()
-export class CouponService extends GenericService<
-  CreateDto,
-  UpdateDto,
-  IEntity
-> {
-  constructor(
-    protected prisma: PrismaService,
-    protected uploadService: UploadService,
-  ) {
-    super(prisma, uploadService);
-  }
+export class CouponService {
+  constructor(protected prisma: PrismaService) {}
 
   /**
    * Cria uma resposta padronizada para validação de cupom

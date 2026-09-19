@@ -21,14 +21,20 @@ import { rolesEntity } from './features/dom_roles/rules.crud';
 import { statesEntity } from './features/dom_states/rules.crud';
 import { citiesEntity } from './features/dom_cities/rules.crud';
 import { siteServicesEntity } from './features/site/site_services/rules.crud';
+import { siteProductsEntity } from './features/site/site_loja/rules.crud';
+import { instructorEntity } from './features/training/instructor/rules.crud';
+import { InstructorSignatureController } from './features/training/instructor/signature.controller';
+import { couponEntity } from './features/training/coupon/rules.crud';
+import { getOptimizedMulterOptions } from './features/upload/upload.middleware';
+
+const uploadOptimized = UseInterceptors(FileInterceptor('image', getOptimizedMulterOptions()));
+const evict = (prefix: string, route: string) => CacheEvictAll(`${prefix}:*`, `cache:*/${route}*`);
 
 const upload = (folder: string) => UseInterceptors(FileInterceptor('image', getMulterOptions(folder)));
 const evictSiteServices = CacheEvictAll('site-services:*', 'cache:*/site-services*');
 import { CustomerContactsModule } from './features/clientes/customer_contacts/module';
-import { SiteProductsModule } from './features/site/site_loja/module';
 import { ProfileModule } from './features/users/profile/module';
 import { CourseModule } from './features/training/course/module';
-import { InstructorModule } from './features/training/instructor/module';
 import { ClassesModule } from './features/training/classes/module';
 import { CourseClassInstructorModule } from './features/training/class_instructor/module';
 import { SiteProductsimagesModule } from './features/site/site_productsimages/module';
@@ -96,12 +102,23 @@ import { AIModule } from './common/ai';
         archive: [evictSiteServices],
         restore: [evictSiteServices],
       } } },
-    ]),
+      { rules: siteProductsEntity, controller: { decorators: {
+        list: [Cache({ prefix: 'site-products', ttl: 172800 })],
+        create: [upload('site_products-image'), evict('site-products', 'site-products')],
+        update: [upload('site_products-image'), evict('site-products', 'site-products')],
+        archive: [evict('site-products', 'site-products')],
+        restore: [evict('site-products', 'site-products')],
+      } } },
+      { rules: instructorEntity, controller: { decorators: {
+        create: [uploadOptimized], update: [uploadOptimized] } } },
+      { rules: couponEntity, controller: { decorators: {
+        create: [evict('coupon', 'coupon')], update: [evict('coupon', 'coupon')],
+        archive: [evict('coupon', 'coupon')], restore: [evict('coupon', 'coupon')],
+      } } },
+    ], [InstructorSignatureController]),
     CustomerContactsModule,
-    SiteProductsModule,
     ProfileModule,
     CourseModule,
-    InstructorModule,
     ClassesModule,
     CourseClassInstructorModule,
     SiteProductsimagesModule,

@@ -18,25 +18,31 @@ export const syncActiveFlag: EntityHooks<Request> = {
 };
 
 /**
- * Upload de imagem via multipart (`FileInterceptor('image', …)` no controller):
- * o arquivo já está no S3 quando o hook roda; grava a URL no campo e apaga a
- * imagem anterior ao substituir ou ao enviar `imageUrl: null`. É um concern
- * do projeto — o núcleo não sabe o que é S3.
+ * Upload via multipart: mapa `fieldname do arquivo → coluna` (ex.:
+ * `{ image: 'imageUrl', signature: 'signatureUrl' }`). O arquivo já está no
+ * S3 quando o hook roda; grava a URL e apaga a anterior ao substituir ou ao
+ * enviar `null` para a coluna. Concern do projeto — o núcleo não sabe o que é S3.
  */
-export function imageUpload(field = 'imageUrl'): EntityHooks<Request> {
+export function fileUpload(map: Record<string, string>): EntityHooks<Request> {
   return {
     preWrite: async ({ context, op, data, existing }) => {
       const file = (context as Request & { file?: Express.MulterS3.File }).file;
-      const previous = existing?.[field] as string | undefined;
-      if (file?.location) {
+      let patched = data;
+      if (file?.location && map[file.fieldname]) {
+        const column = map[file.fieldname];
+        const previous = existing?.[column] as string | undefined;
         if (previous && op !== 'create') await uploadService.deleteImageFromS3(previous);
-        return { ...data, [field]: file.location };
+        patched = { ...patched, [column]: file.location };
       }
-      // Sem arquivo novo e com pedido explícito de remoção.
-      if (data[field] === null && previous) {
-        await uploadService.deleteImageFromS3(previous);
+      for (const column of Object.values(map)) {
+        const previous = existing?.[column] as string | undefined;
+        if (patched[column] === null && previous && !(file?.location && map[file.fieldname] === column)) {
+          await uploadService.deleteImageFromS3(previous);
+        }
       }
-      return undefined;
+      return patched;
     },
   };
 }
+
+export const imageUpload = (field = 'imageUrl'): EntityHooks<Request> => fileUpload({ image: field });

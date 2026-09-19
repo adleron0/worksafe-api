@@ -9,10 +9,13 @@ import { rolesEntity } from '../src/features/dom_roles/rules.crud';
 import { statesEntity } from '../src/features/dom_states/rules.crud';
 import { citiesEntity } from '../src/features/dom_cities/rules.crud';
 import { siteServicesEntity } from '../src/features/site/site_services/rules.crud';
+import { siteProductsEntity } from '../src/features/site/site_loja/rules.crud';
+import { instructorEntity } from '../src/features/training/instructor/rules.crud';
+import { couponEntity } from '../src/features/training/coupon/rules.crud';
 
 const schema = prismaSchemaProvider(Prisma.dmmf as never);
 
-for (const rules of [customerEntity, ranksEntity, rolesEntity, statesEntity, citiesEntity, siteServicesEntity]) {
+for (const rules of [customerEntity, ranksEntity, rolesEntity, statesEntity, citiesEntity, siteServicesEntity, siteProductsEntity, instructorEntity, couponEntity]) {
   const def = defineEntity(rules, { schema, scopeField: 'companyId' });
   console.log(`\n✔ ${def.rules.entity}`);
   console.log(`  delegate=${def.delegate}  pk=${def.idField}  escopo=${def.scopeField}  archive=${def.softDeleteField}`);

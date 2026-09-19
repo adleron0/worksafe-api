@@ -10,7 +10,7 @@ import {
   CrudControllerOptions,
   CrudErrorFilter,
 } from '@adleron/crud-core/nestjs';
-import { DynamicModule, Module } from '@nestjs/common';
+import { DynamicModule, Module, Type } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
 import { Request } from 'express';
@@ -45,7 +45,14 @@ export interface CrudEntity {
  */
 @Module({})
 export class CrudModule {
-  static forEntities(entities: Array<EntityRules | CrudEntity>): DynamicModule {
+  /**
+   * `extraControllers`: rotas custom que reusam o CrudService (ex.:
+   * PUT /instructors/:id/signature). Ficam explícitas, fora da fábrica.
+   */
+  static forEntities(
+    entities: Array<EntityRules | CrudEntity>,
+    extraControllers: Type<unknown>[] = [],
+  ): DynamicModule {
     const controllers = entities.map((entry) => {
       const { rules, controller } = 'rules' in entry ? entry : { rules: entry, controller: undefined };
       return createCrudController(defineWorksafeEntity(rules), {
@@ -57,7 +64,7 @@ export class CrudModule {
     return {
       module: CrudModule,
       imports: [PrismaModule],
-      controllers,
+      controllers: [...controllers, ...extraControllers],
       providers: [
         {
           provide: CrudService,

@@ -1,12 +1,11 @@
 import { Module } from '@nestjs/common';
-import { CouponController as Controller } from './controller';
+import { CouponValidateController } from './validate.controller';
 import { CouponService as Service } from './service';
-import { UploadModule } from '../../upload/upload.module';
 
+/** CRUD do cupom vive no CrudModule; aqui ficam a validação pública e o service usado pelo checkout. */
 @Module({
-  controllers: [Controller],
+  controllers: [CouponValidateController],
   providers: [Service],
-  imports: [UploadModule],
-  exports: [Service], // Exporta o service para ser usado em outros módulos
+  exports: [Service],
 })
 export class CouponModule {}
