@@ -497,12 +497,17 @@ export class TraineeCertificateService extends GenericService<
   async updatePdfUrl(id: number, pdfUrl: string) {
     try {
       // Verificar se o certificado existe
+      // Rota pública (usada pela geração automática de thumbnail na tela de
+      // consulta pública) — só permite atualizar o pdfUrl de certificados
+      // que já são elegíveis para exibição pública, evitando que qualquer
+      // visitante sobrescreva o PDF de um certificado arbitrário.
       const certificate = await this.prisma.selectFirst(
         'traineeCourseCertificate',
         {
           where: {
             id: id,
             inactiveAt: null,
+            showOnWebsiteConsent: true,
           },
         },
       );

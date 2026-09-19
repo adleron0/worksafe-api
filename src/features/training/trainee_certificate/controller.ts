@@ -72,16 +72,37 @@ export class TraineeCertificateController extends GenericController<
     super(Service, entity);
   }
 
-  @UserPermission(`list_${entity.permission}`) // comente para tirar permissao
-  @Public() // descomente para tornar publica
-  @Throttle({ default: { limit: 500, ttl: 60000 } }) // 500 requests por minuto para esta rota
-  // @Cache({ prefix: 'trainee-certificate', ttl: 3600 }) // descomente para usar cache (1 hora)
+  // Rota administrativa: exige permissão, sem filtros forçados (o admin
+  // precisa ver certificados inativos e sem consentimento de exibição para
+  // poder gerenciá-los). NÃO é pública.
+  @UserPermission(`list_${entity.permission}`)
   @Get()
   async get(@Req() request: Request, @Query() query: any) {
     // Adiciona omitAttributes aos filtros se não estiver presente
     if (!query.omitAttributes) {
       query.omitAttributes = omitAttributes;
     }
+
+    return super.get(request, query, paramsIncludes, noCompany, encryptFields);
+  }
+
+  // Rota pública: usada pelas telas de consulta de certificados do site
+  // (/certificados, /certificados/:key, /certificados/:nome/:traineeId).
+  // O filtro de consentimento de exibição e de registro ativo NUNCA pode
+  // depender do que o client envia na query — senão um requisitante mal
+  // intencionado poderia simplesmente omitir esses parâmetros e listar
+  // certificados de alunos que não autorizaram exibição pública. Forçamos
+  // aqui, sobrescrevendo qualquer valor recebido.
+  @Public()
+  @Throttle({ default: { limit: 500, ttl: 60000 } })
+  @Get('public')
+  async getPublic(@Req() request: Request, @Query() query: any) {
+    if (!query.omitAttributes) {
+      query.omitAttributes = omitAttributes;
+    }
+
+    query.showOnWebsiteConsent = true;
+    query.active = 'true';
 
     return super.get(request, query, paramsIncludes, noCompany, encryptFields);
   }
@@ -137,7 +158,9 @@ export class TraineeCertificateController extends GenericController<
     return super.inactivate(id, request);
   }
 
-  @Public()
+  // Não é usada por nenhuma das telas públicas de certificado (que só leem
+  // via GET /public) — disparar reenvio de e-mail deve exigir autenticação.
+  @UserPermission(`update_${entity.permission}`)
   @Post('send-email')
   @UseInterceptors(FileInterceptor('none')) // Interceptor para processar FormData
   @UsePipes(
@@ -154,6 +177,12 @@ export class TraineeCertificateController extends GenericController<
     );
   }
 
+  // Permanece pública de propósito: a página pública de certificado gera e
+  // salva a thumbnail automaticamente na primeira visita (useAutoGenerateThumbnail
+  // -> CertificateThumbnailService -> PUT update-pdf). A proteção contra
+  // sobrescrita arbitrária de PDF de qualquer certificado está no service:
+  // só certificados com showOnWebsiteConsent=true (mesmos elegíveis para a
+  // vitrine pública) podem ter o pdfUrl atualizado por esta rota.
   @Public()
   @Put('update-pdf/:id')
   @UseInterceptors(
