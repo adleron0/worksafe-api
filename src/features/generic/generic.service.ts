@@ -1410,6 +1410,15 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
     },
   ): Promise<TEntity> {
     try {
+      // Nunca permitir upsert sem condição de busca explícita: um whereCondition
+      // vazio faria o findFirst abaixo casar com o primeiro registro da tabela
+      // inteira e sobrescrevê-lo com o payload do requisitante.
+      if (!whereCondition || Object.keys(whereCondition).length === 0) {
+        throw new BadRequestException(
+          `Upsert de ${entity.name} requer uma condição de busca explícita`,
+        );
+      }
+
       // Busca o registro existente para obter o ID
       const existingRecord = await this.prisma.selectFirst(entity.model, {
         where: whereCondition,

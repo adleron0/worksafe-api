@@ -12,12 +12,15 @@ import {
   applyDecorators,
   HttpCode,
   UploadedFile,
+  ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiOkResponse } from '@nestjs/swagger';
 import { PrismaClient } from '@prisma/client';
 import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { userHasAnyPermission } from 'src/auth/utils/check-permission.util';
 
 type entity = {
   model: keyof PrismaClient;
@@ -324,6 +327,31 @@ export class GenericController<
     entityHooks?: any,
   ): Promise<TEntity> {
     const { sub: userId, companyId } = request.user;
+
+    // Controllers filhos que sobrescrevem `upsert` já calculam sua própria
+    // permissão via decorator (@UserPermission) e um whereCondition real por
+    // chave de negócio. Quando um controller herda este método sem
+    // sobrescrever, nenhuma permissão é exigida pelo AuthGuard (não há
+    // metadata @Permissions nesta rota) — por isso a checagem abaixo é feita
+    // em runtime, exigindo permissão de update OU create da entidade.
+    if (
+      !userHasAnyPermission(request.user, [
+        `update_${this.entity.permission}`,
+        `create_${this.entity.permission}`,
+      ])
+    ) {
+      throw new ForbiddenException('Acesso negado: Permissões insuficientes');
+    }
+
+    // Nunca aceitar upsert sem uma condição de busca explícita calculada pelo
+    // controller filho: sem isso, o service cairia num findFirst({where: {}})
+    // que casaria com o primeiro registro da tabela inteira.
+    if (!whereCondition || Object.keys(whereCondition).length === 0) {
+      throw new BadRequestException(
+        `Upsert de ${this.entity.name} requer uma condição de busca explícita`,
+      );
+    }
+
     // Se for um aluno (trainee), usa o traineeId como userId
     const logParams = {
       userId: request['traineeId'] || userId,
@@ -332,9 +360,7 @@ export class GenericController<
         : companyId,
     };
 
-    // Se não foi passado whereCondition, usa a chave única ou campo específico do DTO
-    // Pode ser customizado em cada controller específico
-    const where = whereCondition || {};
+    const where = whereCondition;
 
     // Adiciona companyId se não estiver presente no DTO
     if (!upsertDto['companyId']) {
