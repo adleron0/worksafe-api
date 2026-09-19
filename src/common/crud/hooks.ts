@@ -1,4 +1,5 @@
 import { EntityHooks } from '@adleron/crud-core';
+import { hash } from 'bcrypt';
 import { Request } from 'express';
 
 import { UploadService } from 'src/features/upload/upload.service';
@@ -46,3 +47,42 @@ export function fileUpload(map: Record<string, string>): EntityHooks<Request> {
 }
 
 export const imageUpload = (field = 'imageUrl'): EntityHooks<Request> => fileUpload({ image: field });
+
+/** `password` nunca é gravada em claro: bcrypt em qualquer escrita que a traga. */
+export const hashPassword: EntityHooks<Request> = {
+  preWrite: async ({ data }) => {
+    if (typeof data.password !== 'string' || data.password === '') {
+      const { password: _omit, ...rest } = data;
+      return rest;
+    }
+    return { ...data, password: await hash(data.password, 10) };
+  },
+};
+
+/** Campos JSON que o form manda como string. */
+export const parseJsonFields = (...fields: string[]): EntityHooks<Request> => ({
+  preWrite: ({ data }) => {
+    const patched = { ...data };
+    for (const field of fields) {
+      const value = patched[field];
+      if (value === '' || value === 'undefined') delete patched[field];
+      else if (typeof value === 'string') {
+        try { patched[field] = JSON.parse(value); } catch { delete patched[field]; }
+      }
+    }
+    return patched;
+  },
+});
+
+/** Data só com dia (YYYY-MM-DD) vira ISO completo. */
+export const normalizeDateOnly = (...fields: string[]): EntityHooks<Request> => ({
+  preWrite: ({ data }) => {
+    const patched = { ...data };
+    for (const field of fields) {
+      const value = patched[field];
+      if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) patched[field] = `${value}T00:00:00.000Z`;
+      if (value === '') patched[field] = null;
+    }
+    return patched;
+  },
+});

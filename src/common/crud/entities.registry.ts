@@ -32,6 +32,7 @@ import { siteServicesEntity } from 'src/features/site/site_services/rules.crud';
 import { couponEntity } from 'src/features/training/coupon/rules.crud';
 import { instructorEntity } from 'src/features/training/instructor/rules.crud';
 import { InstructorSignatureController } from 'src/features/training/instructor/signature.controller';
+import { userEntity } from 'src/features/users/user/rules.crud';
 import { CrudEntity } from './crud.module';
 
 const upload = (folder: string) => UseInterceptors(FileInterceptor('image', getMulterOptions(folder)));
@@ -59,6 +60,8 @@ const blogCrud = (rules: CrudEntity['rules'], name: string): CrudEntity => ({
 });
 
 export const crudEntities: CrudEntity[] = [
+  { rules: userEntity, controller: { decorators: {
+    create: [upload('user-profile')], update: [upload('user-profile')], updateSelf: [upload('user-profile')] } } },
   { rules: customerEntity, controller: { decorators: {
     create: [upload('custumer-logo')], update: [upload('custumer-logo')] } } },
   { rules: ranksEntity },
