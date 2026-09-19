@@ -92,6 +92,15 @@ export class CacheInterceptor implements NestInterceptor {
       return customKey;
     }
 
+    // Escopo de tenant/identidade na chave: sem isto, a empresa A recebia
+    // do cache a resposta da empresa B para a mesma query (ativo em
+    // company-gateway com TTL de 7 dias). Rota pública não tem escopo.
+    const scope = request.traineeId
+      ? `:t${request.traineeId}`
+      : request.user?.companyId !== undefined
+        ? `:c${request.user.companyId}`
+        : '';
+
     // Gerar chave baseada na URL e query
     const { url, path, query } = request;
     const queryStr =
@@ -101,11 +110,11 @@ export class CacheInterceptor implements NestInterceptor {
 
     // Se tem prefixo, usar ele
     if (prefix) {
-      return `${prefix}${queryStr || ':all'}`;
+      return `${prefix}${scope}${queryStr || ':all'}`;
     }
 
     // Senão, usar a URL completa
-    return `cache:${url}`;
+    return `cache${scope}:${url}`;
   }
 
   private serializeQuery(query: any): string {
