@@ -1,5 +1,6 @@
 import {
   CrudService,
+  DEFAULT_RESERVED_KEYS,
   EntityDefinition,
   EntityRules,
   defineEntity,
@@ -30,7 +31,13 @@ const schema = prismaSchemaProvider(Prisma.dmmf as never);
 /** Compila a declaração no boot: rules inválida = BootError e a app não sobe. */
 export function defineWorksafeEntity(rules: EntityRules): EntityDefinition {
   // maxLimit 1000: o front usa limit=1000 em várias listagens.
-  return defineEntity(rules, { schema, scopeField: worksafeScope.field, maxLimit: 1000 });
+  return defineEntity(rules, {
+    schema,
+    scopeField: worksafeScope.field,
+    maxLimit: 1000,
+    // `companyId` é escopo, nunca filtro livre (rotas públicas o mandam na query).
+    reservedKeys: [...DEFAULT_RESERVED_KEYS, 'companyId'],
+  });
 }
 
 /** Uma entidade a registrar: as regras e, opcionalmente, decorators por op. */

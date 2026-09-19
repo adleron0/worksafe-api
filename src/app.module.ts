@@ -25,6 +25,23 @@ import { siteProductsEntity } from './features/site/site_loja/rules.crud';
 import { instructorEntity } from './features/training/instructor/rules.crud';
 import { InstructorSignatureController } from './features/training/instructor/signature.controller';
 import { couponEntity } from './features/training/coupon/rules.crud';
+import { blogTagEntity } from './features/blog/tag/rules.crud';
+import { blogCategoryEntity } from './features/blog/category/rules.crud';
+
+const blogEvict = (name: string) =>
+  CacheEvictAll(`blog/${name}:*`, `blog-${name}-public:*`, `cache:*/blog/${name}*`, `cache:*/blog-${name}-public*`);
+const blogCrud = (rules: typeof blogTagEntity, name: string) => ({
+  rules,
+  controller: {
+    prefix: 'blog',
+    decorators: {
+      list: [Cache({ prefix: `blog/${name}`, ttl: 3600 })],
+      listPublic: [Cache({ prefix: `blog-${name}-public`, ttl: 3600 })],
+      create: [blogEvict(name)], update: [blogEvict(name)],
+      archive: [blogEvict(name)], restore: [blogEvict(name)],
+    },
+  },
+});
 import { getOptimizedMulterOptions } from './features/upload/upload.middleware';
 
 const uploadOptimized = UseInterceptors(FileInterceptor('image', getOptimizedMulterOptions()));
@@ -68,8 +85,6 @@ import { StudentCertificatesModule } from './features/student/student-certificat
 import { StudentEvaluationsModule } from './features/student/student-evaluations/module';
 
 // Rotas do Blog
-import { CategoryModule } from './features/blog/category/module';
-import { TagModule } from './features/blog/tag/module';
 import { PostModule } from './features/blog/post/module';
 import { VisitorModule } from './features/blog/visitor/module';
 import { CommentModule } from './features/blog/comment/module';
@@ -115,6 +130,8 @@ import { AIModule } from './common/ai';
         create: [evict('coupon', 'coupon')], update: [evict('coupon', 'coupon')],
         archive: [evict('coupon', 'coupon')], restore: [evict('coupon', 'coupon')],
       } } },
+      blogCrud(blogTagEntity, 'tags'),
+      blogCrud(blogCategoryEntity, 'categories'),
     ], [InstructorSignatureController]),
     CustomerContactsModule,
     ProfileModule,
@@ -148,8 +165,6 @@ import { AIModule } from './common/ai';
     StudentEvaluationsModule,
     CouponModule,
     // Blog
-    CategoryModule,
-    TagModule,
     PostModule,
     VisitorModule,
     CommentModule,

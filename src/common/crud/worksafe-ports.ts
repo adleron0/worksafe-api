@@ -21,10 +21,12 @@ import { PrismaService } from 'src/prisma/prisma.service';
 export const worksafeScope: ScopeResolver<Request> = {
   field: 'companyId',
   resolve: (request) => {
+    // Rota pública (vitrine, blog): sem identidade, a empresa vem da query —
+    // é o `noCompanyPublic` do generic antigo, agora num lugar só.
     const raw = request['traineeId']
       ? request['student']?.customerId
-      : request.user?.companyId;
-    return raw === undefined || raw === null ? undefined : Number(raw);
+      : (request.user?.companyId ?? (request.query as Record<string, unknown>)?.companyId);
+    return raw === undefined || raw === null || raw === '' ? undefined : Number(raw);
   },
 };
 
