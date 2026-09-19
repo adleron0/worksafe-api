@@ -11,13 +11,20 @@ import { UploadModule } from './features/upload/upload.module';
 import { AreaModule } from './features/area/area.module';
 // Entidades migradas para o núcleo genérico (@adleron/crud-core)
 import { CrudModule } from './common/crud/crud.module';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { UseInterceptors } from '@nestjs/common';
+import { Cache, CacheEvictAll } from './common/cache';
+import { getMulterOptions } from './features/upload/upload.middleware';
 import { customerEntity } from './features/clientes/customer/rules.crud';
 import { ranksEntity } from './features/dom_ranks/rules.crud';
-import { DomCitiesModule } from './features/dom_cities/module';
-import { DomStatesModule } from './features/dom_states/module';
+import { rolesEntity } from './features/dom_roles/rules.crud';
+import { statesEntity } from './features/dom_states/rules.crud';
+import { citiesEntity } from './features/dom_cities/rules.crud';
+import { siteServicesEntity } from './features/site/site_services/rules.crud';
+
+const upload = (folder: string) => UseInterceptors(FileInterceptor('image', getMulterOptions(folder)));
+const evictSiteServices = CacheEvictAll('site-services:*', 'cache:*/site-services*');
 import { CustomerContactsModule } from './features/clientes/customer_contacts/module';
-import { DomRolesModule } from './features/dom_roles/module';
-import { ServicesModule } from './features/site/site_services/module';
 import { SiteProductsModule } from './features/site/site_loja/module';
 import { ProfileModule } from './features/users/profile/module';
 import { CourseModule } from './features/training/course/module';
@@ -75,12 +82,22 @@ import { AIModule } from './common/ai';
     PermissionsModule,
     UploadModule,
     AreaModule,
-    CrudModule.forEntities([customerEntity, ranksEntity]),
-    DomCitiesModule,
-    DomStatesModule,
+    CrudModule.forEntities([
+      { rules: customerEntity, controller: { decorators: {
+        create: [upload('custumer-logo')], update: [upload('custumer-logo')] } } },
+      ranksEntity,
+      rolesEntity,
+      statesEntity,
+      citiesEntity,
+      { rules: siteServicesEntity, controller: { decorators: {
+        list: [Cache({ prefix: 'site-services', ttl: 172800 })],
+        create: [upload('services-image'), evictSiteServices],
+        update: [upload('services-image'), evictSiteServices],
+        archive: [evictSiteServices],
+        restore: [evictSiteServices],
+      } } },
+    ]),
     CustomerContactsModule,
-    DomRolesModule,
-    ServicesModule,
     SiteProductsModule,
     ProfileModule,
     CourseModule,

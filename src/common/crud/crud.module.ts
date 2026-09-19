@@ -5,12 +5,17 @@ import {
   defineEntity,
 } from '@adleron/crud-core';
 import { prismaRepository, prismaSchemaProvider } from '@adleron/crud-core/prisma';
-import { createCrudController, CrudErrorFilter } from '@adleron/crud-core/nestjs';
+import {
+  createCrudController,
+  CrudControllerOptions,
+  CrudErrorFilter,
+} from '@adleron/crud-core/nestjs';
 import { DynamicModule, Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
 import { Request } from 'express';
 
+import { Public } from 'src/auth/decorators/public.decorator';
 import { PrismaModule } from 'src/prisma/prisma.module';
 import { PrismaService } from 'src/prisma/prisma.service';
 import {
@@ -24,7 +29,14 @@ const schema = prismaSchemaProvider(Prisma.dmmf as never);
 
 /** Compila a declaração no boot: rules inválida = BootError e a app não sobe. */
 export function defineWorksafeEntity(rules: EntityRules): EntityDefinition {
-  return defineEntity(rules, { schema, scopeField: worksafeScope.field });
+  // maxLimit 1000: o front usa limit=1000 em várias listagens.
+  return defineEntity(rules, { schema, scopeField: worksafeScope.field, maxLimit: 1000 });
+}
+
+/** Uma entidade a registrar: as regras e, opcionalmente, decorators por op. */
+export interface CrudEntity {
+  rules: EntityRules;
+  controller?: Omit<CrudControllerOptions, 'publicDecorator'>;
 }
 
 /**
@@ -33,12 +45,19 @@ export function defineWorksafeEntity(rules: EntityRules): EntityDefinition {
  */
 @Module({})
 export class CrudModule {
-  static forEntities(rules: EntityRules[]): DynamicModule {
-    const definitions = rules.map(defineWorksafeEntity);
+  static forEntities(entities: Array<EntityRules | CrudEntity>): DynamicModule {
+    const controllers = entities.map((entry) => {
+      const { rules, controller } = 'rules' in entry ? entry : { rules: entry, controller: undefined };
+      return createCrudController(defineWorksafeEntity(rules), {
+        ...controller,
+        // O AuthGuard global do projeto lê @Public(); ops em publicOps recebem-no.
+        publicDecorator: Public(),
+      });
+    });
     return {
       module: CrudModule,
       imports: [PrismaModule],
-      controllers: definitions.map((def) => createCrudController(def)),
+      controllers,
       providers: [
         {
           provide: CrudService,

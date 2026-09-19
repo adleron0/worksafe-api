@@ -5,10 +5,14 @@ import { Prisma } from '@prisma/client';
 
 import { customerEntity } from '../src/features/clientes/customer/rules.crud';
 import { ranksEntity } from '../src/features/dom_ranks/rules.crud';
+import { rolesEntity } from '../src/features/dom_roles/rules.crud';
+import { statesEntity } from '../src/features/dom_states/rules.crud';
+import { citiesEntity } from '../src/features/dom_cities/rules.crud';
+import { siteServicesEntity } from '../src/features/site/site_services/rules.crud';
 
 const schema = prismaSchemaProvider(Prisma.dmmf as never);
 
-for (const rules of [customerEntity, ranksEntity]) {
+for (const rules of [customerEntity, ranksEntity, rolesEntity, statesEntity, citiesEntity, siteServicesEntity]) {
   const def = defineEntity(rules, { schema, scopeField: 'companyId' });
   console.log(`\n✔ ${def.rules.entity}`);
   console.log(`  delegate=${def.delegate}  pk=${def.idField}  escopo=${def.scopeField}  archive=${def.softDeleteField}`);

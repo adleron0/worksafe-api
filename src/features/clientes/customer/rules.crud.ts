@@ -1,4 +1,6 @@
-import { CrudError, EntityRules } from '@adleron/crud-core';
+import { CrudError, EntityRules, composeHooks } from '@adleron/crud-core';
+
+import { imageUpload, syncActiveFlag } from 'src/common/crud/hooks';
 
 /**
  * Cliente — declaração completa da entidade. Substitui controller + service +
@@ -42,18 +44,8 @@ export const customerEntity: EntityRules = {
   neverWritable: ['active', 'searchName'],
   softDelete: { field: 'inactiveAt' },
 
-  hooks: {
-    /**
-     * `active` (boolean) e `inactiveAt` (data) coexistem no schema. O
-     * `changeStatus` do generic mantinha os dois em sincronia; aqui isso vira
-     * regra explícita da entidade, e não comportamento escondido no núcleo.
-     */
-    preWrite: ({ op, data }) => {
-      if (op === 'archive') return { ...data, active: false };
-      if (op === 'restore') return { ...data, active: true };
-      return undefined;
-    },
-  },
+  // `active`+`inactiveAt` em sincronia e upload da imagem (FileInterceptor no módulo).
+  hooks: composeHooks(syncActiveFlag, imageUpload()),
 };
 
 /**

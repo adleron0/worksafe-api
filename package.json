@@ -20,7 +20,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "seed": "ts-node prisma/seed.ts",
     "gen:entity": "ts-node src/cli/generate-entity.ts",
-    "crud:verify": "ts-node -T scripts/verify-crud-entities.ts"
+    "crud:verify": "ts-node -T -r tsconfig-paths/register scripts/verify-crud-entities.ts"
   },
   "dependencies": {
     "@adleron/crud-core": "file:../../crud-core",
