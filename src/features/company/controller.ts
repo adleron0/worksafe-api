@@ -37,7 +37,7 @@ import { Cache, CacheEvictAll } from 'src/common/cache';
 import { CacheService } from 'src/common/cache/cache.service';
 // Import de configuraões
 import { paramsIncludes } from './associations';
-import { noCompany, omitAttributes, hooksUpdate, encryptFields } from './rules';
+import { noCompany, omitAttributes, hooksUpdate } from './rules';
 
 function UserPermission(permission: string) {
   return applyDecorators(Permissions(permission));
@@ -70,7 +70,7 @@ export class CompanyController extends GenericController<
   async get(@Req() request: Request, @Query() query: any) {
     // Adiciona omitAttributes aos filtros se não estiver presente
     query.id = Number(request.user.companyId);
-    return super.get(request, query, paramsIncludes, noCompany, encryptFields);
+    return super.get(request, query, paramsIncludes, noCompany);
   }
 
   @Get('first-steps')
@@ -104,7 +104,7 @@ export class CompanyController extends GenericController<
     // Sempre do servidor: o cliente não escolhe o que omitir (senão
       // ?omitAttributes[]=id devolveria hash de senha e sellerConfig).
       query.omitAttributes = omitAttributes;
-    return super.get(request, query, paramsIncludes, noCompany, encryptFields);
+    return super.get(request, query, paramsIncludes, noCompany);
   }
 
   @UserPermission(`update_${entity.permission}`) // comente para tirar permissao

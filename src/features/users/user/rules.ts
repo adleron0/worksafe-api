@@ -7,8 +7,6 @@ import { CacheService } from 'src/common/cache/cache.service';
 export const noCompany = false;
 export const omitAttributes = ['password', 'sellerConfig']; // Omitir sellerConfig das respostas
 
-// Campos a serem encriptados na resposta do GET
-export const encryptFields: string[] = [];
 
 /*
  * Função de search personalizada para verificação antes de criar

@@ -9,10 +9,6 @@ export const omitAttributes: string[] = [
   'email_conection',
 ];
 
-// Campos a serem encriptados na resposta do GET
-export const encryptFields: string[] = [];
-
-// HOOKS DE PRÉ E PÓS CREATE/UPDATE
 /*
  * Hook de pré update
  */

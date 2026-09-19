@@ -36,7 +36,6 @@ import {
   omitAttributes,
   hooksCreate,
   hooksUpdate,
-  encryptFields,
 } from './rules';
 
 // Create a decorator factory for User controller permissions
@@ -70,7 +69,7 @@ export class UserController extends GenericController<
       // ?omitAttributes[]=id devolveria hash de senha e sellerConfig).
       query.omitAttributes = omitAttributes;
 
-    return super.get(request, query, paramsIncludes, noCompany, encryptFields);
+    return super.get(request, query, paramsIncludes, noCompany);
   }
 
   @Get('self')

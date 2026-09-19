@@ -33,7 +33,6 @@ import {
   omitAttributes,
   hooksCreate,
   hooksUpdate,
-  encryptFields,
 } from './rules';
 
 const entity = {
@@ -65,7 +64,7 @@ export class StudentCoursesController extends GenericController<
       query.omitAttributes = omitAttributes;
     query.traineeId = request['traineeId'];
     query.subscribeStatus = { not: 'declined' };
-    return super.get(request, query, paramsIncludes, noCompany, encryptFields);
+    return super.get(request, query, paramsIncludes, noCompany);
   }
 
   @StudentAuth()

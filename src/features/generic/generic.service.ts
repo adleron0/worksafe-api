@@ -10,11 +10,6 @@ import { UploadService } from '../upload/upload.service';
 import { hash } from 'bcrypt';
 import { ifNumberParseNumber } from 'src/utils/ifNumberParseNumber';
 import { ifBooleanParseBoolean } from 'src/utils/isBooleanParseBoolean';
-import {
-  encryptionConfig,
-  applyEncryption,
-  applyDynamicEncryption,
-} from './encryption.config';
 
 type logParams = {
   userId: string;
@@ -630,7 +625,6 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
     entity: entity,
     paramsIncludes = {},
     noCompany = false,
-    encryptionFields: string[] | boolean = false, // Pode ser array de campos ou boolean
   ): Promise<{ total: number; rows: TEntity[]; aggregations?: any }> {
     try {
       const params: any = {};
@@ -1120,45 +1114,6 @@ export class GenericService<TCreateDto, TUpdateDto, TEntity> {
           limit,
           orderBy,
         );
-      }
-
-      // Aplica encriptação se habilitada
-      if (encryptionFields) {
-        // Se for um array de campos específicos
-        if (Array.isArray(encryptionFields)) {
-          // Para resultado com paginação
-          if (result.rows) {
-            result.rows = applyDynamicEncryption(result.rows, encryptionFields);
-          }
-          // Para resultado sem paginação (quando filters.all = true)
-          else if (Array.isArray(result)) {
-            result = applyDynamicEncryption(result, encryptionFields);
-          }
-        }
-        // Se for true, usa a configuração padrão
-        else if (
-          encryptionFields === true &&
-          encryptionConfig[entity.model as string]
-        ) {
-          const config = encryptionConfig[entity.model as string];
-
-          // Para resultado com paginação
-          if (result.rows) {
-            result.rows = applyEncryption(
-              result.rows,
-              config.fields || [],
-              config.relations,
-            );
-          }
-          // Para resultado sem paginação (quando filters.all = true)
-          else if (Array.isArray(result)) {
-            result = applyEncryption(
-              result,
-              config.fields || [],
-              config.relations,
-            );
-          }
-        }
       }
 
       // Adiciona aggregations ao resultado se existir

@@ -33,7 +33,6 @@ import {
   omitAttributes,
   hooksCreate,
   hooksUpdate,
-  encryptFields,
 } from './rules';
 
 const entity = {

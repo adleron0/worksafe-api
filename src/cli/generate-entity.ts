@@ -740,8 +740,6 @@ import { Request } from 'express';
 export const noCompany = ${noCompany};
 ${generateOmitAttributes(schemaModel)}
 
-// Campos a serem encriptados na resposta do GET
-export const encryptFields: string[] = [];
 
 /*
  * Função de search personalizada para verificação antes de criar
@@ -1032,7 +1030,6 @@ import {
   hooksUpsert,`
       : ''
   }
-  encryptFields,
 } from './rules';
 
 function UserPermission(permission: string) {
@@ -1070,7 +1067,7 @@ export class ${entityNamePascal}Controller extends GenericController<
     // Sempre do servidor: o cliente não escolhe o que omitir (senão
       // ?omitAttributes[]=id devolveria hash de senha e sellerConfig).
       query.omitAttributes = omitAttributes;
-    return super.get(request, query, paramsIncludes, noCompany, encryptFields);
+    return super.get(request, query, paramsIncludes, noCompany);
   }
 
   @UserPermission(\`create_\${entity.permission}\`) // comente para tirar permissao

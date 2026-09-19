@@ -40,7 +40,6 @@ import {
   omitAttributes,
   hooksCreate,
   hooksUpdate,
-  encryptFields,
   setAsaasService,
   setCacheService,
   setGatewayFactory,
@@ -86,7 +85,7 @@ export class CompanygatewaysController extends GenericController<
     // Sempre do servidor: o cliente não escolhe o que omitir (senão
       // ?omitAttributes[]=id devolveria hash de senha e sellerConfig).
       query.omitAttributes = omitAttributes;
-    return super.get(request, query, paramsIncludes, noCompany, encryptFields);
+    return super.get(request, query, paramsIncludes, noCompany);
   }
 
   @UserPermission(`create_${entity.permission}`) // comente para tirar permissao

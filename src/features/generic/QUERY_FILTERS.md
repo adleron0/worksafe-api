@@ -286,7 +286,6 @@ await this.genericService.get(
   entity,
   paramsIncludes,
   false,
-  true // usa encryptionConfig[entityName]
 );
 ```
 

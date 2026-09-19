@@ -4,8 +4,6 @@ import { Request } from 'express';
 export const noCompany = true;
 export const omitAttributes: string[] = [];
 
-// Campos a serem encriptados na resposta do GET
-export const encryptFields = false;
 
 /*
  * Função de search personalizada para verificação antes de criar

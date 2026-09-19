@@ -40,7 +40,6 @@ export interface ICrudService<T> {
     entity: entity,
     paramsIncludes?: any,
     noCompany?: boolean,
-    encryptFields?: string[] | boolean,
   ): Promise<{ total: number; rows: any[] }>;
   create(
     data: any,
@@ -149,7 +148,6 @@ export class GenericController<
     @Query() query: any,
     paramsIncludes = {},
     noCompany = false,
-    encryptFields: string[] | boolean = false,
   ): Promise<{ total: number; rows: TEntity[] }> {
     let userId = null;
     let companyId = null;
@@ -201,7 +199,6 @@ export class GenericController<
       this.entity,
       paramsIncludes,
       noCompany,
-      encryptFields,
     );
   }
 

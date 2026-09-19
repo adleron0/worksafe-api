@@ -2,7 +2,6 @@ import { Request } from 'express';
 
 export const noCompany = true;
 export const omitAttributes = [];
-export const encryptFields: string[] = [];
 
 export function validateCreate(request: Request, CreateDto: any) {
   const traineeId = request['traineeId'];

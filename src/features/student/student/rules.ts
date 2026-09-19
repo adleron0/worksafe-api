@@ -5,8 +5,6 @@ import { Request } from 'express';
 export const noCompany = true;
 export const omitAttributes = ['password'];
 
-// Campos a serem encriptados na resposta do GET
-export const encryptFields: string[] = [];
 
 /*
  * Função de search personalizada para verificação antes de criar

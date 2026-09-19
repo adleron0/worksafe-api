@@ -9,7 +9,7 @@ import { Request } from 'express';
 import { paramsIncludes } from './associations';
 import { StudentAuth } from 'src/auth/decorators/student-auth.decorator';
 import { CacheService } from 'src/common/cache/cache.service';
-import { noCompany, omitAttributes, encryptFields } from './rules';
+import { noCompany, omitAttributes } from './rules';
 
 const entity = {
   model: 'traineeCourseCertificate' as keyof PrismaClient,
@@ -45,7 +45,7 @@ export class StudentCertificatesController extends GenericController<
       query.omitAttributes = omitAttributes;
     query.traineeId = request['traineeId'];
     query.active = 'true';
-    return super.get(request, query, paramsIncludes, noCompany, encryptFields);
+    return super.get(request, query, paramsIncludes, noCompany);
   }
 
   @StudentAuth()

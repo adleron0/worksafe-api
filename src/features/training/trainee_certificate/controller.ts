@@ -43,7 +43,6 @@ import {
   omitAttributes,
   hooksCreate,
   hooksUpdate,
-  encryptFields,
 } from './rules';
 
 function UserPermission(permission: string) {
@@ -83,7 +82,7 @@ export class TraineeCertificateController extends GenericController<
       // ?omitAttributes[]=id devolveria hash de senha e sellerConfig).
       query.omitAttributes = omitAttributes;
 
-    return super.get(request, query, paramsIncludes, noCompany, encryptFields);
+    return super.get(request, query, paramsIncludes, noCompany);
   }
 
   // Rota pública: usada pelas telas de consulta de certificados do site
@@ -104,7 +103,7 @@ export class TraineeCertificateController extends GenericController<
     query.showOnWebsiteConsent = true;
     query.active = 'true';
 
-    return super.get(request, query, paramsIncludes, noCompany, encryptFields);
+    return super.get(request, query, paramsIncludes, noCompany);
   }
 
   @UserPermission(`create_${entity.permission}`) // comente para tirar permissao

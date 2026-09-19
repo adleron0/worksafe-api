@@ -9,10 +9,6 @@ import { gateways } from '@prisma/client';
 export const noCompany = false;
 export const omitAttributes: string[] = [];
 
-// Campos a serem encriptados na resposta do GET
-export const encryptFields: string[] = [];
-
-// Variáveis para armazenar os serviços
 let asaasServiceInstance: AsaasService;
 let cacheServiceInstance: CacheService;
 let gatewayFactoryInstance: GatewayFactory;

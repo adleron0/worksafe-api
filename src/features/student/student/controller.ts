@@ -41,7 +41,6 @@ import {
   omitAttributes,
   hooksCreate,
   hooksUpdate,
-  encryptFields,
 } from './rules';
 
 function UserPermission(permission: string) {
@@ -79,7 +78,7 @@ export class StudentController extends GenericController<
       query.omitAttributes = omitAttributes;
     // Força o filtro pelo próprio traineeId para segurança
     query.id = request['traineeId'];
-    return super.get(request, query, paramsIncludes, noCompany, encryptFields);
+    return super.get(request, query, paramsIncludes, noCompany);
   }
 
   @StudentAuth()
@@ -91,7 +90,7 @@ export class StudentController extends GenericController<
       id: traineeId,
       omitAttributes: omitAttributes,
     };
-    return super.get(request, query, paramsIncludes, noCompany, encryptFields);
+    return super.get(request, query, paramsIncludes, noCompany);
   }
 
   @StudentAuth() // Usa autenticação de aluno
