@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CreateUserPermissionDto } from './dto/create-user-permission.dto';
 import { CreateProfilePermissionDto } from './dto/create-profile-permission.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -11,6 +15,27 @@ export class PermissionsService {
     private prisma: PrismaService,
     private readonly authCache: AuthCacheService,
   ) {}
+
+  /**
+   * O alvo (usuário ou perfil) precisa pertencer à empresa do requisitante.
+   * Sem isto, quem tinha activate_profile concedia permissão a usuário de
+   * qualquer empresa. 404 e não 403: não revela que o id existe.
+   */
+  async assertUserInCompany(userId: number, companyId: number): Promise<void> {
+    const user = await this.prisma.selectFirst('user', {
+      where: { id: userId, companyId },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundException('Usuário não encontrado');
+  }
+
+  async assertProfileInCompany(profileId: number, companyId: number): Promise<void> {
+    const profile = await this.prisma.selectFirst('profile', {
+      where: { id: profileId, companyId },
+      select: { id: true },
+    });
+    if (!profile) throw new NotFoundException('Perfil não encontrado');
+  }
 
   @InvalidateAuthCache('user', (args) => args[0].userId)
   async activeUserPermission(payload: CreateUserPermissionDto, logParams: any) {

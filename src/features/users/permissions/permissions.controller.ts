@@ -17,7 +17,7 @@ export class PermissionsController {
 
   @Patch('user/active/:userId/:permissionId')
   @Permissions('activate_profile')
-  activeUserPermission(
+  async activeUserPermission(
     @Param('userId') userId: string,
     @Param('permissionId') permissionId: string,
     @Req() request: Request,
@@ -31,13 +31,14 @@ export class PermissionsController {
       userId: Number(userId),
       permissionId: Number(permissionId),
     };
+    await this.service.assertUserInCompany(payload.userId, Number(companyId));
 
     return this.service.activeUserPermission(payload, logParams);
   }
 
   @Patch('user/inactive/:userId/:permissionId')
   @Permissions('inactive_profile')
-  inactiveUserPermission(
+  async inactiveUserPermission(
     @Param('userId') userId: string,
     @Param('permissionId') permissionId: string,
     @Req() request: Request,
@@ -51,12 +52,13 @@ export class PermissionsController {
       userId: Number(userId),
       permissionId: Number(permissionId),
     };
+    await this.service.assertUserInCompany(payload.userId, Number(companyId));
     return this.service.inactiveUserPermission(payload, logParams);
   }
 
   @Patch('profile/active/:profileId/:permissionId')
   @Permissions('activate_profile')
-  activeProfilePermission(
+  async activeProfilePermission(
     @Param('profileId') profileId: string,
     @Param('permissionId') permissionId: string,
     @Req() request: Request,
@@ -70,13 +72,14 @@ export class PermissionsController {
       profileId: Number(profileId),
       permissionId: Number(permissionId),
     };
+    await this.service.assertProfileInCompany(payload.profileId, Number(companyId));
 
     return this.service.activeProfilePermission(payload, logParams);
   }
 
   @Patch('profile/inactive/:profileId/:permissionId')
   @Permissions('inactive_profile')
-  inactiveProfilePermission(
+  async inactiveProfilePermission(
     @Param('profileId') profileId: string,
     @Param('permissionId') permissionId: string,
     @Req() request: Request,
@@ -90,6 +93,7 @@ export class PermissionsController {
       profileId: Number(profileId),
       permissionId: Number(permissionId),
     };
+    await this.service.assertProfileInCompany(payload.profileId, Number(companyId));
     return this.service.inactiveProfilePermission(payload, logParams);
   }
 }
