@@ -165,6 +165,10 @@ export class AuthService {
       },
     });
 
+    // Sem isto, o refresh token "deslogado" continuava emitindo access tokens
+    // enquanto a sessão vivesse no Redis (TTL de 7 dias).
+    await this.authCache.invalidateUserCache(Number(verifyRefresh.sub));
+
     // Sobrescreve o cookie do refreshToken para removê-lo no lado do cliente
     response.cookie('refreshToken', '', {
       httpOnly: true,
@@ -238,7 +242,7 @@ export class AuthService {
           },
         });
 
-        if (!refreshTokenResult || refreshTokenResult.inactiveAt) {
+        if (!refreshTokenResult) {
           throw new UnauthorizedException('Invalid refresh token');
         }
 
@@ -248,6 +252,12 @@ export class AuthService {
           refreshToken,
           refreshTokenResult,
         );
+      }
+
+      // Validações valem para os DOIS caminhos (cache e banco): o cache não
+      // pode ser um bypass de sessão revogada.
+      if (refreshTokenResult.inactiveAt) {
+        throw new UnauthorizedException('Invalid refresh token');
       }
 
       // Verificar se o usuário está ativo
