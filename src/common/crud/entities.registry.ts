@@ -33,10 +33,23 @@ import { couponEntity } from 'src/features/training/coupon/rules.crud';
 import { instructorEntity } from 'src/features/training/instructor/rules.crud';
 import { InstructorSignatureController } from 'src/features/training/instructor/signature.controller';
 import { userEntity } from 'src/features/users/user/rules.crud';
+import { profileEntity } from 'src/features/users/profile/rules.crud';
+import { customerContactsEntity } from 'src/features/clientes/customer_contacts/rules.crud';
+import { imageEntity } from 'src/features/image/rules.crud';
+import { ImageCustomController } from 'src/features/image/custom.controller';
+import { ImageModule } from 'src/features/image/module';
+import { companyEntity } from 'src/features/company/rules.crud';
+import { CompanyCustomController } from 'src/features/company/custom.controller';
+import { CompanyModule } from 'src/features/company/module';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { CrudEntity } from './crud.module';
 
 const upload = (folder: string) => UseInterceptors(FileInterceptor('image', getMulterOptions(folder)));
 const uploadOptimized = UseInterceptors(FileInterceptor('image', getOptimizedMulterOptions()));
+const uploadBranding = UseInterceptors(
+  FileFieldsInterceptor([{ name: 'logo', maxCount: 1 }, { name: 'favicon', maxCount: 1 }], getOptimizedMulterOptions()),
+  ImageOptimizationInterceptor,
+);
 const uploadCover = UseInterceptors(FileInterceptor('image', getOptimizedMulterOptions()), ImageOptimizationInterceptor);
 const evict = (prefix: string, route: string) => CacheEvictAll(`${prefix}:*`, `cache:*/${route}*`);
 const evictSiteServices = evict('site-services', 'site-services');
@@ -64,6 +77,14 @@ export const crudEntities: CrudEntity[] = [
     create: [upload('user-profile')], update: [upload('user-profile')], updateSelf: [upload('user-profile')] } } },
   { rules: customerEntity, controller: { decorators: {
     create: [upload('custumer-logo')], update: [upload('custumer-logo')] } } },
+  { rules: profileEntity, controller: { decorators: { create: [upload('profile-image')], update: [upload('profile-image')] } } },
+  { rules: customerContactsEntity, controller: { decorators: {
+    create: [upload('customer_contacts-image')], update: [upload('customer_contacts-image')] } } },
+  { rules: imageEntity, controller: { decorators: { create: [upload('image-image')] } } },
+  { rules: companyEntity, controller: { decorators: {
+    listPublic: [Cache({ prefix: 'companies', ttl: 172800 })],
+    update: [uploadBranding, evict('companies', 'companies')],
+  } } },
   { rules: ranksEntity },
   { rules: rolesEntity },
   { rules: statesEntity },
@@ -100,10 +121,12 @@ export const crudEntities: CrudEntity[] = [
 /** Rotas custom que reusam o CrudService (fora da fábrica, explícitas). */
 export const crudExtraControllers = [
   InstructorSignatureController,
+  ImageCustomController,
+  CompanyCustomController,
   PostCustomController,
   CommentCustomController,
   VisitorCustomController,
 ];
 
 /** Módulos que os controllers custom precisam (services de domínio, IA). */
-export const crudExtraImports = [PostModule, CommentModule, AIModule, UploadModule];
+export const crudExtraImports = [PostModule, CommentModule, AIModule, UploadModule, ImageModule, CompanyModule];

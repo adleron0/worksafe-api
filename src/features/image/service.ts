@@ -1,32 +1,22 @@
-import { GenericService } from 'src/features/generic/generic.service';
 import {
   BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { IEntity } from './interfaces/interface';
-import { CreateDto } from './dto/create.dto';
-import { UpdateDto } from './dto/update.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { UploadService } from '../upload/upload.service';
 
 @Injectable()
-export class ImageService extends GenericService<
-  CreateDto,
-  UpdateDto,
-  IEntity
-> {
+export class ImageService {
   constructor(
     protected prisma: PrismaService,
     protected uploadService: UploadService,
-  ) {
-    super(prisma, uploadService);
-  }
+  ) {}
 
-  async deleteImage(id: number, logParams?: any): Promise<void> {
+  async deleteImage(id: number, companyId: number, logParams?: any): Promise<void> {
     try {
-      const image = await this.prisma.selectOne('image', {
-        where: { id: Number(id) },
+      const image = await this.prisma.selectFirst('image', {
+        where: { id: Number(id), companyId },
       });
 
       if (!image) {

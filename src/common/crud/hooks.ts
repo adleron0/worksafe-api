@@ -27,20 +27,36 @@ export const syncActiveFlag: EntityHooks<Request> = {
 export function fileUpload(map: Record<string, string>): EntityHooks<Request> {
   return {
     preWrite: async ({ context, op, data, existing }) => {
-      const file = (context as Request & { file?: Express.MulterS3.File }).file;
-      let patched = data;
-      if (file?.location && map[file.fieldname]) {
+      const req = context as Request & {
+        file?: Express.MulterS3.File;
+        files?: Record<string, Express.MulterS3.File[]> | Express.MulterS3.File[];
+      };
+      // FileInterceptor → req.file; FileFieldsInterceptor → req.files (mapa por campo).
+      const files = req.files as unknown;
+      const uploaded: Express.MulterS3.File[] = req.file
+        ? [req.file]
+        : Array.isArray(files)
+          ? (files as Express.MulterS3.File[])
+          : (Object.values((files ?? {}) as Record<string, Express.MulterS3.File[]>).flat() as Express.MulterS3.File[]);
+
+      let patched = { ...data };
+      const replaced = new Set<string>();
+      for (const file of uploaded) {
         const column = map[file.fieldname];
+        if (!file.location || !column) continue;
         const previous = existing?.[column] as string | undefined;
         if (previous && op !== 'create') await uploadService.deleteImageFromS3(previous);
-        patched = { ...patched, [column]: file.location };
+        patched[column] = file.location;
+        replaced.add(column);
       }
       for (const column of Object.values(map)) {
         const previous = existing?.[column] as string | undefined;
-        if (patched[column] === null && previous && !(file?.location && map[file.fieldname] === column)) {
+        if (patched[column] === null && previous && !replaced.has(column)) {
           await uploadService.deleteImageFromS3(previous);
         }
+        // campo de arquivo do multipart não é coluna
       }
+      for (const field of Object.keys(map)) delete patched[field];
       return patched;
     },
   };

@@ -1,23 +1,9 @@
-import { GenericService } from 'src/features/generic/generic.service';
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { IEntity } from './interfaces/interface';
-import { CreateDto } from './dto/create.dto';
-import { UpdateDto } from './dto/update.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { UploadService } from 'src/features/upload/upload.service';
 
 @Injectable()
-export class CompanyService extends GenericService<
-  CreateDto,
-  UpdateDto,
-  IEntity
-> {
-  constructor(
-    protected prisma: PrismaService,
-    protected uploadService: UploadService,
-  ) {
-    super(prisma, uploadService);
-  }
+export class CompanyService {
+  constructor(protected prisma: PrismaService) {}
 
   /**
    * Valida os primeiros passos da empresa no sistema

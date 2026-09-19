@@ -21,9 +21,6 @@ import { PrismaClient } from '@prisma/client';
 import { Request, Response } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 // Import entity template
-import { CreateDto } from './dto/create.dto';
-import { UpdateDto } from './dto/update.dto';
-import { IEntity } from './interfaces/interface';
 import { ImageService as Service } from './service';
 // Import utils specifics
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -33,77 +30,24 @@ import {
 } from '../upload/upload.middleware';
 import { ImageOptimizationInterceptor } from '../upload/image-optimization.interceptor';
 // Import generic controller
-import { GenericController } from 'src/features/generic/generic.controller';
 import { Public } from 'src/auth/decorators/public.decorator';
 // Import de configuraões
-import { paramsIncludes } from './associations';
-import {
-  noCompany,
-  getSearchParams,
-  formaterPreUpdate,
-  omitAttributes,
-  hooksCreate,
-  hooksUpdate,
-} from './rules';
 
-// function UserPermission(permission: string) {
-//   return applyDecorators(Permissions(permission));
-// }
 
-const entity = {
-  model: 'Image' as keyof PrismaClient,
-  name: 'Image',
-  route: 'images',
-  permission: 'images',
-};
 
-@Controller(entity.route)
-export class ImageController extends GenericController<
-  CreateDto,
-  UpdateDto,
-  IEntity,
-  Service
-> {
-  constructor(private readonly Service: Service) {
-    super(Service, entity);
-  }
 
-  // @UserPermission(`list_${entity.permission}`) // comente para tirar permissao
-  // @Public() // descomente para tornar publica
-  @Get()
-  async get(@Req() request: Request, @Query() query: any) {
-    // Adiciona omitAttributes aos filtros se não estiver presente
-    // Sempre do servidor: o cliente não escolhe o que omitir (senão
-      // ?omitAttributes[]=id devolveria hash de senha e sellerConfig).
-      query.omitAttributes = omitAttributes;
-    return super.get(request, query, paramsIncludes, noCompany);
-  }
-
-  // @UserPermission(`create_${entity.permission}`) // comente para tirar permissao
-  // @Public() // descomente para tornar publica
-  @Post()
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('image-image')))
-  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
-  async create(
-    @Req() request: Request,
-    @Body() CreateDto: CreateDto,
-    @UploadedFile() file?: Express.MulterS3.File,
-  ) {
-    console.log('🚀 ~ ImageController ~ create ~ CreateDto:', CreateDto);
-    const search = getSearchParams(request, CreateDto);
-    return super.create(request, CreateDto, file, search, hooksCreate);
-  }
+/** Rotas custom da galeria: exclusão (escopada), upload direto e proxy de leitura. */
+@Controller('images')
+export class ImageCustomController {
+  constructor(private readonly Service: Service) {}
 
   // @UserPermission(`delete_${entity.permission}`) // comente para tirar permissao
   // @Public() // descomente para tornar publica
   @Delete(':id')
   async delete(@Param('id') id: number, @Req() request: Request) {
     const { sub: userId, companyId } = request.user;
-    const logParams = {
-      userId,
-      companyId,
-    };
-    return this.Service.deleteImage(id, logParams);
+    // Escopo pela empresa do ator: antes deletava qualquer imagem por id.
+    return this.Service.deleteImage(Number(id), Number(companyId), { userId, companyId });
   }
 
   @Post('s3')

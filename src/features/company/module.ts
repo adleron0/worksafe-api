@@ -1,11 +1,6 @@
 import { Module } from '@nestjs/common';
-import { CompanyController as Controller } from './controller';
 import { CompanyService as Service } from './service';
-import { UploadModule } from '../upload/upload.module';
 
-@Module({
-  controllers: [Controller],
-  providers: [Service],
-  imports: [UploadModule],
-})
+/** CRUD e first-steps vivem no CrudModule; aqui só o service. */
+@Module({ providers: [Service], exports: [Service] })
 export class CompanyModule {}

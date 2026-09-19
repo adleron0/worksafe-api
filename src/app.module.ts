@@ -12,8 +12,6 @@ import { AreaModule } from './features/area/area.module';
 // Entidades servidas pelo núcleo genérico (@adleron/crud-core) — ver common/crud/entities.registry.ts
 import { CrudModule } from './common/crud/crud.module';
 import { crudEntities, crudExtraControllers, crudExtraImports } from './common/crud/entities.registry';
-import { CustomerContactsModule } from './features/clientes/customer_contacts/module';
-import { ProfileModule } from './features/users/profile/module';
 import { CourseModule } from './features/training/course/module';
 import { ClassesModule } from './features/training/classes/module';
 import { CourseClassInstructorModule } from './features/training/class_instructor/module';
@@ -66,8 +64,6 @@ import { AIModule } from './common/ai';
     UploadModule,
     AreaModule,
     CrudModule.forEntities(crudEntities, crudExtraControllers, crudExtraImports),
-    CustomerContactsModule,
-    ProfileModule,
     CourseModule,
     ClassesModule,
     CourseClassInstructorModule,
