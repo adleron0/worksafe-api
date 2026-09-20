@@ -1,12 +1,7 @@
 import { Module } from '@nestjs/common';
-import { ClassesController as Controller } from './controller';
-import { ClassesService as Service } from './service';
-import { UploadModule } from '../../upload/upload.module';
+import { UploadModule } from 'src/features/upload/upload.module';
 import { TraineeCertificateModule } from '../trainee_certificate/module';
+import { ClassesService as Service } from './service';
 
-@Module({
-  controllers: [Controller],
-  providers: [Service],
-  imports: [UploadModule, TraineeCertificateModule],
-})
+@Module({ providers: [Service], imports: [UploadModule, TraineeCertificateModule], exports: [Service] })
 export class ClassesModule {}

@@ -6,7 +6,7 @@ export const citiesEntity: EntityRules = {
   model: 'DOM_Cities',
   expose: ['list', 'getById'],
   publicOps: ['list', 'getById'],
-  permissions: { list: 'list_domCities', getById: 'list_domCities' },
+  permissions: {},
   filterable: ['name', 'stateId', 'state.uf'],
   sortable: ['id', 'name'],
   includable: ['state'],

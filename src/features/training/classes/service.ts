@@ -3,28 +3,19 @@ import {
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
-import { GenericService } from 'src/features/generic/generic.service';
 // entity template imports
-import { IEntity } from './interfaces/interface';
-import { CreateDto } from './dto/create.dto';
-import { UpdateDto } from './dto/update.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { UploadService } from 'src/features/upload/upload.service';
 import { removeCorrectAnswers } from 'src/helpers/exameHelper';
 import { TraineeCertificateService } from '../trainee_certificate/service';
 
 @Injectable()
-export class ClassesService extends GenericService<
-  CreateDto,
-  UpdateDto,
-  IEntity
-> {
+export class ClassesService {
   constructor(
     protected prisma: PrismaService,
     protected uploadService: UploadService,
     protected traineeCertificateService: TraineeCertificateService,
   ) {
-    super(prisma, uploadService);
   }
 
   /**

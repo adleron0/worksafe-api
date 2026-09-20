@@ -10,8 +10,6 @@ export const siteProductsEntity: EntityRules = {
   publicOps: ['list', 'getById'],
   restorePermission: 'own',
   permissions: {
-    list: 'list_loja_site',
-    getById: 'list_loja_site',
     create: 'create_loja_site',
     update: 'update_loja_site',
     archive: 'inactive_loja_site',

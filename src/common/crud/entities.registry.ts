@@ -62,6 +62,16 @@ import { onlineLessonEntity } from 'src/features/training/onlinelesson/rules.cru
 import { onlineLessonStepEntity } from 'src/features/training/onlinelessonstep/rules.crud';
 import { onlineModelLessonEntity } from 'src/features/training/onlinemodellesson/rules.crud';
 import { OnlineModelLessonCustomController } from 'src/features/training/onlinemodellesson/custom.controller';
+import { classEntity } from 'src/features/training/classes/rules.crud';
+import { ClassesCustomController } from 'src/features/training/classes/custom.controller';
+import { ClassesModule } from 'src/features/training/classes/module';
+import { subscriptionEntity } from 'src/features/training/subscription/rules.crud';
+import { SubscriptionCustomController } from 'src/features/training/subscription/custom.controller';
+import { SubscriptionModule } from 'src/features/training/subscription/module';
+import { traineeCertificateEntity } from 'src/features/training/trainee_certificate/rules.crud';
+import { TraineeCertificateCustomController } from 'src/features/training/trainee_certificate/custom.controller';
+import { TraineeCertificateModule } from 'src/features/training/trainee_certificate/module';
+import { Throttle } from '@nestjs/throttler';
 import { CrudEntity } from './crud.module';
 
 const upload = (folder: string) => UseInterceptors(FileInterceptor('image', getMulterOptions(folder)));
@@ -154,6 +164,13 @@ export const crudEntities: CrudEntity[] = [
   { rules: onlineLessonEntity },
   { rules: onlineLessonStepEntity },
   { rules: onlineModelLessonEntity },
+  { rules: classEntity, controller: { decorators: {
+    list: [Cache({ prefix: 'training-classes', ttl: 172800 })],
+    create: [uploadCover, classesEvict], update: [uploadCover, classesEvict], archive: [classesEvict], restore: [classesEvict] } } },
+  { rules: subscriptionEntity, controller: { decorators: writeOps([subsEvict]) } },
+  { rules: traineeCertificateEntity, controller: { decorators: {
+    listPublic: [Throttle({ default: { limit: 500, ttl: 60000 } })],
+    create: [upload('trainee_certificate-image')], update: [upload('trainee_certificate-image')] } } },
   { rules: blogVisitorEntity, controller: { prefix: 'blog' } },
 ];
 
@@ -167,10 +184,13 @@ export const crudExtraControllers = [
   ExamesCustomController,
   AttendanceCustomController,
   OnlineModelLessonCustomController,
+  ClassesCustomController,
+  SubscriptionCustomController,
+  TraineeCertificateCustomController,
   PostCustomController,
   CommentCustomController,
   VisitorCustomController,
 ];
 
 /** Módulos que os controllers custom precisam (services de domínio, IA). */
-export const crudExtraImports = [PostModule, CommentModule, AIModule, UploadModule, ImageModule, CompanyModule, ReviewsModule, CourseModule, ExamesModule];
+export const crudExtraImports = [PostModule, CommentModule, AIModule, UploadModule, ImageModule, CompanyModule, ReviewsModule, CourseModule, ExamesModule, ClassesModule, SubscriptionModule, TraineeCertificateModule];

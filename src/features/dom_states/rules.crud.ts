@@ -6,7 +6,7 @@ export const statesEntity: EntityRules = {
   model: 'DOM_States',
   expose: ['list', 'getById'],
   publicOps: ['list', 'getById'],
-  permissions: { list: 'list_domStates', getById: 'list_domStates' },
+  permissions: {},
   filterable: ['name', 'uf'],
   sortable: ['id', 'name', 'uf'],
   softDelete: { field: 'inactiveAt' },

@@ -1,4 +1,3 @@
-import { GenericService } from 'src/features/generic/generic.service';
 import { PrismaClient } from '@prisma/client';
 import {
   BadRequestException,
@@ -6,9 +5,6 @@ import {
   Inject,
   forwardRef,
 } from '@nestjs/common';
-import { IEntity } from './interfaces/interface';
-import { CreateDto } from './dto/create.dto';
-import { UpdateDto } from './dto/update.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CheckoutService } from 'src/features/gateway/checkout/checkout.service';
 import { CacheService } from 'src/common/cache/cache.service';
@@ -23,11 +19,7 @@ type entity = {
 };
 
 @Injectable()
-export class SubscriptionService extends GenericService<
-  CreateDto,
-  UpdateDto,
-  IEntity
-> {
+export class SubscriptionService {
   constructor(
     protected prisma: PrismaService,
     @Inject(forwardRef(() => CheckoutService))
@@ -36,13 +28,12 @@ export class SubscriptionService extends GenericService<
     private alunosService: AlunosService,
     private couponService: CouponService,
   ) {
-    super(prisma, null);
   }
 
   /**
    * Método específico customizado
    */
-  async subscription(search: any, entity: entity, dto: CreateDto) {
+  async subscription(search: any, entity: entity, dto: any) {
     try {
       // Debug - verificar search params
       console.log('Search params:', search);
@@ -109,7 +100,7 @@ export class SubscriptionService extends GenericService<
     tx: any,
     search: any,
     entity: entity,
-    dto: CreateDto,
+    dto: any,
     courseClass: any,
   ) {
     // SEGUNDO: Busca trainee existente (mas NÃO cria ainda)
@@ -385,7 +376,7 @@ export class SubscriptionService extends GenericService<
    */
   private async reprocessPayment(
     subscription: any,
-    dto: CreateDto,
+    dto: any,
     courseClass: any,
     entity: entity,
   ) {

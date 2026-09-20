@@ -14,8 +14,6 @@ export const siteServicesEntity: EntityRules = {
   publicOps: ['list', 'getById'],
   restorePermission: 'own',
   permissions: {
-    list: 'list_servicos_site',
-    getById: 'list_servicos_site',
     create: 'create_servicos_site',
     update: 'update_servicos_site',
     archive: 'inactive_servicos_site',

@@ -1,4 +1,3 @@
-import { GenericService } from 'src/features/generic/generic.service';
 import {
   BadRequestException,
   Injectable,
@@ -6,9 +5,6 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { IEntity } from './interfaces/interface';
-import { CreateDto } from './dto/create.dto';
-import { UpdateDto } from './dto/update.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { getExpirationDate } from 'src/utils/dataFunctions';
 import { makeVariablesToReplace } from 'src/helpers/makeVariablesToReplace';
@@ -16,16 +12,11 @@ import { EmailService } from 'src/features/email/email.service';
 import { getCertificateEmailTemplate } from './templates/certificate-email.template';
 
 @Injectable()
-export class TraineeCertificateService extends GenericService<
-  CreateDto,
-  UpdateDto,
-  IEntity
-> {
+export class TraineeCertificateService {
   constructor(
     protected prisma: PrismaService,
     private readonly emailService: EmailService,
   ) {
-    super(prisma, null);
   }
 
   /**
