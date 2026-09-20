@@ -21,7 +21,6 @@ import { AlunosModule } from './features/training/trainees/module';
 import { ExamesModule } from './features/training/exames/module';
 import { TraineeCertificateModule } from './features/training/trainee_certificate/module';
 import { ReviewsModule } from './features/training/reviews/module';
-import { CompanygatewaysModule } from './features/gateway/companygateways/module';
 import { WebhooksModule } from './features/gateway/webhooks/module';
 import { FinancialrecordsModule } from './features/gateway/financialrecords/module';
 import { CompanyModule } from './features/company/module';
@@ -64,7 +63,6 @@ import { AIModule } from './common/ai';
     ExamesModule,
     TraineeCertificateModule,
     ReviewsModule,
-    CompanygatewaysModule,
     WebhooksModule,
     FinancialrecordsModule,
     CompanyModule,

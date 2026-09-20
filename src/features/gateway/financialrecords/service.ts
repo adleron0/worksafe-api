@@ -1,28 +1,19 @@
-import { GenericService } from 'src/features/generic/generic.service';
 import {
   BadRequestException,
   Injectable,
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { IEntity } from './interfaces/interface';
-import { CreateDto } from './dto/create.dto';
-import { UpdateDto } from './dto/update.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { UploadService } from 'src/features/upload/upload.service';
 import { financialRecordsStatus } from '@prisma/client';
 
 @Injectable()
-export class FinancialrecordsService extends GenericService<
-  CreateDto,
-  UpdateDto,
-  IEntity
-> {
+export class FinancialrecordsService {
   constructor(
     protected prisma: PrismaService,
     protected uploadService: UploadService,
   ) {
-    super(prisma, uploadService);
   }
 
   // Métodos removidos - usar PrismaService diretamente:

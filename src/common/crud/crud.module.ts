@@ -18,6 +18,7 @@ import { Request } from 'express';
 
 import { Public } from 'src/auth/decorators/public.decorator';
 import { AuthCacheService } from 'src/common/cache/auth-cache.service';
+import { CacheService } from 'src/common/cache/cache.service';
 import { AsaasModule } from 'src/common/gateways/asaas/asaas.module';
 import { AsaasService } from 'src/common/gateways/asaas/asaas.service';
 import { PrismaModule } from 'src/prisma/prisma.module';
@@ -79,8 +80,8 @@ export class CrudModule {
       providers: [
         {
           provide: CrudService,
-          inject: [PrismaService, AuthCacheService, AsaasService],
-          useFactory: (prisma: PrismaService, authCache: AuthCacheService, asaas: AsaasService) =>
+          inject: [PrismaService, AuthCacheService, AsaasService, CacheService],
+          useFactory: (prisma: PrismaService, authCache: AuthCacheService, asaas: AsaasService, cache: CacheService) =>
             new CrudService<Request>({
               repository: prismaRepository(prisma as never),
               scope: worksafeScope,
@@ -88,7 +89,7 @@ export class CrudModule {
               audit: worksafeAudit(prisma),
               permissions: worksafePermissions,
               // Disponíveis em todo hook como `deps.*` — DI de verdade, não singletons.
-              hookDeps: { prisma, authCache, asaas },
+              hookDeps: { prisma, authCache, asaas, cache },
             }),
         },
         { provide: APP_FILTER, useClass: CrudErrorFilter },

@@ -73,6 +73,11 @@ import { TraineeCertificateCustomController } from 'src/features/training/traine
 import { TraineeCertificateModule } from 'src/features/training/trainee_certificate/module';
 import { Throttle } from '@nestjs/throttler';
 import { studentGuard } from './student-scope';
+import { companyGatewayEntity } from 'src/features/gateway/companygateways/rules.crud';
+import { financialRecordEntity } from 'src/features/gateway/financialrecords/rules.crud';
+import { FinancialRecordsCustomController } from 'src/features/gateway/financialrecords/custom.controller';
+import { FinancialrecordsModule } from 'src/features/gateway/financialrecords/module';
+import { splitEntity } from 'src/features/gateway/splits/rules.crud';
 import { studentEntity } from 'src/features/student/student/rules.crud';
 import { StudentCustomController } from 'src/features/student/student/custom.controller';
 import { StudentModule } from 'src/features/student/student/module';
@@ -174,6 +179,11 @@ export const crudEntities: CrudEntity[] = [
   { rules: onlineLessonEntity },
   { rules: onlineLessonStepEntity },
   { rules: onlineModelLessonEntity },
+  { rules: companyGatewayEntity, controller: { decorators: {
+    list: [Cache({ prefix: 'company-gateway', ttl: 604800 })],
+    ...writeOps([evict('company-gateway', 'company-gateway')]) } } },
+  { rules: financialRecordEntity },
+  { rules: splitEntity },
   // ---- aluno: guard do aluno em toda op; escopo = traineeId do token ----
   { rules: studentEntity, controller: { decorators: { list: [studentGuard], getById: [studentGuard], update: [studentGuard, upload('student-image')] } } },
   { rules: studentCoursesEntity, controller: { decorators: { list: [studentGuard], getById: [studentGuard], create: [studentGuard], update: [studentGuard] } } },
@@ -201,6 +211,7 @@ export const crudExtraControllers = [
   ClassesCustomController,
   SubscriptionCustomController,
   TraineeCertificateCustomController,
+  FinancialRecordsCustomController,
   StudentCustomController,
   StudentCoursesCustomController,
   StudentCertificatesCustomController,
@@ -210,4 +221,4 @@ export const crudExtraControllers = [
 ];
 
 /** Módulos que os controllers custom precisam (services de domínio, IA). */
-export const crudExtraImports = [PostModule, CommentModule, AIModule, UploadModule, ImageModule, CompanyModule, ReviewsModule, CourseModule, ExamesModule, ClassesModule, SubscriptionModule, TraineeCertificateModule, StudentModule, StudentCoursesModule, StudentCertificatesModule];
+export const crudExtraImports = [PostModule, CommentModule, AIModule, UploadModule, ImageModule, CompanyModule, ReviewsModule, CourseModule, ExamesModule, ClassesModule, SubscriptionModule, TraineeCertificateModule, StudentModule, StudentCoursesModule, StudentCertificatesModule, FinancialrecordsModule];
