@@ -1,22 +1,13 @@
-import { GenericService } from 'src/features/generic/generic.service';
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { IEntity } from './interfaces/interface';
-import { CreateDto } from './dto/create.dto';
-import { UpdateDto } from './dto/update.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { UploadService } from 'src/features/upload/upload.service';
 
 @Injectable()
-export class StudentEvaluationsService extends GenericService<
-  CreateDto,
-  UpdateDto,
-  IEntity
-> {
+export class StudentEvaluationsService {
   constructor(
     protected prisma: PrismaService,
     protected uploadService: UploadService,
   ) {
-    super(prisma, uploadService);
   }
 
   async getMyEvaluations(traineeId: number): Promise<any[]> {

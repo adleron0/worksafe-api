@@ -1,13 +1,7 @@
 import { Module } from '@nestjs/common';
-import { StudentCoursesController } from './controller';
-import { StudentCoursesService } from './service';
 import { PrismaModule } from 'src/prisma/prisma.module';
 import { UploadModule } from 'src/features/upload/upload.module';
+import { StudentCoursesService as Service } from './service';
 
-@Module({
-  imports: [PrismaModule, UploadModule],
-  controllers: [StudentCoursesController],
-  providers: [StudentCoursesService],
-  exports: [StudentCoursesService],
-})
+@Module({ providers: [Service], imports: [PrismaModule, UploadModule], controllers: [], exports: [Service] })
 export class StudentCoursesModule {}

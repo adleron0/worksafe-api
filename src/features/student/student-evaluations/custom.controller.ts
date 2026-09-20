@@ -1,4 +1,3 @@
-import { GenericController } from 'src/features/generic/generic.controller';
 import {
   Controller,
   Get,
@@ -12,12 +11,8 @@ import {
   Req,
 } from '@nestjs/common';
 import { StudentEvaluationsService as Service } from './service';
-import { CreateDto } from './dto/create.dto';
-import { UpdateDto } from './dto/update.dto';
-import { IEntity } from './interfaces/interface';
 import { PrismaClient } from '@prisma/client';
 import { Request } from 'express';
-import { paramsIncludes } from './associations';
 import { StudentAuth } from 'src/auth/decorators/student-auth.decorator';
 import { CacheService } from 'src/common/cache/cache.service';
 
@@ -28,18 +23,12 @@ const entity = {
   permission: 'student-evaluations',
 };
 
-@Controller(entity.route)
-export class StudentEvaluationsController extends GenericController<
-  CreateDto,
-  UpdateDto,
-  IEntity,
-  Service
-> {
+@Controller('student-evaluations')
+export class StudentEvaluationsCustomController {
   constructor(
     private readonly Service: Service,
     private readonly cacheService: CacheService,
   ) {
-    super(Service, entity);
   }
 
   @StudentAuth()

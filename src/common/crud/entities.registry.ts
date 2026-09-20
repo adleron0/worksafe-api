@@ -72,6 +72,16 @@ import { traineeCertificateEntity } from 'src/features/training/trainee_certific
 import { TraineeCertificateCustomController } from 'src/features/training/trainee_certificate/custom.controller';
 import { TraineeCertificateModule } from 'src/features/training/trainee_certificate/module';
 import { Throttle } from '@nestjs/throttler';
+import { studentGuard } from './student-scope';
+import { studentEntity } from 'src/features/student/student/rules.crud';
+import { StudentCustomController } from 'src/features/student/student/custom.controller';
+import { StudentModule } from 'src/features/student/student/module';
+import { studentCoursesEntity } from 'src/features/student/student-courses/rules.crud';
+import { StudentCoursesCustomController } from 'src/features/student/student-courses/custom.controller';
+import { StudentCoursesModule } from 'src/features/student/student-courses/module';
+import { studentCertificatesEntity } from 'src/features/student/student-certificates/rules.crud';
+import { StudentCertificatesCustomController } from 'src/features/student/student-certificates/custom.controller';
+import { StudentCertificatesModule } from 'src/features/student/student-certificates/module';
 import { CrudEntity } from './crud.module';
 
 const upload = (folder: string) => UseInterceptors(FileInterceptor('image', getMulterOptions(folder)));
@@ -164,6 +174,10 @@ export const crudEntities: CrudEntity[] = [
   { rules: onlineLessonEntity },
   { rules: onlineLessonStepEntity },
   { rules: onlineModelLessonEntity },
+  // ---- aluno: guard do aluno em toda op; escopo = traineeId do token ----
+  { rules: studentEntity, controller: { decorators: { list: [studentGuard], getById: [studentGuard], update: [studentGuard, upload('student-image')] } } },
+  { rules: studentCoursesEntity, controller: { decorators: { list: [studentGuard], getById: [studentGuard], create: [studentGuard], update: [studentGuard] } } },
+  { rules: studentCertificatesEntity, controller: { decorators: { list: [studentGuard], getById: [studentGuard] } } },
   { rules: classEntity, controller: { decorators: {
     list: [Cache({ prefix: 'training-classes', ttl: 172800 })],
     create: [uploadCover, classesEvict], update: [uploadCover, classesEvict], archive: [classesEvict], restore: [classesEvict] } } },
@@ -187,10 +201,13 @@ export const crudExtraControllers = [
   ClassesCustomController,
   SubscriptionCustomController,
   TraineeCertificateCustomController,
+  StudentCustomController,
+  StudentCoursesCustomController,
+  StudentCertificatesCustomController,
   PostCustomController,
   CommentCustomController,
   VisitorCustomController,
 ];
 
 /** Módulos que os controllers custom precisam (services de domínio, IA). */
-export const crudExtraImports = [PostModule, CommentModule, AIModule, UploadModule, ImageModule, CompanyModule, ReviewsModule, CourseModule, ExamesModule, ClassesModule, SubscriptionModule, TraineeCertificateModule];
+export const crudExtraImports = [PostModule, CommentModule, AIModule, UploadModule, ImageModule, CompanyModule, ReviewsModule, CourseModule, ExamesModule, ClassesModule, SubscriptionModule, TraineeCertificateModule, StudentModule, StudentCoursesModule, StudentCertificatesModule];

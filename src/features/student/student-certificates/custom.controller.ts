@@ -1,15 +1,10 @@
-import { GenericController } from 'src/features/generic/generic.controller';
+import { Public } from 'src/auth/decorators/public.decorator';
 import { Controller, Get, Post, Param, Query, Req } from '@nestjs/common';
 import { StudentCertificatesService as Service } from './service';
-import { CreateDto } from './dto/create.dto';
-import { UpdateDto } from './dto/update.dto';
-import { IEntity } from './interfaces/interface';
 import { PrismaClient } from '@prisma/client';
 import { Request } from 'express';
-import { paramsIncludes } from './associations';
 import { StudentAuth } from 'src/auth/decorators/student-auth.decorator';
 import { CacheService } from 'src/common/cache/cache.service';
-import { noCompany, omitAttributes } from './rules';
 
 const entity = {
   model: 'traineeCourseCertificate' as keyof PrismaClient,
@@ -18,34 +13,13 @@ const entity = {
   permission: 'student-certificates',
 };
 
-@Controller(entity.route)
-export class StudentCertificatesController extends GenericController<
-  CreateDto,
-  UpdateDto,
-  IEntity,
-  Service
-> {
+@Controller('student-certificates')
+export class StudentCertificatesCustomController {
   constructor(
     private readonly Service: Service,
     // cacheService é usado pelos decorators de cache
     private readonly cacheService: CacheService,
   ) {
-    super(Service, entity);
-  }
-
-  @StudentAuth()
-  @Get()
-  async get(
-    @Req() request: Request,
-    @Query() query: any,
-  ): Promise<{ total: number; rows: IEntity[] }> {
-    // Adiciona omitAttributes aos filtros se não estiver presente
-    // Sempre do servidor: o cliente não escolhe o que omitir (senão
-      // ?omitAttributes[]=id devolveria hash de senha e sellerConfig).
-      query.omitAttributes = omitAttributes;
-    query.traineeId = request['traineeId'];
-    query.active = 'true';
-    return super.get(request, query, paramsIncludes, noCompany);
   }
 
   @StudentAuth()
@@ -85,6 +59,7 @@ export class StudentCertificatesController extends GenericController<
     return this.Service.generateCertificate(traineeId, Number(classId));
   }
 
+  @Public() // consulta pública de autenticidade
   @Get('verify/:certificateNumber')
   async verifyCertificate(
     @Param('certificateNumber') certificateNumber: string,

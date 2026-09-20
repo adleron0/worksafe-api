@@ -1,4 +1,3 @@
-import { GenericController } from 'src/features/generic/generic.controller';
 import {
   Controller,
   Get,
@@ -15,13 +14,9 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { StudentProgressService as Service } from './service';
-import { CreateDto } from './dto/create.dto';
-import { UpdateDto } from './dto/update.dto';
 import { CompleteDto } from './dto/complete.dto';
-import { IEntity } from './interfaces/interface';
 import { PrismaClient } from '@prisma/client';
 import { Request } from 'express';
-import { paramsIncludes } from './associations';
 import { StudentAuth } from 'src/auth/decorators/student-auth.decorator';
 import { CacheService } from 'src/common/cache/cache.service';
 
@@ -32,18 +27,12 @@ const entity = {
   permission: 'student-progress',
 };
 
-@Controller(entity.route)
-export class StudentProgressController extends GenericController<
-  CreateDto,
-  UpdateDto,
-  IEntity,
-  Service
-> {
+@Controller('student-progress')
+export class StudentProgressCustomController {
   constructor(
     private readonly Service: Service,
     private readonly cacheService: CacheService,
   ) {
-    super(Service, entity);
   }
 
   @StudentAuth()
@@ -114,7 +103,7 @@ export class StudentProgressController extends GenericController<
   async updateStepProgress(
     @Req() req: Request,
     @Param('stepId') stepId: string,
-    @Body() body: UpdateDto,
+    @Body() body: any,
   ) {
     const traineeId = req['traineeId'];
     return this.Service.updateStepProgress(traineeId, Number(stepId), body);
