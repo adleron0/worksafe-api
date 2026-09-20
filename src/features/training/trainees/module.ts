@@ -1,12 +1,7 @@
 import { Module } from '@nestjs/common';
-import { AlunosController as Controller } from './controller';
+import { UploadModule } from 'src/features/upload/upload.module';
 import { AlunosService as Service } from './service';
-import { UploadModule } from '../../upload/upload.module';
 
-@Module({
-  controllers: [Controller],
-  providers: [Service],
-  imports: [UploadModule],
-  exports: [Service], // Exporta o service para outros módulos poderem usar
-})
+/** CRUD vive no CrudModule; aqui só o service (rotas custom / outros módulos). */
+@Module({ providers: [Service], imports: [UploadModule], exports: [Service] })
 export class AlunosModule {}

@@ -14,11 +14,8 @@ import { CrudModule } from './common/crud/crud.module';
 import { crudEntities, crudExtraControllers, crudExtraImports } from './common/crud/entities.registry';
 import { CourseModule } from './features/training/course/module';
 import { ClassesModule } from './features/training/classes/module';
-import { CourseClassInstructorModule } from './features/training/class_instructor/module';
-import { SiteProductsimagesModule } from './features/site/site_productsimages/module';
 import { CacheModule } from './common/cache';
 import { ImageModule } from './features/image/module';
-import { CertificateModule } from './features/training/certificate/module';
 import { SubscriptionModule } from './features/training/subscription/module';
 import { AlunosModule } from './features/training/trainees/module';
 import { ExamesModule } from './features/training/exames/module';
@@ -27,14 +24,9 @@ import { ReviewsModule } from './features/training/reviews/module';
 import { CompanygatewaysModule } from './features/gateway/companygateways/module';
 import { WebhooksModule } from './features/gateway/webhooks/module';
 import { FinancialrecordsModule } from './features/gateway/financialrecords/module';
-import { ClassAttendanceListModule } from './features/training/class_attendance_list/module';
 import { CompanyModule } from './features/company/module';
 import { EmailModule } from './features/email/email.module';
-import { OnlinelessonModule } from './features/training/onlinelesson/module';
-import { OnlinecoursesModule } from './features/training/onlinecourses/module';
-import { OnlinemodellessonModule } from './features/training/onlinemodellesson/module';
 import { EnumsModule } from './features/enums/enums.module';
-import { OnlinelessonstepModule } from './features/training/onlinelessonstep/module';
 import { CouponModule } from './features/training/coupon/module';
 
 // Rotas de alunos
@@ -66,10 +58,7 @@ import { AIModule } from './common/ai';
     CrudModule.forEntities(crudEntities, crudExtraControllers, crudExtraImports),
     CourseModule,
     ClassesModule,
-    CourseClassInstructorModule,
-    SiteProductsimagesModule,
     ImageModule,
-    CertificateModule,
     SubscriptionModule,
     AlunosModule,
     ExamesModule,
@@ -78,14 +67,9 @@ import { AIModule } from './common/ai';
     CompanygatewaysModule,
     WebhooksModule,
     FinancialrecordsModule,
-    ClassAttendanceListModule,
     CompanyModule,
     EmailModule,
-    OnlinelessonModule,
-    OnlinecoursesModule,
-    OnlinemodellessonModule,
     EnumsModule,
-    OnlinelessonstepModule,
     StudentModule,
     StudentCoursesModule,
     StudentLessonsModule,

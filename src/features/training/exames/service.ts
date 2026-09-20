@@ -1,12 +1,8 @@
-import { GenericService } from 'src/features/generic/generic.service';
 import {
   BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { IEntity } from './interfaces/interface';
-import { CreateDto } from './dto/create.dto';
-import { UpdateDto } from './dto/update.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { PrismaClient } from '@prisma/client';
 import { correctExam } from 'src/helpers/exameHelper';
@@ -20,23 +16,18 @@ type entity = {
 };
 
 @Injectable()
-export class ExamesService extends GenericService<
-  CreateDto,
-  UpdateDto,
-  IEntity
-> {
+export class ExamesService {
   constructor(
     protected prisma: PrismaService,
     protected traineeCertificateService: TraineeCertificateService,
   ) {
-    super(prisma, null);
   }
 
   /**
    * Método para cadastrar exame com validação de trainee
    * Verifica se o trainee existe e está confirmado em alguma inscrição
    */
-  async registerExam(dto: CreateDto, entity: entity) {
+  async registerExam(dto: any, entity: entity) {
     try {
       // Validar se o traineeId foi fornecido
       if (!dto.traineeId) {

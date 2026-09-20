@@ -1,9 +1,5 @@
-import { GenericService } from 'src/features/generic/generic.service';
 import { PrismaClient } from '@prisma/client';
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { IEntity } from './interfaces/interface';
-import { CreateDto } from './dto/create.dto';
-import { UpdateDto } from './dto/update.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 
 type entity = {
@@ -14,13 +10,8 @@ type entity = {
 };
 
 @Injectable()
-export class CourseService extends GenericService<
-  CreateDto,
-  UpdateDto,
-  IEntity
-> {
+export class CourseService {
   constructor(protected prisma: PrismaService) {
-    super(prisma, null);
   }
 
   /**

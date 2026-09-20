@@ -42,6 +42,26 @@ import { companyEntity } from 'src/features/company/rules.crud';
 import { CompanyCustomController } from 'src/features/company/custom.controller';
 import { CompanyModule } from 'src/features/company/module';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { siteProductImagesEntity } from 'src/features/site/site_productsimages/rules.crud';
+import { classInstructorEntity } from 'src/features/training/class_instructor/rules.crud';
+import { reviewEntity } from 'src/features/training/reviews/rules.crud';
+import { ReviewsCustomController } from 'src/features/training/reviews/custom.controller';
+import { ReviewsModule } from 'src/features/training/reviews/module';
+import { courseEntity } from 'src/features/training/course/rules.crud';
+import { CourseCustomController } from 'src/features/training/course/custom.controller';
+import { CourseModule } from 'src/features/training/course/module';
+import { traineeEntity } from 'src/features/training/trainees/rules.crud';
+import { examEntity } from 'src/features/training/exames/rules.crud';
+import { ExamesCustomController } from 'src/features/training/exames/custom.controller';
+import { ExamesModule } from 'src/features/training/exames/module';
+import { certificateTemplateEntity } from 'src/features/training/certificate/rules.crud';
+import { attendanceEntity } from 'src/features/training/class_attendance_list/rules.crud';
+import { AttendanceCustomController } from 'src/features/training/class_attendance_list/custom.controller';
+import { onlineCourseModelEntity } from 'src/features/training/onlinecourses/rules.crud';
+import { onlineLessonEntity } from 'src/features/training/onlinelesson/rules.crud';
+import { onlineLessonStepEntity } from 'src/features/training/onlinelessonstep/rules.crud';
+import { onlineModelLessonEntity } from 'src/features/training/onlinemodellesson/rules.crud';
+import { OnlineModelLessonCustomController } from 'src/features/training/onlinemodellesson/custom.controller';
 import { CrudEntity } from './crud.module';
 
 const upload = (folder: string) => UseInterceptors(FileInterceptor('image', getMulterOptions(folder)));
@@ -59,6 +79,11 @@ const postEvict = CacheEvictAll(
   'blog/posts:*', 'blog-posts-public:*', 'blog-post-slug:*',
   'cache:*/blog/posts*', 'cache:*/blog-posts-public*', 'cache:*/blog-post-slug*',
 );
+const classesEvict = CacheEvictAll('training-classes:*', 'cache:*/classes*');
+const subsEvict = CacheEvictAll('subscription:*', 'cache:*/subscription*', 'training-classes:*', 'cache:*/classes*');
+const coursesEvict = CacheEvictAll('training-classes:*', 'cache:*/classes*', 'list-courses');
+const productImgEvict = CacheEvictAll('site-productsimages:*', 'site-products:*', 'cache:*/site-products*');
+const writeOps = (decos: MethodDecorator[]) => ({ create: decos, update: decos, archive: decos, restore: decos });
 const blogCrud = (rules: CrudEntity['rules'], name: string): CrudEntity => ({
   rules,
   controller: {
@@ -115,6 +140,20 @@ export const crudEntities: CrudEntity[] = [
     archive: [postEvict], restore: [postEvict],
   } } },
   { rules: blogCommentEntity, controller: { prefix: 'blog' } },
+  { rules: siteProductImagesEntity, controller: { decorators: {
+    ...writeOps([productImgEvict]), create: [upload('site_productsimages-image'), productImgEvict], update: [upload('site_productsimages-image'), productImgEvict] } } },
+  { rules: classInstructorEntity, controller: { decorators: writeOps([subsEvict]) } },
+  { rules: reviewEntity, controller: { decorators: { archive: [classesEvict], restore: [classesEvict] } } },
+  { rules: courseEntity, controller: { decorators: {
+    ...writeOps([coursesEvict]), create: [upload('course-image'), coursesEvict], update: [upload('course-image'), coursesEvict] } } },
+  { rules: traineeEntity },
+  { rules: examEntity },
+  { rules: certificateTemplateEntity },
+  { rules: attendanceEntity },
+  { rules: onlineCourseModelEntity },
+  { rules: onlineLessonEntity },
+  { rules: onlineLessonStepEntity },
+  { rules: onlineModelLessonEntity },
   { rules: blogVisitorEntity, controller: { prefix: 'blog' } },
 ];
 
@@ -123,10 +162,15 @@ export const crudExtraControllers = [
   InstructorSignatureController,
   ImageCustomController,
   CompanyCustomController,
+  ReviewsCustomController,
+  CourseCustomController,
+  ExamesCustomController,
+  AttendanceCustomController,
+  OnlineModelLessonCustomController,
   PostCustomController,
   CommentCustomController,
   VisitorCustomController,
 ];
 
 /** Módulos que os controllers custom precisam (services de domínio, IA). */
-export const crudExtraImports = [PostModule, CommentModule, AIModule, UploadModule, ImageModule, CompanyModule];
+export const crudExtraImports = [PostModule, CommentModule, AIModule, UploadModule, ImageModule, CompanyModule, ReviewsModule, CourseModule, ExamesModule];

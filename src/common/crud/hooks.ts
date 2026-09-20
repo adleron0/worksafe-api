@@ -10,13 +10,14 @@ const uploadService = new UploadService();
  * Entidades com `active` (boolean) E `inactiveAt` (data): o changeStatus do
  * generic antigo mantinha os dois em sincronia. Aqui vira hook explícito.
  */
-export const syncActiveFlag: EntityHooks<Request> = {
+export const syncFlag = (field = 'active'): EntityHooks<Request> => ({
   preWrite: ({ op, data }) => {
-    if (op === 'archive') return { ...data, active: false };
-    if (op === 'restore') return { ...data, active: true };
+    if (op === 'archive') return { ...data, [field]: false };
+    if (op === 'restore') return { ...data, [field]: true };
     return undefined;
   },
-};
+});
+export const syncActiveFlag = syncFlag('active');
 
 /**
  * Upload via multipart: mapa `fieldname do arquivo → coluna` (ex.:
