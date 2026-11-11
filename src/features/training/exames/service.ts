@@ -135,7 +135,7 @@ export class ExamesService {
         await this.traineeCertificateService.generateCertificates(
           confirmedSubscription.classId,
           confirmedSubscription.companyId,
-          confirmedSubscription.id,
+          [confirmedSubscription.id],
         );
       }
 

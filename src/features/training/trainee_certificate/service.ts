@@ -23,13 +23,16 @@ export class TraineeCertificateService {
    * Gera certificados para alunos de uma turma
    * @param classId - ID da turma
    * @param companyId - ID da empresa
-   * @param subscriptionId - (Opcional) ID de uma subscription específica para gerar apenas um certificado
+   * @param subscriptionIds - (Opcional) Array de IDs de subscriptions específicas para gerar certificados seletivos
+   * @param allowUpsert - (Opcional) Se true, atualiza certificados existentes preservando a data de vencimento
    * @returns Objeto com informações sobre os certificados gerados
    */
   async generateCertificates(
     classId: number,
     companyId: number,
-    subscriptionId?: number,
+    subscriptionIds?: number[],
+    allowUpsert: boolean = false,
+    skipExame: boolean = false,
   ) {
     try {
       // Buscar a turma com todas as informações necessárias
@@ -41,6 +44,7 @@ export class TraineeCertificateService {
         include: {
           course: true,
           certificate: true,
+          company: true,
           instructors: {
             include: {
               instructor: true,
@@ -59,15 +63,15 @@ export class TraineeCertificateService {
         );
       }
 
-      // Buscar as subscriptions - filtra por ID específico se fornecido
+      // Buscar as subscriptions - filtra por IDs específicos se fornecido
       const subscriptionWhere: any = {
         classId: classId,
         subscribeStatus: 'confirmed',
         inactiveAt: null,
       };
 
-      if (subscriptionId) {
-        subscriptionWhere.id = subscriptionId;
+      if (subscriptionIds && subscriptionIds.length > 0) {
+        subscriptionWhere.id = { in: subscriptionIds };
       }
 
       const subscriptions = await this.prisma.select(
@@ -85,10 +89,11 @@ export class TraineeCertificateService {
         },
       );
 
+
       if (!subscriptions || subscriptions.length === 0) {
         throw new BadRequestException(
-          subscriptionId
-            ? 'Inscrição não encontrada ou não confirmada'
+          subscriptionIds && subscriptionIds.length > 0
+            ? 'Nenhuma inscrição encontrada ou confirmada com os IDs fornecidos'
             : 'Turma não possui alunos confirmados',
         );
       }
@@ -96,8 +101,16 @@ export class TraineeCertificateService {
       // Preparar dados dos certificados
       const certificatesData = [];
       const skippedStudents = [];
+      const updatedStudents = [];
 
       for (const subscription of subscriptions) {
+        // Validação: garantir que subscription tem traineeId
+        if (!subscription.traineeId) {
+          console.error('Subscription sem traineeId:', subscription);
+          throw new BadRequestException(
+            'Erro interno: Inscrição sem traineeId associado',
+          );
+        }
         // Verificar se o aluno já possui certificado para esta turma
         const existingCertificate = await this.prisma.selectFirst(
           'traineeCourseCertificate',
@@ -111,16 +124,22 @@ export class TraineeCertificateService {
         );
 
         if (existingCertificate) {
-          skippedStudents.push({
-            traineeId: subscription.traineeId,
-            traineeName: subscription.trainee.name,
-            reason: 'Já possui certificado',
-          });
-          continue;
+          if (allowUpsert) {
+            // UPSERT: Marca para atualizar, preservando expirationDate original
+            // Continua o processamento marcando como update
+          } else {
+            // Comportamento padrão: pular certificados existentes
+            skippedStudents.push({
+              traineeId: subscription.traineeId,
+              traineeName: subscription.trainee.name,
+              reason: 'Já possui certificado',
+            });
+            continue;
+          }
         }
 
         // Se a turma requer exame, verificar se o aluno foi aprovado
-        if (classData.allowExam) {
+        if (classData.allowExam && !skipExame) {
           const examResult = await this.prisma.selectFirst('courseClassExam', {
             where: {
               traineeId: subscription.traineeId,
@@ -141,9 +160,11 @@ export class TraineeCertificateService {
         }
 
         // Calcular data de vencimento
-        const expirationDate = getExpirationDate(
-          classData.course.yearOfValidation,
-        );
+        // Se for update (upsert), usa a data original; se for novo, calcula nova data
+        const expirationDate =
+          existingCertificate && allowUpsert
+            ? existingCertificate.expirationDate // Preserva data original (SEGURANÇA)
+            : getExpirationDate(classData.course.yearOfValidation);
 
         // Preparar dados da subscription com estrutura completa
         const subscriptionWithFullData = {
@@ -153,6 +174,7 @@ export class TraineeCertificateService {
             course: classData.course,
             instructors: classData.instructors,
           },
+          company: classData.company,
         };
 
         // Gerar variáveis para substituição
@@ -161,8 +183,8 @@ export class TraineeCertificateService {
           expirationDate,
         );
 
-        // Adicionar dados do certificado ao array
-        certificatesData.push({
+        // Preparar dados do certificado
+        const certificateData: any = {
           fabricJsonFront: classData.certificate.fabricJsonFront,
           fabricJsonBack: classData.certificate.fabricJsonBack,
           canvasWidth: classData.certificate.canvasWidth,
@@ -174,16 +196,30 @@ export class TraineeCertificateService {
           variableToReplace: variablesToReplace,
           companyId: companyId,
           showOnWebsiteConsent: subscription.showOnWebsiteConsent || true,
-        });
+        };
+
+        // Se é update, adicionar ID do certificado existente
+        if (existingCertificate && allowUpsert) {
+          certificateData._certificateId = existingCertificate.id;
+          certificateData._isUpdate = true;
+          updatedStudents.push({
+            traineeId: subscription.traineeId,
+            traineeName: subscription.trainee.name,
+            certificateId: existingCertificate.id,
+          });
+        }
+
+        certificatesData.push(certificateData);
       }
 
       // Se não há certificados para gerar
       if (certificatesData.length === 0) {
         return {
           success: true,
-          message: subscriptionId
-            ? 'Certificado não pode ser gerado'
-            : 'Nenhum certificado novo para gerar',
+          message:
+            subscriptionIds && subscriptionIds.length > 0
+              ? 'Nenhum certificado novo para gerar com os IDs fornecidos'
+              : 'Nenhum certificado novo para gerar',
           data: {
             classId: classId,
             className: classData.name,
@@ -195,36 +231,74 @@ export class TraineeCertificateService {
         };
       }
 
-      // Inserir certificados
+      // Separar certificados para insert vs update
+      const toInsert = certificatesData.filter((c) => !c._isUpdate);
+      const toUpdate = certificatesData.filter((c) => c._isUpdate);
+
       const logParams = {
         userId: 0, // Sistema
         companyId: companyId,
       };
 
-      if (certificatesData.length === 1) {
-        // Inserir único certificado
-        await this.prisma.insert(
-          'traineeCourseCertificate',
-          certificatesData[0],
-          logParams,
-        );
-      } else {
-        // Inserir múltiplos certificados
-        await this.prisma.bulkInsert(
-          'traineeCourseCertificate',
-          certificatesData,
-        );
+      // Processar INSERTS (novos certificados)
+      if (toInsert.length > 0) {
+        // Remover campos auxiliares antes de inserir
+        const cleanedInserts = toInsert.map((cert) => {
+          const { _certificateId, _isUpdate, ...cleanCert } = cert;
+          return cleanCert;
+        });
+
+        if (cleanedInserts.length === 1) {
+          // Inserir único certificado
+          await this.prisma.insert(
+            'traineeCourseCertificate',
+            cleanedInserts[0],
+            logParams,
+          );
+        } else {
+          // Inserir múltiplos certificados
+          await this.prisma.bulkInsert(
+            'traineeCourseCertificate',
+            cleanedInserts,
+          );
+        }
       }
+
+      // Processar UPDATES (certificados existentes)
+      if (toUpdate.length > 0) {
+        for (const cert of toUpdate) {
+          // Remover campos auxiliares e preparar dados para update
+          const {
+            _certificateId,
+            _isUpdate,
+            expirationDate, // NÃO atualizar data de vencimento (SEGURANÇA)
+            ...updateData
+          } = cert;
+
+          // Atualizar certificado com log de auditoria
+          await this.prisma.update(
+            'traineeCourseCertificate',
+            updateData,
+            logParams, // ← Log de auditoria
+            {},
+            _certificateId,
+          );
+        }
+      }
+
+      const totalProcessed = toInsert.length + toUpdate.length;
 
       return {
         success: true,
-        message: `${certificatesData.length} certificado(s) gerado(s) com sucesso`,
+        message: `${totalProcessed} certificado(s) processado(s) com sucesso (${toInsert.length} novo(s), ${toUpdate.length} atualizado(s))`,
         data: {
           classId: classId,
           className: classData.name,
           courseName: classData.course.name,
           totalStudents: subscriptions.length,
-          newCertificates: certificatesData.length,
+          newCertificates: toInsert.length,
+          updatedCertificates: toUpdate.length,
+          updatedStudents: updatedStudents,
           skippedStudents: skippedStudents,
         },
       };

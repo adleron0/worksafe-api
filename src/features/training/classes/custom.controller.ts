@@ -19,6 +19,7 @@ import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 // Import entity template
 import { ValidateStudentDto } from './dto/validate-student.dto';
+import { GenerateCertificatesSelectiveDto } from './dto/generate-certificates-selective.dto';
 import { ClassesService as Service } from './service';
 // Import utils specifics
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -76,5 +77,21 @@ export class ClassesCustomController {
     const companyId = request.user.companyId || 0;
 
     return this.Service.generateCertificates(Number(id), userId, companyId);
+  }
+
+  // ROTA PARA GERAR CERTIFICADOS SÓ PARA AS INSCRIÇÕES SELECIONADAS
+  // (vinda do certfield). Atualiza certificado existente preservando a data
+  // de vencimento e não exige exame — quem seleciona é o gestor da turma.
+  @UserPermission(`create_${entity.permission}`)
+  @CacheEvictAll('training-classes:*', 'cache:*/classes*')
+  @Post('generate-certificates-selective/:id')
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+  async generateCertificatesSelective(
+    @Param('id') id: number,
+    @Req() request: Request,
+    @Body() dto: GenerateCertificatesSelectiveDto,
+  ): Promise<any> {
+    const companyId = request.user.companyId || 0;
+    return this.Service.generateCertificatesSelective(Number(id), companyId, dto.subscriptionIds);
   }
 }

@@ -181,4 +181,39 @@ export class ClassesService {
       throw new BadRequestException('Erro ao gerar certificados');
     }
   }
+
+  /**
+   * Gera (ou atualiza) certificados só para as inscrições escolhidas.
+   * Atualização preserva a data de vencimento original; não exige exame.
+   */
+  async generateCertificatesSelective(
+    classId: number,
+    companyId: number,
+    subscriptionIds: number[],
+  ) {
+    if (!subscriptionIds || subscriptionIds.length === 0) {
+      throw new BadRequestException('Deve informar pelo menos um subscriptionId');
+    }
+    // Escopo da empresa: turma de outra empresa é 404, não processamento.
+    const classData = await this.prisma.selectFirst('courseClass', {
+      where: { id: classId, companyId, inactiveAt: null },
+    });
+    if (!classData) {
+      throw new NotFoundException('Turma não encontrada');
+    }
+    try {
+      return await this.traineeCertificateService.generateCertificates(
+        classId,
+        companyId,
+        subscriptionIds,
+        true, // allowUpsert
+        true, // skipExame
+      );
+    } catch (error) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) throw error;
+      console.error('[classes] generateCertificatesSelective:', error);
+      throw new BadRequestException('Erro ao gerar certificados seletivos');
+    }
+  }
 }
+
