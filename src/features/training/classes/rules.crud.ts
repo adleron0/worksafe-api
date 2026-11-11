@@ -35,7 +35,8 @@ export const classEntity: EntityRules = {
   expose: ['list', 'getById', 'create', 'update', 'archive', 'restore'],
   publicOps: ['list', 'getById'], restorePermission: 'own',
   permissions: { create: 'create_classes', update: 'update_classes', archive: 'inactive_classes', restore: 'activate_classes', },
-  filterable: ['name', 'courseId', 'customerId', 'certificateId', 'classCode', 'openClass', 'periodClass', 'initialDate', 'finalDate',
+  // O site (worksafe-site) escolhe a empresa pelo domínio: company.lp_domain.
+  filterable: ['id', 'company.lp_domain', 'name', 'courseId', 'customerId', 'certificateId', 'classCode', 'openClass', 'periodClass', 'initialDate', 'finalDate',
     'allowSubscriptions', 'allowCheckout', 'hasOnlineCourse', 'onlineCourseModelId', 'createdAt', 'course.name'],
   sortable: ['id', 'name', 'initialDate', 'finalDate', 'price', 'createdAt'],
   includable: ['instructors', 'course', 'certificate', 'customer', 'onlineCourseModel', '_count'],

@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import * as cookieParser from 'cookie-parser';
 import { AppModule } from '../../src/app.module';
 import { CacheService } from '../../src/common/cache/cache.service';
+import { legacyOrQuery } from '../../src/common/crud/legacy-query.middleware';
 import { closeDb } from './db';
 
 let app: INestApplication | null = null;
@@ -23,6 +24,7 @@ export async function bootTestApp(): Promise<INestApplication> {
 
   app = moduleRef.createNestApplication();
   app.use(cookieParser());
+  app.use(legacyOrQuery); // como em main.ts
   await app.init();
   return app;
 }

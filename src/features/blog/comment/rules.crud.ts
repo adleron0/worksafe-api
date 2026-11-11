@@ -12,7 +12,8 @@ export const blogCommentEntity: EntityRules = {
     list: 'list_blog', getById: 'list_blog', create: 'create_blog',
     update: 'update_blog', archive: 'inactive_blog', restore: 'activate_blog',
   },
-  filterable: ['postId', 'visitorId', 'parentId', 'status', 'rating', 'createdAt', 'visitor.name', 'post.title'],
+  // O site (worksafe-site) escolhe a empresa pelo domínio: company.lp_domain.
+  filterable: ['company.lp_domain', 'postId', 'visitorId', 'parentId', 'status', 'rating', 'createdAt', 'visitor.name', 'post.title'],
   sortable: ['id', 'createdAt', 'rating'],
   includable: ['visitor', 'post', 'replies'],
   includes: {

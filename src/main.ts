@@ -1,3 +1,4 @@
+import { legacyOrQuery } from './common/crud/legacy-query.middleware';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { PrismaClientInitializationError } from '@prisma/client/runtime/library';
@@ -27,6 +28,8 @@ async function bootstrap() {
 
     // Cookie parser (movido para cá para evitar erro)
     app.use(cookieParser());
+    // Formato antigo de OR (JSON) usado pelo site → grupos or.N do crud-core.
+    app.use(legacyOrQuery);
 
     // Helmet para headers de segurança
     app.use(

@@ -9,7 +9,8 @@ export const blogTagEntity: EntityRules = {
     list: 'list_blog', getById: 'list_blog', create: 'create_blog',
     update: 'update_blog', archive: 'inactive_blog', restore: 'activate_blog',
   },
-  filterable: ['name', 'slug', 'createdAt'],
+  // O site (worksafe-site) escolhe a empresa pelo domínio: company.lp_domain.
+  filterable: ['company.lp_domain', 'name', 'slug', 'createdAt'],
   sortable: ['id', 'name', 'createdAt'],
   includable: ['_count'],
   includes: { _count: { select: { posts: true } } },
