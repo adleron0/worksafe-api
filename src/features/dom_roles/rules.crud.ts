@@ -9,10 +9,12 @@ export const rolesEntity: EntityRules = {
   entity: 'roles',
   model: 'DOM_Roles',
   expose: ['list', 'getById', 'create', 'update', 'archive', 'restore'],
+  // Listagem aberta a qualquer autenticado (dropdown do cadastro de cliente),
+  // como no controller antigo. As permissões de escrita (*_domRoles) não existem
+  // na tabela Permission — ninguém escrevia antes, ninguém escreve agora.
+  authenticatedOps: ['list', 'getById'],
   restorePermission: 'own',
   permissions: {
-    list: 'list_domRoles',
-    getById: 'list_domRoles',
     create: 'create_domRoles',
     update: 'update_domRoles',
     archive: 'inactive_domRoles',

@@ -11,7 +11,8 @@ import {
   CrudControllerOptions,
   CrudErrorFilter,
 } from '@adleron/crud-core/nestjs';
-import { DynamicModule, Module, Type } from '@nestjs/common';
+import { DynamicModule, Module, Type, UseInterceptors } from '@nestjs/common';
+import { NoFilesInterceptor } from '@nestjs/platform-express';
 import { APP_FILTER } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
 import { Request } from 'express';
@@ -44,6 +45,20 @@ export function defineWorksafeEntity(rules: EntityRules): EntityDefinition {
   });
 }
 
+/**
+ * O front envia toda escrita como multipart/form-data. Sem um interceptor do
+ * multer o corpo nem é parseado — os controllers antigos tinham
+ * FileInterceptor em toda rota de escrita só por isso. Decorator de upload
+ * marcado com `multipart()` substitui o parser padrão; sem ele, entra o
+ * NoFilesInterceptor (campos sim, arquivo inesperado = 400).
+ */
+const MULTIPART = Symbol.for('worksafe.crud.multipart');
+export function multipart(decorator: MethodDecorator): MethodDecorator {
+  return Object.assign(decorator, { [MULTIPART]: true });
+}
+const isMultipart = (d: MethodDecorator) => Boolean((d as unknown as Record<symbol, unknown>)[MULTIPART]);
+const WRITE_OPS = ['create', 'update', 'updateSelf', 'upsert'] as const;
+
 /** Uma entidade a registrar: as regras e, opcionalmente, decorators por op. */
 export interface CrudEntity {
   rules: EntityRules;
@@ -67,16 +82,28 @@ export class CrudModule {
   ): DynamicModule {
     const controllers = entities.map((entry) => {
       const { rules, controller } = 'rules' in entry ? entry : { rules: entry, controller: undefined };
+      const decorators = { ...(controller?.decorators ?? {}) };
+      for (const op of WRITE_OPS) {
+        if (!rules.expose.includes(op)) continue;
+        const list = decorators[op] ?? [];
+        if (!list.some(isMultipart)) decorators[op] = [UseInterceptors(NoFilesInterceptor()), ...list];
+      }
       return createCrudController(defineWorksafeEntity(rules), {
         ...controller,
+        decorators,
         // O AuthGuard global do projeto lê @Public(); ops em publicOps recebem-no.
         publicDecorator: Public(),
+        // CacheEvictAll do projeto lê this.cacheService.
+        properties: { cacheService: CacheService },
       });
     });
     return {
       module: CrudModule,
       imports: [PrismaModule, AsaasModule, ...extraImports],
-      controllers: [...controllers, ...extraControllers],
+      // Custom ANTES dos gerados: rotas estáticas (/list, /public, /my-courses)
+      // têm de ser registradas antes do `GET /:id` da fábrica, senão "list"
+      // vira um id e cai no getById.
+      controllers: [...extraControllers, ...controllers],
       providers: [
         {
           provide: CrudService,

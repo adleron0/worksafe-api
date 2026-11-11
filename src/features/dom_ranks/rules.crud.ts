@@ -13,10 +13,12 @@ export const ranksEntity: EntityRules = {
   model: 'DOM_Ranks',
 
   expose: ['list', 'getById', 'create', 'update', 'archive', 'restore'],
+  // Listagem aberta a qualquer autenticado (dropdown do cadastro de cliente),
+  // como no controller antigo. As permissões de escrita (*_domRank) não existem
+  // na tabela Permission — ninguém escrevia antes, ninguém escreve agora.
+  authenticatedOps: ['list', 'getById'],
   restorePermission: 'own',
   permissions: {
-    list: 'list_domRank',
-    getById: 'list_domRank',
     create: 'create_domRank',
     update: 'update_domRank',
     archive: 'inactive_domRank',

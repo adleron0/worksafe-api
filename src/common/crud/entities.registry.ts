@@ -87,15 +87,15 @@ import { StudentCoursesModule } from 'src/features/student/student-courses/modul
 import { studentCertificatesEntity } from 'src/features/student/student-certificates/rules.crud';
 import { StudentCertificatesCustomController } from 'src/features/student/student-certificates/custom.controller';
 import { StudentCertificatesModule } from 'src/features/student/student-certificates/module';
-import { CrudEntity } from './crud.module';
+import { CrudEntity, multipart } from './crud.module';
 
-const upload = (folder: string) => UseInterceptors(FileInterceptor('image', getMulterOptions(folder)));
-const uploadOptimized = UseInterceptors(FileInterceptor('image', getOptimizedMulterOptions()));
-const uploadBranding = UseInterceptors(
+const upload = (folder: string) => multipart(UseInterceptors(FileInterceptor('image', getMulterOptions(folder))));
+const uploadOptimized = multipart(UseInterceptors(FileInterceptor('image', getOptimizedMulterOptions())));
+const uploadBranding = multipart(UseInterceptors(
   FileFieldsInterceptor([{ name: 'logo', maxCount: 1 }, { name: 'favicon', maxCount: 1 }], getOptimizedMulterOptions()),
   ImageOptimizationInterceptor,
-);
-const uploadCover = UseInterceptors(FileInterceptor('image', getOptimizedMulterOptions()), ImageOptimizationInterceptor);
+));
+const uploadCover = multipart(UseInterceptors(FileInterceptor('image', getOptimizedMulterOptions()), ImageOptimizationInterceptor));
 const evict = (prefix: string, route: string) => CacheEvictAll(`${prefix}:*`, `cache:*/${route}*`);
 const evictSiteServices = evict('site-services', 'site-services');
 const blogEvict = (name: string) =>
