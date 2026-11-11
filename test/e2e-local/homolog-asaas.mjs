@@ -49,6 +49,8 @@ try {
 
   // 1. Salvar a integração: gera webhookToken e registra o webhook com authToken.
   const gw = await db.companyGateWays.findFirst({ where: { companyId, gateway: 'asaas' } });
+  // Parte do zero na cópia local: sem webhookId/webhookToken herdados.
+  await db.companyGateWays.update({ where: { id: gw.id }, data: { payload: { token: 'LOCAL-E2E-FAKE' } } });
   const put = await api('PUT', `/company-gateways/${gw.id}`, { token, form: { payload: JSON.stringify({ token: KEY }) } });
   ok('PUT /company-gateways salva a chave', put.status === 200, `status=${put.status}`);
   const saved = (await db.companyGateWays.findUnique({ where: { id: gw.id } })).payload;
@@ -75,9 +77,10 @@ try {
   // 3. Checkout PIX e boleto: cobrança real no sandbox.
   const buyer = { name: 'Homologacao Sandbox', cpf: '52998224725', email: 'homolog@example.com', phone: '81977776666' };
   const subs = {};
+  const cpfs = { pix: '52998224725', boleto: '11144477735' };
   for (const method of ['pix', 'boleto']) {
     const email = `homolog+${method}@example.com`;
-    const r = await api('POST', '/subscription/subscribe', { form: { ...buyer, email, classId: klass.id, paymentMethod: method } });
+    const r = await api('POST', '/subscription/subscribe', { form: { ...buyer, cpf: cpfs[method], email, classId: klass.id, paymentMethod: method } });
     ok(`checkout ${method} → 201`, r.status === 201, r.status === 201 ? '' : JSON.stringify(r.json).slice(0, 200));
     const fr = await db.financialRecords.findFirst({ where: { subscription: { classId: klass.id, email } }, orderBy: { id: 'desc' } });
     subs[method] = fr;
@@ -88,7 +91,8 @@ try {
   }
 
   // 4. Webhook: sem header e com token errado → 401; com token → confirma.
-  const pix = subs.pix;
+  // Usa a cobrança que de fato existe no sandbox (PIX exige conta aprovada).
+  const pix = subs.boleto?.externalId ? subs.boleto : subs.pix;
   const payment = (await sandbox('GET', `/payments/${pix.externalId}`)).json;
   const event = { event: 'PAYMENT_RECEIVED', payment: { ...payment, status: 'RECEIVED' } };
   const noHeader = await api('POST', `/webhooks/asaas/${companyId}`, { body: event });
@@ -105,6 +109,11 @@ try {
   ok('execução sem exceção', false, e.message);
 } finally {
   // Limpeza no sandbox: cobranças e o webhook de homologação.
+  // KEEP=1 deixa tudo no sandbox para conferir no painel (apague depois).
+  if (process.env.KEEP) {
+    console.log(`KEEP: cobranças ${created.payments.join(', ')} · webhook ${created.webhookId}`);
+    created.payments = []; created.webhookId = null;
+  }
   for (const id of created.payments) await sandbox('DELETE', `/payments/${id}`);
   if (created.webhookId) await sandbox('DELETE', `/webhooks/${created.webhookId}`);
   await db.$disconnect();
