@@ -195,7 +195,9 @@ for (const [route, field] of [['classes', 'name'], ['instructors', 'name'], ['co
     const u = await req(NEW, 'PUT', `/customer/${id}`, { token: tok.newSuper, form: { name: 'E2E Cliente 2' } });
     ok('atualiza cliente', u.status === 200 && u.json?.name === 'E2E Cliente 2', `${u.status}`);
     const mass = await req(NEW, 'PUT', `/customer/${id}`, { token: tok.newSuper, form: { companyId: 2 } });
-    ok('mass-assignment companyId → 400 com campo', mass.status === 400 && mass.json?.field === 'companyId', `${mass.status} ${JSON.stringify(mass.json)}`);
+    // restrictedWrite 'ignore': companyId no corpo é descartado (não 400) e a
+    // linha continua na empresa original.
+    ok('mass-assignment companyId é descartado', mass.status === 200 && mass.json?.companyId !== 2, `${mass.status} ${JSON.stringify(mass.json).slice(0, 160)}`);
     const a = await req(NEW, 'PATCH', `/customer/inactive/${id}`, { token: tok.newSuper });
     ok('arquiva cliente (active=false + inactiveAt)', a.status === 200 && a.json?.active === false && a.json?.inactiveAt, `${a.status} ${JSON.stringify(a.json).slice(0, 120)}`);
     const r2 = await req(NEW, 'PATCH', `/customer/active/${id}`, { token: tok.newSuper });

@@ -27,7 +27,7 @@
     "test:e2e:down": "docker compose -f docker-compose.test.yml down -v"
   },
   "dependencies": {
-    "@adleron/crud-core": "file:vendor/adleron-crud-core-0.2.0.tgz",
+    "@adleron/crud-core": "file:vendor/adleron-crud-core-0.3.0.tgz",
     "@aws-sdk/client-s3": "^3.688.0",
     "@aws-sdk/lib-storage": "^3.688.0",
     "@nestjs/common": "^11.1.6",

@@ -50,6 +50,9 @@ export function defineWorksafeEntity(rules: EntityRules): EntityDefinition {
     // site) dependem disso: todo campo escalar não mascarado fica liberado.
     // Relações (`trainee.name`) continuam declaradas na entidade.
     autoWhitelist: true,
+    // O front reenvia o objeto inteiro nas edições (id, active, createdAt...).
+    // Campo não gravável é descartado em vez de 400; /self continua 400.
+    restrictedWrite: 'ignore',
   });
 }
 
