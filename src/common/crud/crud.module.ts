@@ -22,6 +22,10 @@ import { AuthCacheService } from 'src/common/cache/auth-cache.service';
 import { CacheService } from 'src/common/cache/cache.service';
 import { AsaasModule } from 'src/common/gateways/asaas/asaas.module';
 import { AsaasService } from 'src/common/gateways/asaas/asaas.service';
+import { PaymentsModule } from 'src/payments/payments.module';
+import { GatewayCredentialsService } from 'src/payments/application/gateway-credentials.service';
+import { SellerAccountService } from 'src/payments/application/seller-account.service';
+import { ClassGatewayValidator } from 'src/payments/application/class-gateway-validator.service';
 import { PrismaModule } from 'src/prisma/prisma.module';
 import { PrismaService } from 'src/prisma/prisma.service';
 import {
@@ -99,7 +103,7 @@ export class CrudModule {
     });
     return {
       module: CrudModule,
-      imports: [PrismaModule, AsaasModule, ...extraImports],
+      imports: [PrismaModule, AsaasModule, PaymentsModule, ...extraImports],
       // Custom ANTES dos gerados: rotas estáticas (/list, /public, /my-courses)
       // têm de ser registradas antes do `GET /:id` da fábrica, senão "list"
       // vira um id e cai no getById.
@@ -107,8 +111,11 @@ export class CrudModule {
       providers: [
         {
           provide: CrudService,
-          inject: [PrismaService, AuthCacheService, AsaasService, CacheService],
-          useFactory: (prisma: PrismaService, authCache: AuthCacheService, asaas: AsaasService, cache: CacheService) =>
+          inject: [PrismaService, AuthCacheService, AsaasService, CacheService, GatewayCredentialsService, SellerAccountService, ClassGatewayValidator],
+          useFactory: (
+            prisma: PrismaService, authCache: AuthCacheService, asaas: AsaasService, cache: CacheService,
+            credentials: GatewayCredentialsService, sellerAccounts: SellerAccountService, classGatewayValidator: ClassGatewayValidator,
+          ) =>
             new CrudService<Request>({
               repository: prismaRepository(prisma as never),
               scope: worksafeScope,
@@ -116,7 +123,7 @@ export class CrudModule {
               audit: worksafeAudit(prisma),
               permissions: worksafePermissions,
               // Disponíveis em todo hook como `deps.*` — DI de verdade, não singletons.
-              hookDeps: { prisma, authCache, asaas, cache },
+              hookDeps: { prisma, authCache, asaas, cache, credentials, sellerAccounts, classGatewayValidator },
             }),
         },
         { provide: APP_FILTER, useClass: CrudErrorFilter },

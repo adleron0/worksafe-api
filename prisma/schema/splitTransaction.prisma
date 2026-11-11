@@ -6,7 +6,10 @@ model SplitTransaction {
     financialRecord    FinancialRecords @relation(fields: [financialRecordId], references: [id])
 
     // Destino do split
-    toWalletId         String    @db.VarChar(100)  // Wallet destino (seller/parceiro)
+    // Opcional: em provedores sem split automático (ou no modo manual) a
+    // comissão é registrada para conferência e o repasse é feito por fora,
+    // então não existe carteira de destino.
+    toWalletId         String?   @db.VarChar(100)  // Wallet destino (seller/parceiro)
 
     // Seller beneficiado
     sellerId           Int

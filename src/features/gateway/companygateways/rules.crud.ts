@@ -1,29 +1,14 @@
 import { CrudError, EntityRules, composeHooks } from '@adleron/crud-core';
 import { Request } from 'express';
-import { CacheService } from 'src/common/cache/cache.service';
-import { AsaasService } from 'src/common/gateways/asaas/asaas.service';
 import { parseJsonFields, syncActiveFlag } from 'src/common/crud/hooks';
+import { GatewayCredentialsService } from 'src/payments/application/gateway-credentials.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 
 /**
- * Configuração de gateway por empresa. O rules.ts antigo instanciava
- * AsaasService/CacheService via setters globais; aqui vêm por deps (DI). Ao
- * salvar um token do Asaas, cacheia e (re)configura o webhook no gateway.
+ * Configuração de gateway por empresa. Quem sabe aquecer a credencial e
+ * registrar o webhook (com authToken) é o adapter do gateway, via
+ * GatewayCredentialsService — esta entidade não conhece fornecedor.
  */
-async function configureWebhook(deps: Record<string, unknown>, gateway: string, payload: Record<string, any>, companyId: number, currentWebhookId?: string) {
-  if (gateway !== 'asaas' || !payload?.token) return payload;
-  const asaas = deps.asaas as AsaasService;
-  const cache = deps.cache as CacheService;
-  try {
-    await cache.set(`asaasToken:${companyId}`, payload.token, 2592000);
-    const webhook = await asaas.configureWebhooks(companyId, currentWebhookId || payload.webhookId || null);
-    if (webhook?.id) return { ...payload, webhookId: webhook.id };
-  } catch (error) {
-    console.error('[company-gateways] falha ao configurar webhook Asaas:', (error as Error).message);
-  }
-  return payload;
-}
-
 export const companyGatewayEntity: EntityRules = {
   entity: 'company-gateways', model: 'CompanyGateWays',
   expose: ['list', 'getById', 'create', 'update', 'archive', 'restore'], restorePermission: 'own',
@@ -39,11 +24,18 @@ export const companyGatewayEntity: EntityRules = {
         // sem unique no schema: um gateway por empresa
         const dup = await prisma.companyGateWays.findFirst({ where: { companyId, gateway: data.gateway as never }, select: { id: true } });
         if (dup) throw new CrudError('CONFLICT', 'Gateway já configurado para esta empresa', 'gateway');
-        if (data.payload) return { ...data, payload: await configureWebhook(deps, String(data.gateway), data.payload as never, companyId) };
+        if (data.payload) {
+          const credentials = deps.credentials as GatewayCredentialsService;
+          return { ...data, payload: await credentials.configure({ gateway: data.gateway as never, payload: credentials.parsePayload(data.payload), companyId }) };
+        }
       }
       if (op === 'update' && data.payload && existing) {
-        const current = (typeof existing.payload === 'string' ? JSON.parse(existing.payload as string) : existing.payload) ?? {};
-        return { ...data, payload: await configureWebhook(deps, String(existing.gateway), data.payload as never, companyId, current.webhookId) };
+        const credentials = deps.credentials as GatewayCredentialsService;
+        const current = credentials.parsePayload(existing.payload) ?? {};
+        // O front reenvia só a chave: preserva webhookId/webhookToken já
+        // registrados para não trocar o token do webhook a cada save.
+        const incoming = { webhookId: current.webhookId, webhookToken: current.webhookToken, ...credentials.parsePayload(data.payload) };
+        return { ...data, payload: await credentials.configure({ gateway: existing.gateway as never, payload: incoming, companyId, currentWebhookId: current.webhookId }) };
       }
       return undefined;
     },

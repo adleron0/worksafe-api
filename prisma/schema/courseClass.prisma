@@ -38,6 +38,16 @@ model CourseClass {
   maxSubscriptions  Int?
   unlimitedSubscriptions Boolean @default(false)
   allowCheckout     Boolean           @default(false)
+
+  // Provedor de pagamento desta turma. Aponta para a CONFIGURAÇÃO e não para
+  // o nome do provedor, para que a empresa possa manter mais de uma conta do
+  // mesmo provedor (produção e teste, ou dois CNPJs) e escolher qual usar.
+  //
+  // Nulo = usa o provedor ativo da empresa. É o comportamento de sempre, e
+  // por isso a coluna nasce opcional: nenhuma turma existente muda de
+  // comportamento ao subir esta migração.
+  companyGatewayId  Int?
+  companyGateway    CompanyGateWays?  @relation(fields: [companyGatewayId], references: [id])
   whyUs             Json?
   onlineCourseModelId    Int?
   onlineCourseModel      OnlineCourseModel?     @relation(fields: [onlineCourseModelId], references: [id])

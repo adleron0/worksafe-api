@@ -9,58 +9,52 @@ import {
   parseJsonFields,
   syncActiveFlag,
 } from 'src/common/crud/hooks';
-import { AsaasService } from 'src/common/gateways/asaas/asaas.service';
+import { SellerAccountService } from 'src/payments/application/seller-account.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 
 const SELLER_REQUIRED = ['email', 'cpf', 'phone', 'name'] as const;
 
 /**
- * Ativação de seller: cria a subconta no Asaas e grava `sellerConfig`. Era
- * `new AsaasService(...)` dentro do rules.ts; agora vem por `deps.asaas`.
- * Mesma regra de antes: sem dados obrigatórios, falha antes de chamar o gateway.
+ * Ativação de seller: abre a subconta no gateway da empresa e grava
+ * `sellerConfig`. O provisionamento (e a mesclagem por gateway/ambiente) é do
+ * SellerAccountService — esta entidade não conhece fornecedor.
  */
 const sellerActivation: EntityHooks<Request> = {
   preWrite: async ({ op, data, existing, scopeId, deps }) => {
     if (data.isSeller !== true && data.isSeller !== 'true') return undefined;
     if (op !== 'create' && op !== 'update' && op !== 'updateSelf') return undefined;
 
-    const asaas = deps.asaas as AsaasService;
-    const merged = { ...(existing ?? {}), ...data } as Record<string, unknown>;
-    const environment = process.env.BASE_SETUP === 'development' ? 'sandbox' : 'production';
-    const hasWallet = (merged.sellerConfig as any)?.gateways?.asaas?.[environment]?.walletId;
-    if (existing?.isSeller && hasWallet) return { ...data, isSeller: true };
+    const sellerAccounts = deps.sellerAccounts as SellerAccountService;
+    const merged = { ...(existing ?? {}), ...data } as Record<string, any>;
+    const companyId = Number(scopeId ?? merged.companyId);
+    if (await sellerAccounts.hasAccountForCurrentEnvironment(companyId, existing?.sellerConfig)) {
+      return { ...data, isSeller: true };
+    }
 
+    // Mesma regra de antes: sem os dados obrigatórios, falha antes do gateway.
     const missing = SELLER_REQUIRED.filter((field) => !merged[field]);
     if (missing.length) {
       throw new CrudError('VALIDATION_FAILED', `Dados insuficientes para seller: ${missing.join(', ')}`, missing[0]);
     }
 
-    const result = await asaas.getOrCreateSubAccount({
-      id: Number(existing?.id ?? 0),
-      name: String(merged.name), cpf: String(merged.cpf), email: String(merged.email), phone: String(merged.phone),
-      birthDate: merged.birthDate as string | undefined,
-      address: merged.address as string, addressNumber: merged.addressNumber as string,
-      addressComplement: merged.addressComplement as string, neighborhood: merged.neighborhood as string,
-      city: merged.city as string, state: merged.state as string, zipCode: merged.zipCode as string,
-      companyId: Number(scopeId ?? merged.companyId ?? 1),
-      sellerConfig: merged.sellerConfig,
-    });
-
-    const current = (existing?.sellerConfig as Record<string, any>) ?? {};
-    const incoming = (data.sellerConfig as Record<string, any>) ?? {};
+    const { sellerConfig } = await sellerAccounts.provision(
+      {
+        id: Number(existing?.id ?? 0),
+        name: merged.name, cpf: merged.cpf, email: merged.email, phone: merged.phone,
+        birthDate: merged.birthDate, address: merged.address, addressNumber: merged.addressNumber,
+        addressComplement: merged.addressComplement, neighborhood: merged.neighborhood,
+        city: merged.city, state: merged.state, zipCode: merged.zipCode,
+        companyId,
+        sellerConfig: data.sellerConfig,
+      },
+      existing?.sellerConfig,
+    );
     return {
       ...data,
       isSeller: true,
       sellerStatus: 'ACTIVE',
       ...(existing?.sellerActivatedAt ? {} : { sellerActivatedAt: new Date() }),
-      sellerConfig: {
-        ...current, ...incoming,
-        gateways: {
-          ...current.gateways, ...incoming.gateways,
-          asaas: { ...current.gateways?.asaas, ...incoming.gateways?.asaas, [result.environment]: result.config },
-        },
-        [existing ? 'updatedAt' : 'createdAt']: new Date().toISOString(),
-      },
+      sellerConfig,
     };
   },
 };

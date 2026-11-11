@@ -7,13 +7,15 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { AsaasService } from 'src/common/gateways/asaas/asaas.service';
 import { SubscriptionService } from 'src/features/training/subscription/service';
 import { paymentMethods, gateways } from '@prisma/client';
+import { GatewayResolver } from 'src/payments/infrastructure/gateway-resolver';
 import {
+  capabilityChecks,
   CreditCardData,
+  PaymentGatewayPort,
   PaymentResponse,
-} from 'src/common/gateways/interfaces/payment-gateway.interface';
+} from 'src/payments/domain/ports/payment-gateway.port';
 
 // Usa o tipo CustomerData da interface, mas com todos campos opcionais
 interface CustomerData {
@@ -54,7 +56,7 @@ export interface CheckoutData {
 export class CheckoutService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly asaasService: AsaasService,
+    private readonly gatewayResolver: GatewayResolver,
     @Inject(forwardRef(() => SubscriptionService))
     private readonly subscriptionService: SubscriptionService,
   ) {}
@@ -136,8 +138,12 @@ export class CheckoutService {
         }
       }
 
-      // 5. Busca o gateway configurado para a empresa
-      const gateway = await this.getCompanyGateway(companyId);
+      // 5. Resolve o provedor DESTA TURMA (com fallback para o da empresa)
+      const { adapter, record: gateway } =
+        await this.gatewayResolver.forCourseClass({
+          companyGatewayId: subscription.courseClass.companyGatewayId,
+          companyId,
+        });
 
       let financialRecordId: number;
 
@@ -240,7 +246,7 @@ export class CheckoutService {
       // 8. Processa o pagamento de acordo com o gateway
       const paymentResult = await this.processPayment({
         financialRecordId,
-        gateway: gateway.gateway,
+        adapter,
         paymentMethod: checkoutData.paymentMethod,
         value,
         subscription,
@@ -258,57 +264,61 @@ export class CheckoutService {
         companyId, // Passa o companyId para os logs
       );
 
-      // 9. Cria SplitTransaction se houver comissão de cupom
+      // 9. Registra a comissão do vendedor, quando houver.
+      //
+      // A condição deixou de exigir carteira: em provedor sem split
+      // automático — e no modo manual — a comissão é devida do mesmo jeito e
+      // precisa ficar registrada para ser conferida e paga por fora. Exigir
+      // sellerWalletId aqui fazia a comissão desaparecer silenciosamente
+      // justamente nos modos em que ela depende de acompanhamento humano.
       if (
         checkoutData.couponData?.valid &&
         checkoutData.couponData?.commissionPercentage > 0 &&
-        checkoutData.couponData?.sellerWalletId &&
         checkoutData.couponData?.sellerId
       ) {
-        // Obter o ID do split do Asaas da resposta do pagamento
-        let asaasSplitId = null;
-        if (
-          paymentResult &&
-          (paymentResult as any).split &&
-          Array.isArray((paymentResult as any).split)
-        ) {
-          // O Asaas pode retornar informações do split na resposta
+        const repasseAutomatico =
+          adapter.capabilities.commission === 'gatewaySplit';
+
+        // Id do split no provedor, quando ele mesmo divide.
+        let externalSplitId = null;
+        if (repasseAutomatico && Array.isArray((paymentResult as any)?.split)) {
           const splitInfo = (paymentResult as any).split.find(
             (s: any) => s.walletId === checkoutData.couponData.sellerWalletId,
           );
-          asaasSplitId = splitInfo?.id || null;
+          externalSplitId = splitInfo?.id || null;
         }
 
-        // Calcula o valor líquido (estimado - 2.99% de taxa do Asaas)
-        const netValue = checkoutData.couponData.commissionValue * 0.9701;
+        // A taxa só é descontada quando o provedor faz o repasse. Em
+        // pagamento manual o vendedor recebe o valor cheio combinado.
+        const TAXA_SPLIT_ASAAS = 0.9701; // 2,99%
+        const netValue = repasseAutomatico
+          ? checkoutData.couponData.commissionValue * TAXA_SPLIT_ASAAS
+          : checkoutData.couponData.commissionValue;
 
         try {
           await this.prisma.insert(
             'splitTransaction',
             {
               financialRecordId,
-              toWalletId: checkoutData.couponData.sellerWalletId,
+              toWalletId: checkoutData.couponData.sellerWalletId || null,
               sellerId: checkoutData.couponData.sellerId,
               originalValue: value,
               splitValue: checkoutData.couponData.commissionValue,
               splitPercentage: checkoutData.couponData.commissionPercentage,
               netValue,
-              splitDescription: `Comissão cupom - ${subscription.courseClass.name}`,
+              splitDescription: repasseAutomatico
+                ? `Comissão cupom - ${subscription.courseClass.name}`
+                : `Comissão cupom (repasse manual) - ${subscription.courseClass.name}`,
               companyId,
               status: 'PENDING',
-              asaasSplitId,
+              asaasSplitId: externalSplitId,
             },
             { companyId },
           );
         } catch (error) {
-          console.error('Erro ao criar SplitTransaction:', error);
-          // Não lança erro para não bloquear o fluxo principal
+          console.error('Erro ao registrar comissão:', error);
+          // Não bloqueia a venda: a comissão pode ser lançada depois.
         }
-
-        console.log(
-          'SplitTransaction criado para vendedor:',
-          checkoutData.couponData.sellerId,
-        );
       }
 
       // 10. Busca o registro financeiro atualizado com campos específicos
@@ -450,32 +460,11 @@ export class CheckoutService {
   }
 
   /**
-   * Busca o gateway configurado para a empresa
-   */
-  private async getCompanyGateway(companyId: number): Promise<any> {
-    const gateway = await this.prisma.selectFirst('companyGateWays', {
-      where: {
-        companyId,
-        active: true,
-      },
-    });
-
-    if (!gateway) {
-      throw new HttpException(
-        'Nenhum gateway de pagamento configurado para esta empresa',
-        HttpStatus.NOT_FOUND,
-      );
-    }
-
-    return gateway;
-  }
-
-  /**
    * Processa o pagamento de acordo com o gateway
    */
   private async processPayment(params: {
     financialRecordId: number;
-    gateway: gateways;
+    adapter: PaymentGatewayPort;
     paymentMethod: paymentMethods;
     value: number;
     subscription: any;
@@ -484,7 +473,7 @@ export class CheckoutService {
     existingPaymentId?: string;
   }): Promise<PaymentResponse> {
     const {
-      gateway,
+      adapter,
       paymentMethod,
       value,
       subscription,
@@ -493,10 +482,25 @@ export class CheckoutService {
       existingPaymentId,
     } = params;
 
-    // Por enquanto, só suporta Asaas
-    if (gateway !== gateways.asaas) {
+    // Modo sem cobrança automatizada: não há provedor a chamar. O registro
+    // financeiro nasce aguardando um pagamento que será combinado por fora e
+    // baixado no painel. Chamar o adapter aqui só produziria erro.
+    if (!capabilityChecks.charges(adapter.capabilities)) {
+      return {
+        id: null,
+        status: 'PENDING',
+        value,
+        description: `Inscrição - ${subscription.courseClass.name}`,
+        billingType: paymentMethod,
+        dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        externalReference: `sub_${subscription.id}`,
+      };
+    }
+
+    // Valida contra o que o gateway sabe fazer, não contra o nome dele.
+    if (!adapter.capabilities.methods.includes(paymentMethod)) {
       throw new HttpException(
-        `Gateway ${gateway} ainda não está implementado`,
+        `Gateway ${adapter.gateway} não suporta ${paymentMethod}`,
         HttpStatus.NOT_IMPLEMENTED,
       );
     }
@@ -508,20 +512,14 @@ export class CheckoutService {
     );
 
     // Cria ou obtém o cliente no gateway
-    const customer = await this.asaasService.getOrCreateCustomer(
-      customerData,
-      companyId,
-    );
-
-    // Mapeia o paymentMethod para o formato esperado pelo Asaas
-    const mappedPaymentType = this.mapPaymentMethodToAsaas(paymentMethod);
+    const customer = await adapter.getOrCreateCustomer(customerData, companyId);
 
     let payment: any;
 
     // Se já existe um pagamento, atualiza ao invés de criar novo
     if (existingPaymentId) {
       console.log(
-        `Atualizando pagamento existente ${existingPaymentId} para método ${mappedPaymentType}`,
+        `Atualizando pagamento existente ${existingPaymentId} para método ${paymentMethod}`,
       );
 
       // Se está mudando para cartão de crédito, precisa processar de forma especial
@@ -533,30 +531,27 @@ export class CheckoutService {
           'Mudando para cartão de crédito - tentando processar pagamento existente',
         );
 
-        // Atualiza o pagamento para CREDIT_CARD incluindo os dados do cartão
+        // Atualiza o pagamento para cartão incluindo os dados do cartão
         const updateData = {
-          paymentType: mappedPaymentType,
+          method: paymentMethod,
           value,
           dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
           description: `Inscrição - ${subscription.courseClass.name}`,
           creditCard: checkoutData.creditCard, // Inclui dados do cartão
-          creditCardHolderInfo: customerData, // Inclui dados do titular
+          holderInfo: customerData, // Inclui dados do titular
         };
 
         console.log('Atualizando pagamento existente com dados do cartão');
         console.log('Parcelamento:', checkoutData.creditCard.installments || 1);
 
-        payment = await this.asaasService.updatePayment(
+        payment = await adapter.updatePayment(
           existingPaymentId,
           updateData,
           companyId,
         );
 
         // Após atualizar, busca os detalhes completos do pagamento
-        payment = await this.asaasService.getPaymentDetails(
-          existingPaymentId,
-          companyId,
-        );
+        payment = await adapter.getPaymentDetails(existingPaymentId, companyId);
 
         // Verifica se o pagamento foi processado com sucesso
         if (payment.status === 'CONFIRMED' || payment.status === 'RECEIVED') {
@@ -579,10 +574,7 @@ export class CheckoutService {
             );
 
             try {
-              await this.asaasService.deletePayment(
-                existingPaymentId,
-                companyId,
-              );
+              await adapter.deletePayment(existingPaymentId, companyId);
             } catch (cancelError) {
               console.log('Erro ao cancelar pagamento anterior:', cancelError);
             }
@@ -590,93 +582,64 @@ export class CheckoutService {
             // Cria novo pagamento com cartão
             const paymentData: any = {
               customerId: customer.id,
-              paymentType: mappedPaymentType,
+              method: paymentMethod,
               value,
               dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
               description: `Inscrição - ${subscription.courseClass.name}`,
               externalReference: `sub_${subscription.id}`,
               creditCard: checkoutData.creditCard,
-              creditCardHolderInfo: customerData,
+              holderInfo: customerData,
             };
 
-            // Adiciona split se houver cupom com comissão
-            if (
-              checkoutData.couponData?.valid &&
-              checkoutData.couponData?.commissionPercentage > 0 &&
-              checkoutData.couponData?.sellerWalletId
-            ) {
-              paymentData.splits = [
-                {
-                  walletId: checkoutData.couponData.sellerWalletId,
-                  percentualValue: checkoutData.couponData.commissionPercentage,
-                },
-              ];
-            }
+            const retrySplit = this.buildSplits(checkoutData, adapter);
+            if (retrySplit) paymentData.splits = retrySplit;
 
-            payment = await this.asaasService.createPayment(
-              paymentData,
-              companyId,
-            );
+            payment = await adapter.createPayment(paymentData, companyId);
           }
         }
       } else {
         // Para outros métodos (PIX/Boleto), apenas atualiza
         const updateData = {
-          paymentType: mappedPaymentType,
+          method: paymentMethod,
           value,
           dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000),
           description: `Inscrição - ${subscription.courseClass.name}`,
         };
 
-        payment = await this.asaasService.updatePayment(
+        payment = await adapter.updatePayment(
           existingPaymentId,
           updateData,
           companyId,
         );
 
         // Após atualizar, busca os detalhes completos do pagamento
-        payment = await this.asaasService.getPaymentDetails(
-          existingPaymentId,
-          companyId,
-        );
+        payment = await adapter.getPaymentDetails(existingPaymentId, companyId);
       }
     } else {
-      console.log(`Criando novo pagamento com método ${mappedPaymentType}`);
+      console.log(`Criando novo pagamento com método ${paymentMethod}`);
 
       // Prepara os dados do pagamento
       const paymentData: any = {
         customerId: customer.id,
-        paymentType: mappedPaymentType,
+        method: paymentMethod,
         value,
         dueDate: new Date(Date.now() + 24 * 60 * 60 * 1000), // Vencimento para amanhã
         description: `Inscrição - ${subscription.courseClass.name}`,
         externalReference: `sub_${subscription.id}`,
         creditCard: checkoutData.creditCard,
-        creditCardHolderInfo: customerData,
+        holderInfo: customerData,
       };
 
-      // Adiciona split se houver cupom com comissão
-      if (
-        checkoutData.couponData?.valid &&
-        checkoutData.couponData?.commissionPercentage > 0 &&
-        checkoutData.couponData?.sellerWalletId
-      ) {
-        paymentData.splits = [
-          {
-            walletId: checkoutData.couponData.sellerWalletId,
-            percentualValue: checkoutData.couponData.commissionPercentage,
-          },
-        ];
+      const splits = this.buildSplits(checkoutData, adapter);
+      if (splits) {
+        paymentData.splits = splits;
         console.log('Split configurado para vendedor:');
-        console.log('- WalletId:', checkoutData.couponData.sellerWalletId);
-        console.log(
-          '- Percentual de comissão:',
-          checkoutData.couponData.commissionPercentage + '%',
-        );
+        console.log('- Recebedor:', splits[0].recipientId);
+        console.log('- Percentual de comissão:', splits[0].percentage + '%');
       }
 
       // Cria o pagamento no gateway
-      payment = await this.asaasService.createPayment(paymentData, companyId);
+      payment = await adapter.createPayment(paymentData, companyId);
     }
 
     // Se for cartão de crédito, processa imediatamente
@@ -701,6 +664,33 @@ export class CheckoutService {
 
     // Retorna os dados específicos de acordo com o método de pagamento
     return this.formatPaymentResponse(payment, paymentMethod);
+  }
+
+  /**
+   * Monta a instrução de split a partir do cupom validado, no vocabulário do
+   * domínio. Traduzir `recipientId` para o campo do fornecedor (walletId, no
+   * caso do Asaas) é responsabilidade do adapter.
+   */
+  private buildSplits(checkoutData: CheckoutData, adapter: PaymentGatewayPort) {
+    const coupon = checkoutData.couponData;
+    // Em 'manualRecord' a comissão existe e é registrada, mas não vai como
+    // instrução de divisão para o provedor: o repasse é administrado por nós.
+    if (adapter.capabilities.commission !== 'gatewaySplit') {
+      return null;
+    }
+    if (
+      !coupon?.valid ||
+      !(coupon.commissionPercentage > 0) ||
+      !coupon.sellerWalletId
+    ) {
+      return null;
+    }
+    return [
+      {
+        recipientId: coupon.sellerWalletId,
+        percentage: coupon.commissionPercentage,
+      },
+    ];
   }
 
   /**
@@ -882,7 +872,10 @@ export class CheckoutService {
   /**
    * Prepara os dados de atualização do registro financeiro baseado no webhook
    */
-  private prepareFinancialRecordUpdate(webhookPayment: any): any {
+  private prepareFinancialRecordUpdate(
+    webhookPayment: any,
+    adapter: PaymentGatewayPort,
+  ): any {
     const updateData: any = {
       responseData: webhookPayment,
     };
@@ -898,7 +891,7 @@ export class CheckoutService {
     }
 
     // Mapeia o status do pagamento
-    updateData.status = this.mapPaymentStatus(webhookPayment.status);
+    updateData.status = adapter.mapPaymentStatus(webhookPayment.status);
 
     // Define a data de pagamento se foi recebido/confirmado
     if (['RECEIVED', 'CONFIRMED'].includes(webhookPayment.status)) {
@@ -977,10 +970,15 @@ export class CheckoutService {
   async processPaymentWebhook(
     webhookData: any,
     companyId: number,
+    gateway: gateways,
   ): Promise<void> {
     try {
-      // Por enquanto, só processa webhooks do Asaas
-      const processedData = await this.asaasService.processWebhook(
+      // O provedor vem da URL do webhook, não da configuração atual da
+      // empresa. Resolver por empresa aqui só funcionava porque havia um
+      // gateway só: com dois ativos — uma migração, ou gateway por turma —
+      // um webhook do Asaas poderia ser interpretado pelo adapter errado.
+      const adapter = this.gatewayResolver.byName(gateway);
+      const processedData = await adapter.processWebhook(
         webhookData,
         companyId,
       );
@@ -1004,7 +1002,7 @@ export class CheckoutService {
       }
 
       // Prepara os dados de atualização
-      const updateData = this.prepareFinancialRecordUpdate(payment);
+      const updateData = this.prepareFinancialRecordUpdate(payment, adapter);
 
       // Busca ou cria o registro financeiro usando upsert
       const financialRecord = await this.prisma.selectFirst(
@@ -1058,14 +1056,12 @@ export class CheckoutService {
               {
                 accrualDate,
                 companyId,
-                gateway: 'asaas',
+                gateway: adapter.gateway,
                 status: 'processing',
                 subscriptionId: subscription.id,
                 traineeId: subscription.traineeId,
                 customerId: subscription.class.customerId, // Agora usando o customerId da turma
-                paymentMethod: this.mapAsaasPaymentMethodToInternal(
-                  payment.billingType,
-                ),
+                paymentMethod: adapter.mapPaymentMethod(payment.billingType),
                 value: payment.value,
                 dueDate,
                 description:
@@ -1105,52 +1101,5 @@ export class CheckoutService {
       console.error('Erro ao processar webhook:', error);
       throw error;
     }
-  }
-
-  /**
-   * Mapeia o tipo de pagamento do Asaas para o formato interno
-   */
-  private mapAsaasPaymentMethodToInternal(billingType: string): paymentMethods {
-    const map = {
-      BOLETO: paymentMethods.boleto,
-      PIX: paymentMethods.pix,
-      CREDIT_CARD: paymentMethods.cartaoCredito,
-    };
-    return map[billingType] || paymentMethods.pix;
-  }
-
-  /**
-   * Mapeia o status do gateway para o status interno
-   */
-  private mapPaymentStatus(gatewayStatus: string): any {
-    const statusMap = {
-      PENDING: 'waiting',
-      RECEIVED: 'received', // Pagamento recebido
-      CONFIRMED: 'received', // Pagamento confirmado
-      AUTHORIZED: 'processing', // Cartão autorizado mas não capturado
-      OVERDUE: 'overdue', // Vencido
-      REFUNDED: 'cancelled', // Reembolsado
-      REFUND_IN_PROGRESS: 'cancelled', // Reembolso em progresso
-      CANCELED: 'cancelled', // Cancelado
-      DELETED: 'cancelled', // Deletado
-      FAILED: 'declined', // Falhou
-      CHARGEBACK: 'chargeback', // Chargeback
-    };
-
-    return statusMap[gatewayStatus] || 'processing';
-  }
-
-  /**
-   * Mapeia o paymentMethod interno para o formato do Asaas
-   */
-  private mapPaymentMethodToAsaas(
-    paymentMethod: paymentMethods,
-  ): 'boleto' | 'pix' | 'cartao' {
-    const map = {
-      [paymentMethods.boleto]: 'boleto' as const,
-      [paymentMethods.pix]: 'pix' as const,
-      [paymentMethods.cartaoCredito]: 'cartao' as const,
-    };
-    return map[paymentMethod];
   }
 }

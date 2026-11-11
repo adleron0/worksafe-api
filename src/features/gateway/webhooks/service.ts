@@ -3,20 +3,29 @@ import { timingSafeEqual } from 'crypto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { gateways } from '@prisma/client';
 import { CheckoutService } from '../checkout/checkout.service';
+import { GatewayResolver } from 'src/payments/infrastructure/gateway-resolver';
 
 @Injectable()
 export class WebhooksService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly gatewayResolver: GatewayResolver,
     @Inject(forwardRef(() => CheckoutService))
     private readonly checkoutService: CheckoutService,
   ) {}
 
   /**
-   * Token esperado: `payload.webhookToken` do CompanyGateWays da empresa, com
-   * fallback no env ASAAS_WEBHOOK_TOKEN. FAIL-CLOSED: sem token configurado o
-   * webhook é recusado — configure antes do deploy. Comparação em tempo
-   * constante para não vazar o token por timing.
+   * Autenticação do webhook pelo header `asaas-access-token`.
+   *
+   * Token esperado: `payload.webhookToken` do CompanyGateWays da empresa (o
+   * GatewayCredentialsService gera e registra no Asaas como authToken ao
+   * salvar o gateway), com fallback no env ASAAS_WEBHOOK_TOKEN.
+   *
+   * MODO DE TRANSIÇÃO: empresa SEM token configurado ainda é aceita, com
+   * alerta. O Asaas envia em sendType SEQUENTIALLY e um não-2xx INTERROMPE a
+   * fila inteira — recusar antes de o token existir pararia todos os
+   * pagamentos no deploy. Assim que o token existe, o header passa a ser
+   * obrigatório e a comparação é em tempo constante.
    */
   async verifyWebhookToken(
     gateway: string,
@@ -24,7 +33,6 @@ export class WebhooksService {
     received: string | undefined,
   ): Promise<boolean> {
     if (gateway !== 'asaas') return false;
-    if (!received) return false;
 
     const companyGateway = await this.prisma.companyGateWays.findFirst({
       where: { companyId, gateway: 'asaas', active: true },
@@ -33,11 +41,13 @@ export class WebhooksService {
       (companyGateway?.payload as any)?.webhookToken ||
       process.env.ASAAS_WEBHOOK_TOKEN;
     if (!expected) {
-      console.error(
-        `[webhook] nenhum webhookToken configurado para a empresa ${companyId} — requisição recusada`,
+      console.warn(
+        `[webhook] empresa ${companyId} sem webhookToken — aceito em modo de transição. ` +
+          'Salve de novo a integração Asaas no sistema para gerar e registrar o token.',
       );
-      return false;
+      return true;
     }
+    if (!received) return false;
 
     const a = Buffer.from(received);
     const b = Buffer.from(expected);
@@ -61,11 +71,16 @@ export class WebhooksService {
         },
       });
 
-      // Processa o webhook de acordo com o gateway
-      if (gateway === 'asaas') {
-        await this.processAsaasWebhook(payload, companyId);
+      // O dispatch deixou de ser `if (gateway === 'asaas')`: qualquer gateway
+      // com adapter registrado é processado. Somar um fornecedor não toca
+      // este arquivo.
+      if (this.gatewayResolver.supports(gateway as gateways)) {
+        await this.processPaymentEvent(payload, companyId, gateway as gateways);
+      } else {
+        console.log(
+          `Gateway ${gateway} sem adapter registrado — webhook apenas armazenado`,
+        );
       }
-      // Adicionar outros gateways conforme necessário
 
       // Marca o webhook como processado
       await this.prisma.webhooks.update({
@@ -91,6 +106,12 @@ export class WebhooksService {
       });
 
       console.error('Erro ao processar webhook:', error);
+
+      // ATENÇÃO (R2): continua respondendo sucesso de propósito. O webhook do
+      // Asaas é registrado com sendType SEQUENTIALLY — devolver não-2xx faz o
+      // gateway INTERROMPER a fila e parar de entregar todos os eventos
+      // seguintes, o que deixaria pagamentos legítimos sem confirmação.
+      // Endurecer isto exige antes retry interno + reconciliação (fase 3).
       return {
         success: false,
         message: 'Webhook registrado com erro',
@@ -99,18 +120,18 @@ export class WebhooksService {
     }
   }
 
-  /**
-   * Processa webhook do Asaas
-   */
-  private async processAsaasWebhook(payload: any, companyId: number) {
-    try {
-      // Verifica se é um evento de pagamento
-      if (payload.event && payload.event.startsWith('PAYMENT_')) {
-        await this.checkoutService.processPaymentWebhook(payload, companyId);
-      }
-    } catch (error) {
-      console.error('Erro ao processar webhook Asaas:', error);
-      throw error;
+  /** Encaminha eventos de pagamento; outros eventos são só armazenados. */
+  private async processPaymentEvent(
+    payload: any,
+    companyId: number,
+    gateway: gateways,
+  ) {
+    if (payload?.event && String(payload.event).startsWith('PAYMENT_')) {
+      await this.checkoutService.processPaymentWebhook(
+        payload,
+        companyId,
+        gateway,
+      );
     }
   }
 }

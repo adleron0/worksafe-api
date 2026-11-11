@@ -672,7 +672,7 @@ export class AsaasService {
     }
   }
 
-  async configureWebhooks(companyId: number, webhookId?: string) {
+  async configureWebhooks(companyId: number, webhookId?: string, authToken?: string) {
     const { baseUrl, token } = await this.getConfig(companyId);
     const headers = this.getHeaders(token);
     const webhookUrl =
@@ -683,6 +683,9 @@ export class AsaasService {
       name: 'WorkSafe Webhooks',
       sendType: 'SEQUENTIALLY',
       email: 'webhooks@worksafe.com.br',
+      // O Asaas devolve este valor no header `asaas-access-token` de cada
+      // evento; a API recusa evento sem ele (WebhooksService.verifyWebhookToken).
+      ...(authToken ? { authToken } : {}),
       enabled: true,
       interrupted: false,
       url: `${webhookUrl}/webhooks/asaas/${companyId}`,

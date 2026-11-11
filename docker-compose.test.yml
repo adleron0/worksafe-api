@@ -1,0 +1,31 @@
+# Infra efêmera para a suíte e2e.
+# Portas deslocadas de propósito para nunca colidir com um Postgres/Redis local.
+#   docker compose -f docker-compose.test.yml up -d
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: worksafe-postgres-test
+    environment:
+      POSTGRES_USER: worksafe
+      POSTGRES_PASSWORD: worksafe
+      POSTGRES_DB: worksafe_test
+    ports:
+      - '55432:5432'
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U worksafe -d worksafe_test']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis-test:
+    image: redis:7-alpine
+    container_name: worksafe-redis-test
+    ports:
+      - '56379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 3s
+      retries: 30

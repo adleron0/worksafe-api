@@ -1,5 +1,29 @@
 import { EntityRules, composeHooks } from '@adleron/crud-core';
 import { imageUpload, parseJsonFields, syncActiveFlag } from 'src/common/crud/hooks';
+import { ClassGatewayValidator } from 'src/payments/application/class-gateway-validator.service';
+
+const pick = (data: Record<string, any>, existing: Record<string, any> | undefined, field: string) =>
+  field in data ? data[field] : existing?.[field];
+
+/**
+ * Valida a configuração de pagamento contra o provedor da turma no ESTADO
+ * FINAL (existing + data): um update parcial pode trocar só o provedor e
+ * deixar métodos incompatíveis já salvos. Erro aparece para quem monta a
+ * turma, não para o comprador na hora de pagar.
+ */
+const gatewayCompatibility = {
+  preWrite: async ({ op, data, existing, scopeId, deps }: any) => {
+    if (op !== 'create' && op !== 'update') return undefined;
+    await (deps.classGatewayValidator as ClassGatewayValidator).validate({
+      companyGatewayId: pick(data, existing, 'companyGatewayId'),
+      companyId: Number(scopeId),
+      allowCheckout: pick(data, existing, 'allowCheckout'),
+      paymentMethods: pick(data, existing, 'paymentMethods'),
+      dividedIn: pick(data, existing, 'dividedIn'),
+    });
+    return undefined;
+  },
+};
 
 /**
  * Turmas. A listagem é pública (site) — o admin usa a mesma rota autenticado,
@@ -28,5 +52,5 @@ export const classEntity: EntityRules = {
     preWrite: ({ op, data }) => op === 'update'
       ? { ...data, ...('price' in data && !data.price ? { price: null } : {}), ...('discountPrice' in data && !data.discountPrice ? { discountPrice: null } : {}) }
       : undefined,
-  }),
+  }, gatewayCompatibility),
 };

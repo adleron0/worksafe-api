@@ -130,4 +130,5 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
-schema-unificado-debug.prismatest/e2e-local/e2e.env
+schema-unificado-debug.prisma
+test/e2e-local/e2e.env
