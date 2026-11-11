@@ -133,3 +133,4 @@ dist
 schema-unificado-debug.prisma
 test/e2e-local/e2e.env
 !vendor/*.tgz
+.asaas-sandbox.key
