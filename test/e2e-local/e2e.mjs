@@ -139,6 +139,18 @@ for (const [name, path] of front) {
     `${nl.status} total=${nl.json?.total}/${all.json?.total} excl=${nl2.json?.total}`);
 }
 
+// Listagens exatamente como as telas montam (ordenação/filtro por campo livre).
+// Em 11/11/2026 a tela de vendedores quebrou com order-active (allowlist manual).
+for (const [name, path] of [
+  ['vendedores', '/user/?limit=10&page=0&show=profile%2Cpermissions&order-active=desc&order-name=asc&isSeller=true'],
+  ['clientes', '/customer?limit=10&page=0&order-active=desc&order-name=asc'],
+  ['usuarios por perfil', '/user?limit=10&in-profileId=1,2&like-email=a'],
+  ['certificados por aluno', '/trainee-certificate?limit=5&like-trainee.name=a&gte-expirationDate=2020-01-01'],
+]) {
+  const r = await req(NEW, 'GET', path, { token: tok.newSuper });
+  ok(`tela: ${name}`, r.status === 200, r.status === 200 ? '' : JSON.stringify(r.json).slice(0, 160));
+}
+
 // ─────────────────────────────────────────────── 4b. escrita por id em várias entidades (multipart, valores iguais)
 const firstRow = async (route) => (await req(NEW, 'GET', `/${route}` + qs({ limit: '1' }), { token: tok.newSuper })).json?.rows?.[0];
 for (const [route, field] of [['classes', 'name'], ['instructors', 'name'], ['coupon', 'description'], ['courses', 'name'],

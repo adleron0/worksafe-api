@@ -46,6 +46,10 @@ export function defineWorksafeEntity(rules: EntityRules): EntityDefinition {
     maxLimit: 1000,
     // `companyId` é escopo, nunca filtro livre (rotas públicas o mandam na query).
     reservedKeys: [...DEFAULT_RESERVED_KEYS, 'companyId'],
+    // A API antiga aceitava filtro/ordenação em qualquer campo e o front (e o
+    // site) dependem disso: todo campo escalar não mascarado fica liberado.
+    // Relações (`trainee.name`) continuam declaradas na entidade.
+    autoWhitelist: true,
   });
 }
 
