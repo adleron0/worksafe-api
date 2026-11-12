@@ -20,6 +20,28 @@ export class TraineeCertificateService {
   }
 
   /**
+   * Consentimento do aluno para exibir o certificado publicamente (vitrine e
+   * preview de compartilhamento). O aluno responde na prova, e a resposta fica
+   * no `CourseClassExam` — a inscrição não tem esse campo. Antes a emissão lia
+   * `subscription.showOnWebsiteConsent || true`, que é sempre `true`, e quem
+   * recusava na prova aparecia na vitrine do mesmo jeito.
+   *
+   * Sem prova (turma sem exame) ninguém perguntou nada: mantém o padrão do
+   * schema (`true`), e o admin ajusta pela tela do certificado.
+   */
+  private async resolveWebsiteConsent(
+    traineeId: number,
+    classId: number,
+  ): Promise<boolean> {
+    const exam = await this.prisma.selectFirst('courseClassExam', {
+      where: { traineeId, classId, inactiveAt: null },
+      orderBy: { createdAt: 'desc' },
+      select: { showOnWebsiteConsent: true },
+    });
+    return exam ? exam.showOnWebsiteConsent !== false : true;
+  }
+
+  /**
    * Gera certificados para alunos de uma turma
    * @param classId - ID da turma
    * @param companyId - ID da empresa
@@ -195,8 +217,15 @@ export class TraineeCertificateService {
           expirationDate: expirationDate,
           variableToReplace: variablesToReplace,
           companyId: companyId,
-          showOnWebsiteConsent: subscription.showOnWebsiteConsent || true,
         };
+
+        // Consentimento de exibição pública. Só vale na criação: num update
+        // o certificado mantém o valor que já tem (o admin pode tê-lo
+        // alterado depois da emissão, a pedido do aluno).
+        if (!(existingCertificate && allowUpsert)) {
+          certificateData.showOnWebsiteConsent =
+            await this.resolveWebsiteConsent(subscription.traineeId, classId);
+        }
 
         // Se é update, adicionar ID do certificado existente
         if (existingCertificate && allowUpsert) {
