@@ -38,12 +38,17 @@ export class PostService {
       throw new BadRequestException('Post não encontrado');
     }
 
-    // Incrementa viewCount em background (não bloqueia resposta)
-    this.prisma.blog_Post.update({
-      where: { id: post.id },
-      data: { viewCount: { increment: 1 } },
-    }).catch(() => {});
+    // Incrementa viewCount em background (não bloqueia resposta).
+    // SQL direto de propósito: `@updatedAt` é aplicado pelo Prisma Client em
+    // todo update, e uma visita não é edição — o site usa updatedAt como
+    // "Atualizado em" / dateModified / lastmod do sitemap.
+    this.incrementViews(post.id).catch(() => {});
 
     return post;
+  }
+
+  /** +1 visualização sem tocar em `updatedAt`. */
+  incrementViews(postId: number) {
+    return this.prisma.$executeRaw`UPDATE "Blog_Post" SET "viewCount" = "viewCount" + 1 WHERE "id" = ${postId}`;
   }
 }
