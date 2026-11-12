@@ -15,23 +15,26 @@ export const siteProductsEntity: EntityRules = {
     archive: 'inactive_loja_site',
     restore: 'activate_loja_site',
   },
-  filterable: ['name', 'featured', 'price', 'category', 'brand', 'createdAt'],
+  filterable: ['name', 'featured', 'price', 'categoryId', 'brandId', 'createdAt'],
   sortable: ['id', 'name', 'price', 'createdAt'],
-  includable: ['images'],
+  includable: ['images', 'category', 'brand'],
   includes: {
     images: { select: { id: true, imageUrl: true, name: true }, where: { active: true } },
+    // inativas não aparecem: o produto fica "sem categoria/marca" na loja
+    category: { select: { id: true, name: true, order: true, inactiveAt: true } },
+    brand: { select: { id: true, name: true, order: true, inactiveAt: true } },
   },
   neverWritable: ['active'],
   softDelete: { field: 'inactiveAt' },
   hooks: composeHooks(syncActiveFlag, imageUpload(), {
     // Preço vazio vira 0 (comportamento do controller antigo).
-    // Categoria/marca: texto livre aparado; vazio vira null (some do filtro).
+    // Preço vazio vira 0 (comportamento do controller antigo). Categoria e
+    // marca chegam como id; vazio (form) vira null = sem categoria/marca.
     preWrite: ({ op, data }) => {
-      const tidy = (v: unknown) =>
-        typeof v === 'string' ? v.trim().replace(/\s+/g, ' ') || null : v;
       const next = { ...data };
-      if ('category' in next) next.category = tidy(next.category);
-      if ('brand' in next) next.brand = tidy(next.brand);
+      for (const key of ['categoryId', 'brandId'] as const) {
+        if (key in next) next[key] = next[key] === '' || next[key] == null ? null : Number(next[key]);
+      }
       return op === 'create'
         ? { ...next, price: next.price || 0, oldPrice: next.oldPrice || 0 }
         : next;

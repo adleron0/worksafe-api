@@ -28,6 +28,7 @@ import { ranksEntity } from 'src/features/dom_ranks/rules.crud';
 import { rolesEntity } from 'src/features/dom_roles/rules.crud';
 import { statesEntity } from 'src/features/dom_states/rules.crud';
 import { siteProductsEntity } from 'src/features/site/site_loja/rules.crud';
+import { siteProductBrandEntity, siteProductCategoryEntity } from 'src/features/site/site_loja/taxonomy.rules';
 import { siteServicesEntity } from 'src/features/site/site_services/rules.crud';
 import { couponEntity } from 'src/features/training/coupon/rules.crud';
 import { instructorEntity } from 'src/features/training/instructor/rules.crud';
@@ -98,6 +99,8 @@ const uploadBranding = multipart(UseInterceptors(
 const uploadCover = multipart(UseInterceptors(FileInterceptor('image', getOptimizedMulterOptions()), ImageOptimizationInterceptor));
 const evict = (prefix: string, route: string) => CacheEvictAll(`${prefix}:*`, `cache:*/${route}*`);
 const evictSiteServices = evict('site-services', 'site-services');
+const evictSiteTaxonomy = (route: string) =>
+  CacheEvictAll('site-products:*', 'cache:*/site-products*', `cache:*/${route}*`);
 const blogEvict = (name: string) =>
   CacheEvictAll(`blog/${name}:*`, `blog-${name}-public:*`, `cache:*/blog/${name}*`, `cache:*/blog-${name}-public*`);
 const postEvict = CacheEvictAll(
@@ -151,6 +154,12 @@ export const crudEntities: CrudEntity[] = [
     update: [upload('site_products-image'), evict('site-products', 'site-products')],
     archive: [evict('site-products', 'site-products')], restore: [evict('site-products', 'site-products')],
   } } },
+  // categoria/marca aparecem dentro da lista de produtos (cache de 48h):
+  // mudar uma delas limpa também o cache dos produtos
+  ...[siteProductCategoryEntity, siteProductBrandEntity].map((rules) => ({ rules, controller: { decorators: {
+    create: [evictSiteTaxonomy(rules.entity)], update: [evictSiteTaxonomy(rules.entity)],
+    archive: [evictSiteTaxonomy(rules.entity)], restore: [evictSiteTaxonomy(rules.entity)],
+  } } })),
   { rules: instructorEntity, controller: { decorators: { create: [uploadOptimized], update: [uploadOptimized] } } },
   { rules: couponEntity, controller: { decorators: {
     create: [evict('coupon', 'coupon')], update: [evict('coupon', 'coupon')],

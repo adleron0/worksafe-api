@@ -9,8 +9,10 @@ model Site_Products {
   oldPrice    Decimal? @db.Decimal(18, 2)
   description String?  @db.VarChar(255)
   features    String?  @db.VarChar(255)
-  category    String?  @db.VarChar(100) // filtro da loja no site
-  brand       String?  @db.VarChar(100) // filtro da loja no site
+  categoryId  Int? // filtro da loja no site
+  category    Site_ProductCategory? @relation(fields: [categoryId], references: [id])
+  brandId     Int? // filtro da loja no site
+  brand       Site_ProductBrand?    @relation(fields: [brandId], references: [id])
   active      Boolean  @default(true) // Novo campo booleano para status de ativo/inativo
 
   images Site_ProductsImages[]

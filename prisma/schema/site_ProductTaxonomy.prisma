@@ -1,0 +1,33 @@
+// Categorias e marcas da loja do site: cadastradas em Site → Categorias da
+// Loja / Marcas e escolhidas no cadastro do produto. Viram os filtros da loja.
+model Site_ProductCategory {
+  id        Int     @id @default(autoincrement())
+  companyId Int
+  name      String  @db.VarChar(100)
+  order     Int     @default(0)
+  active    Boolean @default(true)
+
+  products Site_Products[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([companyId, name])
+}
+
+model Site_ProductBrand {
+  id        Int     @id @default(autoincrement())
+  companyId Int
+  name      String  @db.VarChar(100)
+  order     Int     @default(0)
+  active    Boolean @default(true)
+
+  products Site_Products[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([companyId, name])
+}
