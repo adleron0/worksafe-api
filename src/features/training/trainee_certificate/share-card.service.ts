@@ -4,6 +4,11 @@ import { join } from 'path';
 import * as sharp from 'sharp';
 import satori from 'satori';
 import { PrismaService } from 'src/prisma/prisma.service';
+import {
+  CertificateRenderService,
+  RENDER_VERSION,
+} from './render/certificate-render.service';
+import { parseCertificateVariables } from './render/variable-replacer';
 
 /**
  * Preview de certificado para redes sociais (LinkedIn, WhatsApp, Facebook…).
@@ -11,9 +16,9 @@ import { PrismaService } from 'src/prisma/prisma.service';
  * - `getMeta`  → título/descrição/imagem/URL que o middleware da Vercel põe
  *   nas og tags de /certificados/:key quando quem pede é um robô.
  * - `getCard`  → PNG 1200×630 (proporção 1.91:1 que o LinkedIn exibe sem
- *   cortar). Usa a imagem do certificado (`pdfUrl`) quando existe; senão, um
- *   cartão só com texto. Quando o render do certificado for para a API
- *   (PLANO-RENDER-CERTIFICADOS, fases 1–2) basta trocar a fonte da imagem.
+ *   cortar), com a frente do certificado renderizada na API
+ *   (`CertificateRenderService`); se o render falhar, usa o `pdfUrl` antigo e,
+ *   sem ele, um cartão só com texto.
  *
  * Só certificados públicos: consentimento dado e não arquivados — mesmo filtro
  * da vitrine (`listPublic`). Nunca expõe CPF ou outros dados das variáveis.
@@ -63,7 +68,10 @@ export class ShareCardService {
   private fonts?: { name: string; data: Buffer; weight: 400 | 700 }[];
   private readonly cache = new Map<string, Buffer>();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly renderer: CertificateRenderService,
+  ) {}
 
   async getMeta(
     key: string,
@@ -71,7 +79,7 @@ export class ShareCardService {
   ): Promise<CertificateShareMeta> {
     const cert = await this.findPublic(key);
     const info = this.extractInfo(cert);
-    const version = new Date(cert.updatedAt).getTime();
+    const version = `${new Date(cert.updatedAt).getTime()}-${RENDER_VERSION}`;
 
     const details = [
       info.hours && `carga horária de ${info.hours}`,
@@ -95,13 +103,13 @@ export class ShareCardService {
 
   async getCard(key: string): Promise<Buffer> {
     const cert = await this.findPublic(key);
-    const cacheKey = `${cert.key}:${new Date(cert.updatedAt).getTime()}`;
+    const cacheKey = `${cert.key}:${new Date(cert.updatedAt).getTime()}:${RENDER_VERSION}`;
     const cached = this.cache.get(cacheKey);
     if (cached) return cached;
 
     const info = this.extractInfo(cert);
     const [certImage, logo] = await Promise.all([
-      cert.pdfUrl ? this.loadImage(cert.pdfUrl, 1400) : null,
+      this.certificateImage(cert),
       info.logoUrl ? this.loadImage(info.logoUrl, 200) : null,
     ]);
 
@@ -126,6 +134,30 @@ export class ShareCardService {
   }
 
   // ---------------------------------------------------------------------------
+
+  /** Frente do certificado renderizada na API; `pdfUrl` antigo como reserva. */
+  private async certificateImage(
+    cert: Awaited<ReturnType<ShareCardService['findPublic']>>,
+  ) {
+    try {
+      const full = await this.renderer.findByKey(cert.key);
+      const png = await this.renderer.renderPng(full, 'front', 2);
+      const { data, info } = await sharp(png)
+        .resize({ width: 1400, withoutEnlargement: true })
+        .png()
+        .toBuffer({ resolveWithObject: true });
+      return {
+        src: `data:image/png;base64,${data.toString('base64')}`,
+        width: info.width,
+        height: info.height,
+      };
+    } catch (err) {
+      this.logger.warn(
+        `Render do certificado ${cert.key} falhou no cartão: ${(err as Error).message}`,
+      );
+      return cert.pdfUrl ? this.loadImage(cert.pdfUrl, 1400) : null;
+    }
+  }
 
   private async findPublic(key: string) {
     // key é UUID; qualquer outra coisa nem chega ao banco
@@ -153,7 +185,7 @@ export class ShareCardService {
   private extractInfo(
     cert: Awaited<ReturnType<ShareCardService['findPublic']>>,
   ) {
-    const vars = this.parseVariables(cert.variableToReplace);
+    const vars = parseCertificateVariables(cert.variableToReplace) as Variables;
     const v = (name: string) => {
       const value = vars[name]?.value;
       return typeof value === 'string' || typeof value === 'number'
@@ -175,24 +207,6 @@ export class ShareCardService {
       date: v('turma_data_fim') || v('certificado_emissao'),
       logoUrl: cert.company?.logoUrl || '',
     };
-  }
-
-  private parseVariables(raw: unknown): Variables {
-    if (!raw) return {};
-    if (typeof raw === 'object') return raw as Variables;
-    if (typeof raw !== 'string') return {};
-    for (const decode of [
-      (s: string) => s,
-      (s: string) => Buffer.from(s, 'base64').toString('utf-8'),
-    ]) {
-      try {
-        const parsed = JSON.parse(decode(raw));
-        if (parsed && typeof parsed === 'object') return parsed as Variables;
-      } catch {
-        /* tenta o próximo formato */
-      }
-    }
-    return {};
   }
 
   /** Baixa, redimensiona e converte para PNG (satori não lê webp). */
@@ -227,13 +241,13 @@ export class ShareCardService {
       this.fonts = [
         {
           name: 'Montserrat',
-          data: read('Montserrat-Regular.ttf'),
+          data: read('montserrat-400.ttf'),
           weight: 400,
         },
-        { name: 'Montserrat', data: read('Montserrat-Bold.ttf'), weight: 700 },
+        { name: 'Montserrat', data: read('montserrat-700.ttf'), weight: 700 },
         {
           name: 'Bebas Neue',
-          data: read('BebasNeue-Regular.ttf'),
+          data: read('bebas-neue-400.ttf'),
           weight: 400,
         },
       ];
