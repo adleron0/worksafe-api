@@ -10,34 +10,23 @@ import { defaultSecurityConfig } from './security.config';
 @Module({
   imports: [
     // Configuração global de rate limiting
+    // Todo throttler listado aqui vale para TODAS as rotas ao mesmo tempo
+    // (o mais restritivo manda). Antes havia 4 ("strict" de 60/min incluso),
+    // então o limite real de qualquer rota era 60/min por IP. Rotas que
+    // precisam de outro valor usam @Throttle({ default: ... }).
     ThrottlerModule.forRoot([
       {
-        // Rate limit padrão - pega do config centralizado
+        name: 'default',
         ttl: defaultSecurityConfig.global.windowMs,
         limit: defaultSecurityConfig.global.maxRequests,
-        ignoreUserAgents: [
-          // Ignora bots conhecidos se necessário
-          /googlebot/gi,
-          /bingbot/gi,
-        ],
+        ignoreUserAgents: [/googlebot/gi, /bingbot/gi],
       },
       {
-        // Rate limit mais restritivo para rotas sensíveis
-        name: 'strict',
-        ttl: defaultSecurityConfig.endpoints['/auth']?.windowMs || 60000,
-        limit: defaultSecurityConfig.endpoints['/auth']?.maxRequests || 10,
-      },
-      {
-        // Rate limit para rotas públicas (mais permissivo)
-        name: 'public',
-        ttl: defaultSecurityConfig.endpoints['/api']?.windowMs || 60000,
-        limit: defaultSecurityConfig.endpoints['/api']?.maxRequests || 300,
-      },
-      {
-        // Rate limit para rotas de listagem/consulta intensiva
-        name: 'data-intensive',
-        ttl: 60000,
-        limit: 500,
+        // rajada: segura loops/scripts sem atrapalhar navegação normal
+        name: 'burst',
+        ttl: 5000,
+        limit: defaultSecurityConfig.global.maxBurst,
+        ignoreUserAgents: [/googlebot/gi, /bingbot/gi],
       },
     ]),
   ],

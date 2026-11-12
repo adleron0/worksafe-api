@@ -1,3 +1,4 @@
+import { Throttle } from '@nestjs/throttler';
 import {
   Controller,
   Post,
@@ -28,6 +29,7 @@ export class StudentAuthController {
   ) {}
 
   @Public()
+  @Throttle({ default: { limit: 40, ttl: 60000 } }) // alunos de uma turma entram juntos, da mesma rede
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(@Body() dto: StudentLoginDto) {
@@ -53,6 +55,7 @@ export class StudentAuthController {
   // Endpoints para primeiro acesso e recuperação de senha
 
   @Public()
+  @Throttle({ default: { limit: 10, ttl: 60000 } }) // código/senha: contra força bruta
   @Post('request-code')
   @HttpCode(HttpStatus.OK)
   async requestCode(@Body() dto: RequestCodeDto) {
@@ -60,6 +63,7 @@ export class StudentAuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 10, ttl: 60000 } }) // código/senha: contra força bruta
   @Post('verify-code')
   @HttpCode(HttpStatus.OK)
   async verifyCode(@Body() dto: VerifyCodeDto) {
@@ -67,6 +71,7 @@ export class StudentAuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 10, ttl: 60000 } }) // código/senha: contra força bruta
   @Post('set-password')
   @HttpCode(HttpStatus.OK)
   async setPassword(@Body() dto: SetPasswordDto) {

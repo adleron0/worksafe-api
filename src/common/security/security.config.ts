@@ -25,8 +25,8 @@ export const defaultSecurityConfig: SecurityConfig = {
   enabled: true,
   global: {
     windowMs: 60000,
-    maxRequests: 100,
-    maxBurst: 80, // 100 em 5 segundos = 20 req/seg
+    maxRequests: 300, // por IP, somando todas as rotas
+    maxBurst: 100, // em 5 segundos (20 req/seg)
     blockDuration: 60000,
     cleanupInterval: 300000,
   },
@@ -34,8 +34,8 @@ export const defaultSecurityConfig: SecurityConfig = {
   endpoints: {
     '/classes': {
       windowMs: 60000,
-      maxRequests: 100,
-      maxBurst: 80,
+      maxRequests: 300,
+      maxBurst: 100,
       blockDuration: 30000,
     },
     '/profiles': {

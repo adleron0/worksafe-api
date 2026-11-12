@@ -147,7 +147,12 @@ export class SecurityService {
     const ip = this.getClientIp(request);
     const now = Date.now();
     const endpoint = this.getEndpointFromUrl(request.url);
-    const config = this.endpointLimits.get(endpoint) || this.rateLimitConfig;
+    // O log é por IP somando TODAS as rotas, então tem de ser comparado com
+    // o limite global — comparar com o da rota atual (ex.: /upload = 20)
+    // bloqueava quem tinha navegado 20 vezes e foi enviar um arquivo.
+    // Isto é só a rede de proteção contra flood; o limite do dia a dia
+    // (429) é o ThrottlerGuard.
+    const config = this.rateLimitConfig;
     const windowMs = config.windowMs;
 
     // IPs na whitelist sempre passam
@@ -218,7 +223,7 @@ export class SecurityService {
 
     // Detecta DDoS com tolerância para retentativas
     const effectiveMaxRequests =
-      config.maxRequests + log.failedRequests.length * 5;
+      config.maxRequests * 2 + log.failedRequests.length * 5;
 
     if (
       log.timestamps.length > effectiveMaxRequests ||

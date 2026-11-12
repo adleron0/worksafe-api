@@ -3,10 +3,10 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { PrismaClientInitializationError } from '@prisma/client/runtime/library';
 import * as helmet from 'helmet';
-import * as rateLimit from 'express-rate-limit';
 import * as cookieParser from 'cookie-parser';
 import * as express from 'express';
 import { defaultSecurityConfig } from './common/security/security.config';
+import { isTrustedServerRequest } from './common/security/trusted-server';
 
 const PORT = process.env.PORT || 3000;
 const ORIGIN_CORS = process.env.ORIGIN_CORS || '*';
@@ -39,25 +39,6 @@ async function bootstrap() {
       }),
     );
 
-    // Rate limiting específico para /classes (problema identificado)
-    const classesLimiter = rateLimit.default({
-      windowMs: 1 * 60 * 1000, // 1 minuto
-      max: 10, // 10 requests por minuto para /classes
-      message: {
-        statusCode: 429,
-        error: 'Too Many Requests',
-        message:
-          'Muitas requisições para /classes. Tente novamente em 1 minuto.',
-      },
-      standardHeaders: true,
-      legacyHeaders: false,
-      skip: (req) => {
-        // Skip rate limit para IPs confiáveis (se necessário)
-        const trustedIps = process.env.TRUSTED_IPS?.split(',') || [];
-        return trustedIps.includes(req.ip);
-      },
-    });
-
     // Verifica se a segurança está habilitada
     const securityEnabled = process.env.SECURITY_ENABLED !== 'false';
 
@@ -69,6 +50,7 @@ async function bootstrap() {
       const securityService = app.get(SecurityService);
 
       app.use((req, res, next) => {
+        if (isTrustedServerRequest(req)) return next();
         const { allowed, reason } = securityService.logRequest(req);
         if (!allowed) {
           console.error(`🚫 REQUISIÇÃO BLOQUEADA:`, {
@@ -78,7 +60,11 @@ async function bootstrap() {
             reason,
           });
           const statusCode =
-            reason?.includes('taxa') || reason?.includes('DDoS') ? 429 : 403;
+            reason?.includes('taxa') ||
+            reason?.includes('DDoS') ||
+            reason?.includes('bloqueado temporariamente')
+              ? 429
+              : 403;
           return res.status(statusCode).json({
             statusCode,
             message: reason || 'Acesso negado',
@@ -90,27 +76,9 @@ async function bootstrap() {
       });
     }
 
-    // Aplica rate limits apenas se segurança estiver habilitada
-    if (securityEnabled) {
-      // Aplica rate limit específico para /classes
-      app.use('/classes', classesLimiter);
-      app.use('/training/classes', classesLimiter);
-
-      // Rate limiting global mais permissivo
-      const globalLimiter = rateLimit.default({
-        windowMs: 1 * 60 * 1000, // 1 minuto
-        max: 100, // 100 requests por minuto globalmente
-        message: {
-          statusCode: 429,
-          error: 'Too Many Requests',
-          message: 'Taxa de requisições excedida. Tente novamente em breve.',
-        },
-        standardHeaders: true,
-        legacyHeaders: false,
-      });
-
-      app.use(globalLimiter);
-    }
+    // Rate limit por IP: um só lugar, o ThrottlerGuard global
+    // (SecurityModule). Antes havia mais dois limitadores express aqui
+    // (100/min geral e 10/min em /classes) somando com os do Nest.
 
     // CORS
     app.enableCors({

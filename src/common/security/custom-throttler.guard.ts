@@ -8,6 +8,7 @@ import { ThrottlerGuard, ThrottlerException } from '@nestjs/throttler';
 import { Reflector } from '@nestjs/core';
 import { Request } from 'express';
 import { defaultSecurityConfig } from './security.config';
+import { isTrustedServerRequest } from './trusted-server';
 
 @Injectable()
 export class CustomThrottlerGuard extends ThrottlerGuard {
@@ -16,6 +17,12 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
   private readonly DEFAULT_TTL = defaultSecurityConfig.global.windowMs;
   private readonly DEFAULT_BURST = defaultSecurityConfig.global.maxBurst;
   private readonly BURST_WINDOW = 5000; // 5 segundos para cálculo de burst
+  /** Servidor do site (SSR na Vercel) não entra no limite por IP. */
+  protected async shouldSkip(context: ExecutionContext): Promise<boolean> {
+    if (await super.shouldSkip(context)) return true;
+    return isTrustedServerRequest(context.switchToHttp().getRequest<Request>());
+  }
+
   /**
    * Obtém o tracker (identificador) para rate limiting.
    * Por padrão usa o IP, mas pode ser customizado para usar:
