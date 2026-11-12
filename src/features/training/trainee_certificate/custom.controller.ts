@@ -25,8 +25,6 @@ import { TraineeCertificateService as Service } from './service';
 // Import utils specifics
 import { FileInterceptor } from '@nestjs/platform-express';
 import { getMulterOptions } from '../../upload/upload.middleware';
-// Import generic controller
-import { Public } from 'src/auth/decorators/public.decorator';
 // Import cache
 import { Cache, CacheEvictAll } from 'src/common/cache';
 import { CacheService } from 'src/common/cache/cache.service';
@@ -72,13 +70,13 @@ export class TraineeCertificateCustomController {
     );
   }
 
-  // Permanece pública de propósito: a página pública de certificado gera e
-  // salva a thumbnail automaticamente na primeira visita (useAutoGenerateThumbnail
-  // -> CertificateThumbnailService -> PUT update-pdf). A proteção contra
-  // sobrescrita arbitrária de PDF de qualquer certificado está no service:
-  // só certificados com showOnWebsiteConsent=true (mesmos elegíveis para a
-  // vitrine pública) podem ter o pdfUrl atualizado por esta rota.
-  @Public()
+  // Era pública para a página pública de certificado salvar a thumbnail gerada
+  // no navegador do primeiro visitante (useAutoGenerateThumbnail). Esse fluxo
+  // foi desligado no front (editor do certfield, 11/11/2026) e a rota ficou sem
+  // consumidor — mantê-la pública só deixava qualquer visitante trocar a imagem
+  // de preview de um certificado. A thumbnail passará a ser gerada no backend
+  // (plano de render de certificados na API); até lá, só quem tem permissão atualiza.
+  @UserPermission(`update_${entity.permission}`)
   @Put('update-pdf/:id')
   @UseInterceptors(
     FileInterceptor('image', getMulterOptions('trainee-certificate-pdf')),
