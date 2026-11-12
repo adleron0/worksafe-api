@@ -7,8 +7,8 @@ model Site_Products {
   imageUrl    String?  @db.VarChar(255)
   price       Decimal? @db.Decimal(18, 2)
   oldPrice    Decimal? @db.Decimal(18, 2)
-  description String?  @db.VarChar(255)
-  features    String?  @db.VarChar(255)
+  description String?  @db.Text
+  features    String?  @db.Text
   categoryId  Int? // filtro da loja no site
   category    Site_ProductCategory? @relation(fields: [categoryId], references: [id])
   brandId     Int? // filtro da loja no site
