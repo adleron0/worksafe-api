@@ -7,6 +7,7 @@ import {
   Post,
   Put,
   Req,
+  Res,
   UploadedFile,
   UseInterceptors,
   UsePipes,
@@ -17,11 +18,13 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { PrismaClient } from '@prisma/client';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
+import { Public } from 'src/auth/decorators/public.decorator';
 // Import entity template
 import { SendCertificateEmailDto } from './dto/send-email.dto';
 import { TraineeCertificateService as Service } from './service';
+import { ShareCardService } from './share-card.service';
 // Import utils specifics
 import { FileInterceptor } from '@nestjs/platform-express';
 import { getMulterOptions } from '../../upload/upload.middleware';
@@ -29,6 +32,20 @@ import { getMulterOptions } from '../../upload/upload.middleware';
 import { Cache, CacheEvictAll } from 'src/common/cache';
 import { CacheService } from 'src/common/cache/cache.service';
 // Import de configuraões
+
+/**
+ * URL pública da API, para montar o og:image. Em produção pode ser fixada por
+ * API_PUBLIC_URL; sem ela, vem do host da requisição (trust proxy ativo).
+ */
+function publicBaseUrl(req: Request) {
+  if (process.env.API_PUBLIC_URL) return process.env.API_PUBLIC_URL;
+  const host = req.get('x-forwarded-host') || req.get('host') || '';
+  // Atrás do nginx-proxy o host pode chegar como endereço interno do Railway
+  if (!host.includes('.') || host.endsWith('.internal')) {
+    return 'https://api.worksafebrasil.com.br';
+  }
+  return `${req.protocol}://${host}`;
+}
 
 function UserPermission(permission: string) {
   return applyDecorators(Permissions(permission));
@@ -45,9 +62,38 @@ const entity = {
 export class TraineeCertificateCustomController {
   constructor(
     private readonly Service: Service,
+    private readonly shareCard: ShareCardService,
     // cacheService é usado pelos decorators de cache
     private readonly cacheService: CacheService,
   ) {
+  }
+
+  // --- Compartilhamento em redes sociais -------------------------------------
+  // Consumidas pelo middleware da Vercel (worksafe-front/middleware.ts), que
+  // devolve og tags para robôs (LinkedIn, WhatsApp…) em /certificados/:key.
+  // Só certificados públicos (consentimento + não arquivados); sem CPF.
+
+  @Public()
+  @Throttle({ default: { limit: 300, ttl: 60000 } })
+  @Get('public/:key/meta')
+  async getShareMeta(@Param('key') key: string, @Req() req: Request) {
+    return this.shareCard.getMeta(key, publicBaseUrl(req));
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
+  @Get('public/:key/og.png')
+  async getShareCard(@Param('key') key: string, @Res() res: Response) {
+    const png = await this.shareCard.getCard(key);
+    res
+      .status(200)
+      .set({
+        'Content-Type': 'image/png',
+        'Content-Length': String(png.length),
+        // A URL leva ?v=<updatedAt>, então pode ser cacheada por bastante tempo
+        'Cache-Control': 'public, max-age=86400, s-maxage=604800',
+      })
+      .send(png);
   }
 
 

@@ -64,6 +64,7 @@
     "path-to-regexp": "^8.2.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.1",
+    "satori": "0.63.2",
     "send": "^1.2.0",
     "serve-static": "^2.2.0",
     "sharp": "^0.34.3",
