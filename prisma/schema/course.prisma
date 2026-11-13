@@ -20,6 +20,12 @@ model Course {
   yearOfValidation Int?
   media            Int?     @default(6)
 
+  // Página do curso no site (/cursos/:slug)
+  slug           String? @db.VarChar(120)
+  content        String? // texto da página (HTML do editor)
+  seoTitle       String? @db.VarChar(70)
+  seoDescription String? @db.VarChar(170)
+
   certificates         CouseCertificate[]
   traineesCertificates TraineeCourseCertificate[]
   reviews              CourseReview[]
@@ -32,4 +38,6 @@ model Course {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
+
+  @@unique([companyId, slug])
 }
