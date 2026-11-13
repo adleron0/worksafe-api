@@ -593,9 +593,11 @@ export class ProposalService {
       ] } : {}) },
       orderBy: { name: 'asc' }, take: 30,
       select: { id: true, name: true, corporateName: true, cnpj: true, email: true, phone: true,
+        city: { select: { name: true } }, state: { select: { uf: true } },
         contacts: { where: { inactiveAt: null }, select: { id: true, name: true, email: true, phone: true }, orderBy: { name: 'asc' } } },
     });
-    return rows;
+    // cidade/UF ajudam a reconhecer o cliente na lista
+    return rows.map(({ city, state, ...row }) => ({ ...row, place: [city?.name, state?.uf].filter(Boolean).join('/') || null }));
   }
 
   async list(actor: Actor, query: Record<string, string>) {
