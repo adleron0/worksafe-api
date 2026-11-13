@@ -155,6 +155,30 @@ describe('Motor de preços — planilha FORM-COM-001', () => {
     expect(round2(then.nightPerHour / now.nightPerHour)).toBe(1.1);
   });
 
+  it('desconto em R$ sai do preço líquido e a margem real acompanha', () => {
+    const ctx = { params: SHEET_PARAMS, base, tax: resolveTax(simples) };
+    const full = price(example(), ctx), cut = price({ ...example(), discount: 1000 }, ctx);
+    expect(round2(cut.totals.total)).toBe(round2(full.totals.total - 1000));
+    expect(round2(cut.totals.tax)).toBe(round2(full.totals.tax - 210));
+    expect(round2(cut.totals.profit)).toBe(round2(full.totals.profit - 790));
+    expect(cut.margin.unusedRate).toBeLessThan(full.margin.unusedRate);
+    // desconto maior que o preço não vira preço negativo
+    expect(price({ ...example(), discount: 1e9 }, ctx).totals.total).toBe(0);
+  });
+
+  it('treinamento: preço de tabela é o sugerido; o custo (opcional) mostra a margem', () => {
+    const ctx = { params: SHEET_PARAMS, base, tax: resolveTax(simples) };
+    const { sections, totals } = price({ contingencyRate: 0, sections: [{ margin: 0, items: [
+      { type: 'treinamento', quantity: 1, unitCost: 1200, listPrice: 4500 },
+      { type: 'treinamento', quantity: 1, unitCost: 0, listPrice: 3000, finalValue: 2800 },
+    ] }] }, ctx);
+    expect(sections[0].lines[0].suggested).toBe(4500);
+    expect(round2(sections[0].lines[0].margin! * 100)).toBe(52.33);
+    expect(sections[0].lines[1].value).toBe(2800);
+    expect(totals.total).toBe(7300);
+    expect(totals.suggested).toBe(7500);
+  });
+
   it('recusa conta impossível em vez de devolver preço negativo', () => {
     const ctx = { params: SHEET_PARAMS, base, tax: resolveTax(simples) };
     expect(() => price({ sections: [{ margin: 0.79, items: [{ type: 'avulso', unitCost: 10 }] }] }, ctx)).toThrow(PricingError);

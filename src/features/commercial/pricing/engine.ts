@@ -212,6 +212,8 @@ export interface PriceItemInput {
   workDays?: number; weekendDays?: number; hoursPerDay?: number;
   /** demais tipos: custo = quantity × unitCost + extraCost */
   unitCost?: number; extraCost?: number;
+  /** Preço de tabela (ex.: curso in-company): vira o sugerido no lugar da conta por custo e margem */
+  listPrice?: number | null;
   /** Margem só deste item (senão vale a da seção) */
   margin?: number | null;
   /** Valor final digitado. Sem ele, vale o sugerido. */
@@ -224,6 +226,8 @@ export interface PriceInput {
   workDays?: number; weekendDays?: number;
   contingencyRate?: number;
   commission?: { rate: number; base: 'faturado' | 'lucro'; inPrice?: boolean };
+  /** Desconto em R$ sobre o preço líquido, depois da contingência */
+  discount?: number;
   sections: PriceSectionInput[];
 }
 
@@ -248,6 +252,7 @@ export interface PriceResult {
     /** Soma dos preços em uso, sem contingência */
     subtotal: number;
     contingency: number;
+    discount: number;
     /** Preço líquido (base do imposto por fora) */
     net: number;
     taxInside: number; taxOutside: number; tax: number;
@@ -306,7 +311,8 @@ export function price(input: PriceInput, ctx: PriceContext): PriceResult {
       const margin = item.margin === null || item.margin === undefined ? sectionMargin : num(item.margin);
       const divisor = 1 - margin - tax.inside - commissionInPrice;
       if (!(divisor > 0)) throw new PricingError('Margem, imposto e comissão somam 100% ou mais: não existe preço que feche', 'margin');
-      const lineSuggested = lineCost / divisor;
+      const listed = item.listPrice === null || item.listPrice === undefined || (item.listPrice as unknown) === '' ? null : num(item.listPrice);
+      const lineSuggested = listed ?? lineCost / divisor;
       const typed = item.finalValue === null || item.finalValue === undefined || (item.finalValue as unknown) === '' ? null : num(item.finalValue);
       const value = typed ?? lineSuggested;
       sCost += lineCost; sSuggested += lineSuggested; sValue += value; debtCost += lineDebt;
@@ -320,8 +326,10 @@ export function price(input: PriceInput, ctx: PriceContext): PriceResult {
     return { key: section.key, margin: sectionMargin, cost: sCost, suggested: sSuggested, value: sValue, lines };
   });
 
-  const net = subtotal * (1 + contingencyRate);
-  const contingency = net - subtotal;
+  const contingency = subtotal * contingencyRate;
+  const gross = subtotal + contingency;
+  const discount = Math.min(Math.max(0, num(input.discount)), gross);
+  const net = gross - discount;
   const taxInside = net * tax.inside;
   const taxOutside = net * tax.outside;
   const total = net + taxOutside;
@@ -341,7 +349,7 @@ export function price(input: PriceInput, ctx: PriceContext): PriceResult {
   return {
     sections,
     totals: {
-      cost, suggested, subtotal, contingency, net, taxInside, taxOutside, tax: taxInside + taxOutside, total,
+      cost, suggested, subtotal, contingency, discount, net, taxInside, taxOutside, tax: taxInside + taxOutside, total,
       profit, profitRate: net > 0 ? profit / net : 0, commission, customerCredit, customerCost: total - customerCredit,
     },
     margin: {

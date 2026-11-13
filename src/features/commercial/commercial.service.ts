@@ -58,6 +58,17 @@ function guarded<T>(run: () => T): T {
   }
 }
 
+export interface PricingSnapshot {
+  date: string; capturedAt: string;
+  costBase: { id: number; name: string; updatedAt: string };
+  params: CostBaseParams; items: CostItem[]; defaults: Record<string, any>;
+  tax: { id: number; name: string; updatedAt: string; input: TaxProfileInput };
+  /** salário de cada profissional usado, por id */
+  salaries: Record<string, { name: string; salary: number }>;
+  /** tabela in-company de cada curso usado, por id */
+  coursePrices: Record<string, { name: string; classPrice: number | null; includedStudents: number | null; studentPrice: number | null }>;
+}
+
 type BaseRow = Prisma.Commercial_CostBaseGetPayload<{ include: { items: true } }>;
 type TaxRow = Prisma.Commercial_TaxProfileGetPayload<Record<string, never>>;
 
@@ -435,6 +446,34 @@ export class CommercialService {
     }
     await this.prisma.commercial_TaxProfile.update({ where: { id }, data: { inactiveAt: active ? null : new Date() } });
     return { id, active };
+  }
+
+  // ------------------------------------------------------------------ fotografia
+
+  /**
+   * Tudo que o motor precisa para calcular uma proposta na data, em forma de
+   * dado puro: é o que a proposta guarda para não mudar quando a configuração
+   * mudar depois.
+   */
+  async snapshot(companyId: number, date: string, regime?: string | null): Promise<PricingSnapshot> {
+    const base = await this.currentBase(companyId, date);
+    const tax = await this.currentTax(companyId, date, regime ?? undefined);
+    return {
+      date, capturedAt: new Date().toISOString(),
+      costBase: { id: base.id, name: base.name, updatedAt: base.updatedAt.toISOString() },
+      params: paramsOf(base), items: base.items.map(itemOf).map(({ id: _id, ...item }) => item),
+      defaults: base.defaults as Record<string, any>,
+      tax: { id: tax.id, name: tax.name, updatedAt: tax.updatedAt.toISOString(), input: taxInputOf(tax) },
+      salaries: {}, coursePrices: {},
+    };
+  }
+
+  /** A fotografia ainda é a configuração em vigor? (base, imposto e regime) */
+  async snapshotIsCurrent(companyId: number, snapshot: PricingSnapshot, regime?: string | null): Promise<boolean> {
+    const base = await this.currentBase(companyId, snapshot.date);
+    const tax = await this.currentTax(companyId, snapshot.date, regime ?? undefined);
+    return base.id === snapshot.costBase.id && base.updatedAt.toISOString() === snapshot.costBase.updatedAt
+      && tax.id === snapshot.tax.id && tax.updatedAt.toISOString() === snapshot.tax.updatedAt;
   }
 
   // ------------------------------------------------------------------ preço

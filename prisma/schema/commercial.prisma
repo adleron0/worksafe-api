@@ -6,19 +6,19 @@
 // em código.
 
 enum CommercialCostItemGroup {
-  encargo          // % sobre o salário (resultado B)
+  encargo // % sobre o salário (resultado B)
   pessoal_indireto // cargos administrativos rateados (resultado D)
-  outro_custo      // custos mensais rateados (resultado E)
+  outro_custo // custos mensais rateados (resultado E)
 }
 
 enum CommercialCostItemKind {
-  fixo       // rateado pelo efetivo (como a planilha faz com tudo)
+  fixo // rateado pelo efetivo (como a planilha faz com tudo)
   por_pessoa // R$ por homem/mês: não muda com o efetivo
 }
 
 enum CommercialTaxRegime {
   tradicional // tudo dentro do DAS, "por dentro" do preço
-  hibrido     // IBS/CBS fora do DAS, destacados "por fora"
+  hibrido // IBS/CBS fora do DAS, destacados "por fora"
 }
 
 enum CommercialTaxMode {
@@ -55,13 +55,13 @@ model Commercial_CostBase {
   weekendPerWorker  Boolean @default(false)
 
   // C — benefícios por hora
-  mealPerDay         Decimal @default(0) @db.Decimal(12, 2)
-  transportFare      Decimal @default(0) @db.Decimal(12, 2)
-  transportTrips     Decimal @default(6) @db.Decimal(6, 2)
+  mealPerDay        Decimal @default(0) @db.Decimal(12, 2)
+  transportFare     Decimal @default(0) @db.Decimal(12, 2)
+  transportTrips    Decimal @default(6) @db.Decimal(6, 2)
   // parte da passagem que NÃO entra no custo (a planilha usa 60%)
-  transportDiscount  Decimal @default(0.6) @db.Decimal(7, 6)
+  transportDiscount Decimal @default(0.6) @db.Decimal(7, 6)
   // F — desconto de vale-transporte sobre o salário
-  fareDiscountRate   Decimal @default(0.06) @db.Decimal(7, 6)
+  fareDiscountRate  Decimal @default(0.06) @db.Decimal(7, 6)
 
   // Efetivo médio em campo: divide D e E
   headcount Decimal @default(1) @db.Decimal(8, 2)
@@ -80,26 +80,26 @@ model Commercial_CostBase {
 }
 
 model Commercial_CostBaseItem {
-  id         Int                     @id @default(autoincrement())
-  companyId  Int
-  costBaseId Int
-  costBase   Commercial_CostBase     @relation(fields: [costBaseId], references: [id], onDelete: Cascade)
-  group      CommercialCostItemGroup
-  subgroup   String?                 @db.VarChar(80)
-  name       String                  @db.VarChar(160)
+  id          Int                     @id @default(autoincrement())
+  companyId   Int
+  costBaseId  Int
+  costBase    Commercial_CostBase     @relation(fields: [costBaseId], references: [id], onDelete: Cascade)
+  group       CommercialCostItemGroup
+  subgroup    String?                 @db.VarChar(80)
+  name        String                  @db.VarChar(160)
   // encargo: fração do salário (0.08 = 8%)
-  rate       Decimal?                @db.Decimal(9, 6)
+  rate        Decimal?                @db.Decimal(9, 6)
   // pessoal_indireto: salário; outro_custo: R$/mês
-  amount     Decimal?                @db.Decimal(14, 2)
-  quantity   Decimal                 @default(1) @db.Decimal(8, 2)
+  amount      Decimal?                @db.Decimal(14, 2)
+  quantity    Decimal                 @default(1) @db.Decimal(8, 2)
   // pessoal_indireto: aplica (1 + B)? Pró-labore entra sem encargos.
-  withCharges Boolean                @default(true)
-  kind       CommercialCostItemKind  @default(fixo)
+  withCharges Boolean                 @default(true)
+  kind        CommercialCostItemKind  @default(fixo)
   // Dívida (empréstimo, imposto atrasado): aparece separada no custo hora e
   // sai sozinha do cálculo depois de `endsAt`.
-  isDebt     Boolean                 @default(false)
-  endsAt     DateTime?               @db.Date
-  order      Int                     @default(0)
+  isDebt      Boolean                 @default(false)
+  endsAt      DateTime?               @db.Date
+  order       Int                     @default(0)
 
   @@index([costBaseId, group])
 }
@@ -145,4 +145,210 @@ model Commercial_TaxProfile {
   inactiveAt DateTime?
 
   @@index([companyId, effectiveFrom])
+}
+
+// ---------------------------------------------------------------- propostas
+
+enum CommercialProposalKind {
+  servico
+  treinamento
+  misto
+}
+
+enum CommercialProposalStatus {
+  rascunho
+  enviada
+  visualizada
+  aceita
+  recusada
+  expirada
+  cancelada
+  substituida // existe uma revisão mais nova
+}
+
+enum CommercialItemType {
+  mao_de_obra
+  locacao
+  material
+  treinamento
+  avulso
+}
+
+enum CommercialDueRule {
+  data_fixa
+  dias_apos_aceite
+  dias_apos_nf
+  dias_apos_conclusao
+}
+
+// Tabela de preço in-company de um curso (sugestão para itens de
+// treinamento). Fica fora de `Course` de propósito: a listagem de cursos é
+// pública (site) e não deve carregar preço de proposta.
+model Commercial_CoursePrice {
+  id               Int      @id @default(autoincrement())
+  companyId        Int
+  courseId         Int
+  // preço de uma turma fechada, que já inclui `includedStudents` alunos
+  classPrice       Decimal? @db.Decimal(12, 2)
+  includedStudents Int?
+  // por aluno (se não há preço de turma) ou por aluno além dos incluídos
+  studentPrice     Decimal? @db.Decimal(12, 2)
+  notes            String?  @db.VarChar(255)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([companyId, courseId])
+}
+
+// Uma proposta (ou uma revisão dela). Serviço e treinamento são a mesma
+// coisa: muda só o tipo dos itens.
+model Commercial_Proposal {
+  id        Int                      @id @default(autoincrement())
+  companyId Int
+  // PC-2026-0001 (revisões: PC-2026-0001-R1)
+  number    String                   @db.VarChar(30)
+  year      Int
+  sequence  Int
+  revision  Int                      @default(0)
+  // primeira versão da proposta; nulo nela mesma
+  rootId    Int?
+  kind      CommercialProposalKind   @default(servico)
+  status    CommercialProposalStatus @default(rascunho)
+
+  customerId   Int
+  customer     Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  contactName  String?  @db.VarChar(160)
+  contactEmail String?  @db.VarChar(255)
+  contactPhone String?  @db.VarChar(60)
+  requester    String?  @db.VarChar(160)
+  department   String?  @db.VarChar(160)
+  title        String   @db.VarChar(200)
+  description  String?
+  sellerId     Int?
+
+  validUntil    DateTime? @db.Date
+  // data prevista do serviço/faturamento: escolhe a base e o imposto vigentes
+  referenceDate DateTime  @db.Date
+  workDays      Int       @default(0)
+  weekendDays   Int       @default(0)
+
+  contingencyRate   Decimal              @default(0) @db.Decimal(7, 6)
+  commissionRate    Decimal              @default(0) @db.Decimal(7, 6)
+  commissionBase    String               @default("faturado") @db.VarChar(20)
+  commissionInPrice Boolean              @default(false)
+  // nulo = regime padrão da empresa na data
+  taxRegime         CommercialTaxRegime?
+  // desconto em R$ sobre o preço líquido
+  discount          Decimal              @default(0) @db.Decimal(14, 2)
+
+  // Fotografia da base e do imposto usados: mudar a configuração depois não
+  // altera a proposta (rascunho pode pedir para recalcular).
+  snapshot Json
+
+  totalCost      Decimal @default(0) @db.Decimal(14, 2)
+  totalSuggested Decimal @default(0) @db.Decimal(14, 2)
+  totalNet       Decimal @default(0) @db.Decimal(14, 2)
+  totalTax       Decimal @default(0) @db.Decimal(14, 2)
+  total          Decimal @default(0) @db.Decimal(14, 2)
+  profit         Decimal @default(0) @db.Decimal(14, 2)
+  commission     Decimal @default(0) @db.Decimal(14, 2)
+
+  internalNotes String?
+  statusNote    String?   @db.VarChar(500)
+  sentAt        DateTime?
+  decidedAt     DateTime?
+
+  createdByUserId Int?
+  sections        Commercial_ProposalSection[]
+  items           Commercial_ProposalItem[]
+  installments    Commercial_ProposalInstallment[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([companyId, number])
+  @@index([companyId, status])
+  @@index([companyId, customerId])
+  @@index([companyId, year, sequence])
+}
+
+model Commercial_ProposalSection {
+  id             Int                       @id @default(autoincrement())
+  companyId      Int
+  proposalId     Int
+  proposal       Commercial_Proposal       @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  title          String                    @db.VarChar(120)
+  // tipo de item que a seção oferece por padrão
+  kind           CommercialItemType
+  margin         Decimal                   @default(0) @db.Decimal(7, 6)
+  order          Int                       @default(0)
+  showInDocument Boolean                   @default(true)
+  items          Commercial_ProposalItem[]
+
+  @@index([proposalId])
+}
+
+model Commercial_ProposalItem {
+  id          Int                        @id @default(autoincrement())
+  companyId   Int
+  proposalId  Int
+  proposal    Commercial_Proposal        @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  sectionId   Int
+  section     Commercial_ProposalSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  type        CommercialItemType
+  description String                     @db.VarChar(300)
+  unit        String?                    @db.VarChar(30)
+  quantity    Decimal                    @default(1) @db.Decimal(12, 3)
+
+  // mao_de_obra
+  professionalId Int?
+  night          Boolean  @default(false)
+  travel         Boolean  @default(false)
+  weekend        Boolean  @default(false)
+  // próprios da linha; nulo = os do cabeçalho
+  workDays       Int?
+  weekendDays    Int?
+  hoursPerDay    Decimal? @db.Decimal(6, 2)
+
+  // treinamento
+  courseId Int?
+  // alunos, carga horária, datas, local
+  extra    Json?
+
+  // locação, material, avulso, treinamento: custo = qtd × unitário + taxas
+  unitCost  Decimal  @default(0) @db.Decimal(14, 2)
+  extraCost Decimal  @default(0) @db.Decimal(14, 2)
+  // margem só deste item; nulo = a da seção
+  margin    Decimal? @db.Decimal(7, 6)
+
+  cost           Decimal  @default(0) @db.Decimal(14, 2)
+  suggestedValue Decimal  @default(0) @db.Decimal(14, 2)
+  // digitado; nulo = usa o sugerido
+  finalValue     Decimal? @db.Decimal(14, 2)
+  value          Decimal  @default(0) @db.Decimal(14, 2)
+
+  order          Int     @default(0)
+  showInDocument Boolean @default(true)
+
+  @@index([proposalId])
+  @@index([sectionId])
+}
+
+model Commercial_ProposalInstallment {
+  id          Int                 @id @default(autoincrement())
+  companyId   Int
+  proposalId  Int
+  proposal    Commercial_Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  order       Int                 @default(0)
+  // percentual do total OU valor fixo
+  percent     Decimal?            @db.Decimal(7, 6)
+  amount      Decimal?            @db.Decimal(14, 2)
+  dueRule     CommercialDueRule   @default(dias_apos_nf)
+  dueDate     DateTime?           @db.Date
+  dueDays     Int?
+  description String?             @db.VarChar(200)
+
+  @@index([proposalId])
 }
