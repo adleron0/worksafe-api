@@ -4,7 +4,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { CommercialService, PricingSnapshot } from './commercial.service';
 import { ContractService } from './contract.service';
 import { installmentValues } from './installments';
-import { ProposalImage } from './document.blocks';
+import { ProposalImage, Schedule } from './document.blocks';
 import { DocumentData, DocumentService, ITEMS_MODES, ItemsMode, VARIABLES, renderDocument, sanitizeBody, sha256 } from './document.service';
 import { computeBase, price, PriceInput, PriceItemInput, PriceResult, PricingError, professionalCost, resolveTax, round2 } from './pricing/engine';
 
@@ -71,6 +71,8 @@ export interface Draft {
   templateId: number | null; documentBody: string | null; itemsMode: ItemsMode; termIds: number[];
   /** fotos e desenhos da proposta, com descrição e marcações */
   images: ProposalImage[];
+  /** cronograma em etapas (opcional) */
+  schedule: Schedule;
   sections: DraftSection[]; installments: DraftInstallment[];
 }
 
@@ -197,6 +199,7 @@ export class ProposalService {
       itemsMode: (ITEMS_MODES.includes(body.itemsMode) ? body.itemsMode : keep?.itemsMode ?? 'detalhado') as ItemsMode,
       termIds: Array.isArray(body.termIds) ? body.termIds.map(Number).filter((id: number) => Number.isInteger(id) && id > 0).slice(0, 40) : keep?.termIds ?? [],
       images: 'images' in body ? this.documents.parseImages(body.images) : this.documents.parseImages(keep?.images ?? []),
+      schedule: this.documents.parseSchedule('schedule' in body ? body.schedule : keep?.schedule),
       sections, installments,
     };
   }
@@ -341,6 +344,7 @@ export class ProposalService {
       costBaseId: row.costBaseId,
       templateId: row.templateId, documentBody: row.documentBody, itemsMode: (ITEMS_MODES.includes(row.itemsMode as ItemsMode) ? row.itemsMode : 'detalhado') as ItemsMode, termIds: row.termIds,
       images: this.documents.parseImages(row.images ?? []),
+      schedule: this.documents.parseSchedule(row.schedule),
       sections: row.sections.map((section) => ({
         id: section.id, title: section.title, kind: section.kind, margin: Number(section.margin), showInDocument: section.showInDocument,
         items: row.items.filter((item) => item.sectionId === section.id).map((item) => ({
@@ -360,9 +364,9 @@ export class ProposalService {
   /** Grava cabeçalho, seções, itens e parcelas de uma vez (substitui os filhos). */
   private async persist(tx: Tx, companyId: number, id: number, draft: Draft, snapshot: PricingSnapshot, result: ReturnType<ProposalService['calc']>) {
     const t = result.totals;
-    const { sections, installments, images, ...header } = draft;
+    const { sections, installments, images, schedule, ...header } = draft;
     await tx.commercial_Proposal.update({ where: { id }, data: {
-      ...header, images: images as unknown as Prisma.InputJsonValue, validUntil: header.validUntil ? asDate(header.validUntil) : null, referenceDate: asDate(header.referenceDate),
+      ...header, images: images as unknown as Prisma.InputJsonValue, schedule: schedule as unknown as Prisma.InputJsonValue, validUntil: header.validUntil ? asDate(header.validUntil) : null, referenceDate: asDate(header.referenceDate),
       snapshot: snapshot as unknown as Prisma.InputJsonValue,
       totalCost: round2(t.cost), totalSuggested: round2(t.suggested), totalNet: round2(t.net), totalTax: round2(t.tax), total: round2(t.total),
       profit: round2(t.profit), commission: round2(t.commission),
@@ -494,7 +498,7 @@ export class ProposalService {
       },
       contactName: draft.contactName, sellerName: seller?.name ?? null, number, title: draft.title, description: draft.description,
       date, validUntil: draft.validUntil, workDays: draft.workDays, total, sections,
-      brand, images: draft.images, seller: { name: seller?.name ?? null, email: seller?.email ?? null, phone: seller?.phone ?? null },
+      brand, images: draft.images, schedule: draft.schedule, seller: { name: seller?.name ?? null, email: seller?.email ?? null, phone: seller?.phone ?? null },
       installments: draft.installments.map((inst, index) => ({ description: inst.description, value: values[index], dueRule: inst.dueRule, dueDate: inst.dueDate, dueDays: inst.dueDays })),
     };
   }

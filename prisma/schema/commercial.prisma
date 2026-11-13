@@ -278,6 +278,8 @@ model Commercial_Proposal {
   viewedAt            DateTime?
   // imagens da proposta: [{ url, title, description, annotations: [...] }]
   images              Json?
+  // cronograma: { unit: dia|semana|mes, steps: [{ title, start, duration }] }
+  schedule            Json?
   // código de confirmação do aceite (só o hash)
   acceptCodeHash      String?   @db.VarChar(64)
   acceptCodeExpiresAt DateTime?

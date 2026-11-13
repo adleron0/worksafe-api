@@ -454,6 +454,28 @@ describe('Comercial — documento, link público e aceite (e2e)', () => {
     for (const hidden of ['10.392,60', '4.323,71', 'mprevisibilidade']) expect(html).not.toContain(hidden);
   });
 
+  it('cronograma: etapas da proposta viram o gráfico de barras do documento', async () => {
+    const { h, proposal } = await cenario();
+    expect(proposal.draft.schedule).toEqual({ unit: 'dia', steps: [] });
+    const put = (schedule: unknown) => api().put(`/commercial/proposals/${proposal.id}`).set(h).send({ ...proposal.draft, schedule });
+    await put({ unit: 'dia', steps: [{ title: '', start: 1, duration: 1 }] }).expect(400);
+    await put({ unit: 'dia', steps: [{ title: 'Execução', start: 0, duration: 1 }] }).expect(400);
+    await put({ unit: 'dia', steps: Array.from({ length: 21 }, () => ({ title: 'x', start: 1, duration: 1 })) }).expect(400);
+    // sem cronograma, o título da seção não aparece solto
+    const empty = (await api().post(`/commercial/proposals/${proposal.id}/document-preview`).set(h).send({}).expect(201)).body.html as string;
+    expect(empty).not.toContain('Cronograma');
+
+    const saved = (await put({ unit: 'semana', steps: [{ title: 'Mobilização <b>', start: 1, duration: 1 }, { title: 'Execução', start: 2, duration: 3 }] }).expect(200)).body;
+    expect(saved.draft.schedule).toEqual({ unit: 'semana', steps: [{ title: 'Mobilização <b>', start: 1, duration: 1 }, { title: 'Execução', start: 2, duration: 3 }] });
+    const html = (await api().post(`/commercial/proposals/${proposal.id}/document-preview`).set(h).send({}).expect(201)).body.html as string;
+    for (const piece of ['<h2>Cronograma</h2>', 'data-block="cronograma"', 'Mobilização &lt;b&gt;', 'semana 1', 'semanas 2 a 4', '>S4</div>', 'margin-left:25%;width:75%', 'Duração total estimada: 4 semanas']) {
+      expect(html).toContain(piece);
+    }
+    // a revisão e a cópia levam o cronograma
+    const copy = (await api().post(`/commercial/proposals/${proposal.id}/duplicate`).set(h).expect(201)).body;
+    expect(copy.draft.schedule.steps).toHaveLength(2);
+  });
+
   it('hora extra só na linha de um profissional', async () => {
     const { h, options, customer } = await cenario();
     const pro = (name: string) => options.professionals.find((p: any) => p.name === name).id;

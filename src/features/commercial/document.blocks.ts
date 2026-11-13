@@ -29,6 +29,10 @@ export type Annotation =
 
 export interface ProposalImage { url: string; title: string; description: string; annotations: Annotation[] }
 
+/** Cronograma simples: etapas com início e duração, na unidade escolhida. */
+export interface ScheduleStep { title: string; start: number; duration: number }
+export interface Schedule { unit: 'dia' | 'semana' | 'mes'; steps: ScheduleStep[] }
+
 export interface BlockData {
   brand: Brand;
   company: { name: string; corporateName?: string; cnpj?: string; addressLines?: string[] };
@@ -39,6 +43,7 @@ export interface BlockData {
   totalInWords: string;
   installments: Array<{ value: number }>;
   images: ProposalImage[];
+  schedule?: Schedule;
 }
 
 const esc = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
@@ -239,17 +244,18 @@ const SMALL = 'font-size:.9em;color:#222;line-height:1.5';
 export function headerBlock(d: BlockData): string {
   const { brand, company } = d;
   const logo = brand.logoUrl
-    ? `<img src="${esc(brand.logoUrl)}" alt="${esc(company.name)}" style="display:block;height:56px;width:auto;max-width:220px">`
-    : `<div style="font-size:1.5em;font-weight:800">${esc(company.name)}</div>`;
+    ? `<img src="${esc(brand.logoUrl)}" alt="${esc(company.name)}" style="display:block;height:34px;width:auto;max-width:160px">`
+    : `<div style="font-size:1.2em;font-weight:800">${esc(company.name)}</div>`;
   const right = [
     company.cnpj ? `CNPJ: ${esc(cnpjBr(company.cnpj))}` : '',
     ...(brand.registrations ?? '').split('\n').map((line) => esc(line.trim())),
     ...(company.addressLines?.length ? company.addressLines.map(esc) : [esc(brand.address)]),
     brand.phone ? `Telefone: ${esc(brand.phone)}` : '',
   ].filter(Boolean);
-  return `<div data-block="cabecalho" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:16px 24px;margin:0 0 22px">`
-    + `<div style="min-width:0">${logo}<div style="font-size:1.6em;font-weight:400;color:#111;margin-top:22px;line-height:1.2">PROPOSTA Nº ${esc(d.number)}</div></div>`
-    + `<div style="min-width:0;margin-left:auto;text-align:right;${SMALL}"><div style="font-size:1.25em;color:#111;margin-bottom:6px">${esc((company.corporateName || company.name).toUpperCase())}</div>${right.join('<br>')}</div>`
+  // compacto: logo pequena e número à esquerda, dados da empresa em letra miúda à direita, um traço embaixo
+  return `<div data-block="cabecalho" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:8px 24px;margin:0 0 14px;padding-bottom:10px;border-bottom:1px solid #999">`
+    + `<div style="min-width:0">${logo}<div style="font-size:1.2em;font-weight:600;color:#111;margin-top:8px;line-height:1.2">PROPOSTA Nº ${esc(d.number)}</div></div>`
+    + `<div style="min-width:0;margin-left:auto;text-align:right;font-size:.78em;color:#333;line-height:1.35"><div style="font-size:1.15em;font-weight:600;color:#111">${esc((company.corporateName || company.name).toUpperCase())}</div>${right.join('<br>')}</div>`
     + `</div>`;
 }
 
@@ -281,6 +287,35 @@ export function bankBlock(d: BlockData): string {
   return `<div data-block="dados_bancarios" style="${SMALL};margin:14px 0"><div style="${SUBTITLE}">Dados bancários</div>${lines(payment)}</div>`;
 }
 
+const UNIT: Record<Schedule['unit'], { short: string; one: string; many: string }> = {
+  dia: { short: 'D', one: 'dia', many: 'dias' }, semana: { short: 'S', one: 'semana', many: 'semanas' }, mes: { short: 'M', one: 'mês', many: 'meses' },
+};
+
+/** Cronograma em barras: uma linha por etapa, com a escala em cima quando ela cabe. */
+export function scheduleBlock(d: BlockData): string {
+  const steps = d.schedule?.steps ?? [];
+  if (!steps.length) return '';
+  const unit = UNIT[d.schedule!.unit] ?? UNIT.dia;
+  const total = Math.max(...steps.map((step) => step.start + step.duration - 1));
+  const color = d.brand.color;
+  const LABEL = 'flex:0 0 38%;min-width:0;padding:5px 8px 5px 0';
+  const scale = total <= 18
+    ? `<div style="display:flex;align-items:center"><div style="${LABEL};font-size:.85em;color:#555">Etapa</div><div style="flex:1;display:flex">`
+      + Array.from({ length: total }, (_, i) => `<div style="flex:1;text-align:center;font-size:.72em;color:#555;border-left:1px solid #E5E5E5">${unit.short}${i + 1}</div>`).join('')
+      + `</div></div>`
+    : '';
+  const rows = steps.map((step) => {
+    const end = step.start + step.duration - 1;
+    const period = step.duration === 1 ? `${unit.one} ${step.start}` : `${unit.many} ${step.start} a ${end}`;
+    return `<div style="display:flex;align-items:center;border-top:1px solid #E5E5E5">`
+      + `<div style="${LABEL}">${esc(step.title)}<br><span style="font-size:.85em;color:#555">${period}</span></div>`
+      + `<div style="flex:1;min-width:0"><div style="margin-left:${((step.start - 1) / total) * 100}%;width:${(step.duration / total) * 100}%;height:14px;border-radius:3px;background:${color};${PRINT}"></div></div>`
+      + `</div>`;
+  }).join('');
+  return `<div data-block="cronograma" style="font-size:.9em;line-height:1.35;margin:4px 0 10px;break-inside:avoid;page-break-inside:avoid">${scale}${rows}`
+    + `<div style="border-top:1px solid #E5E5E5;padding-top:5px;font-size:.85em;color:#555">Duração total estimada: ${total} ${total === 1 ? unit.one : unit.many}, contados do início das atividades.</div></div>`;
+}
+
 export function footerNoteBlock(d: BlockData): string {
   const notes = [
     `Ao responder esta proposta por e-mail, mencione o número ${esc(d.number)} para nossa referência.`,
@@ -290,6 +325,7 @@ export function footerNoteBlock(d: BlockData): string {
 }
 
 export const BRAND_BLOCKS: Record<string, (d: BlockData) => string> = {
+  cronograma: scheduleBlock,
   cabecalho: headerBlock, cliente: customerBlock, informacoes: infoBlock, dados_bancarios: bankBlock, rodape: footerNoteBlock,
   capa: coverBlock, resumo: summaryBlock, investimento: investmentBlock, sobre: aboutBlock, depoimentos: testimonialsBlock,
   imagens: imagesBlock, proximos_passos: nextStepsBlock, contato: contactBlock,

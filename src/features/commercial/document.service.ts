@@ -4,11 +4,11 @@ import { randomInt, randomUUID } from 'crypto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { EmailService } from 'src/features/email/email.service';
 import { ContractService } from './contract.service';
-import { Annotation, Brand, DEFAULT_COLOR, ProposalImage, safeImageUrl, validColor } from './document.blocks';
+import { Annotation, Brand, DEFAULT_COLOR, ProposalImage, Schedule, safeImageUrl, validColor } from './document.blocks';
 import { ITEMS_MODES, TermText, blank, clean, escape, sanitizeBody, sha256, validCpf } from './document.render';
 
 export * from './document.render';
-export { Brand, ProposalImage } from './document.blocks';
+export { Brand, ProposalImage, Schedule } from './document.blocks';
 
 type Body = Record<string, any>;
 const KINDS: CommercialProposalKind[] = ['servico', 'treinamento', 'misto'];
@@ -60,6 +60,7 @@ const classicBody = (training: boolean) => [
   `<h2>${training ? 'Lista dos treinamentos' : 'Lista dos serviços'}</h2>`, '<p>{{tabela_itens}}</p>',
   '<p>Valor total desta proposta: <strong>{{valor.total}}</strong> ({{valor.total_extenso}}).</p>',
   ...(training ? ['<p>Estão incluídos instrutor habilitado, material didático e certificado para os participantes aprovados.</p>'] : []),
+  '<h2>Cronograma</h2>', '<p>{{cronograma}}</p>',
   '<h2>Vencimentos</h2>', '<p>{{condicoes_pagamento}}</p>',
   '<h2>Outras informações</h2>', '<p>{{informacoes}}</p>', '<p>{{dados_bancarios}}</p>',
   '<p>{{termos}}</p>', '<p>{{rodape}}</p>',
@@ -315,6 +316,25 @@ export class DocumentService {
         : { type: 'circulo', x: pct(mark.x), y: pct(mark.y), w: pct(mark.w), h: pct(mark.h), label: text(mark.label, 160) }));
       return { url, title: text(entry.title, 120), description: text(entry.description, 600), annotations };
     });
+  }
+
+  /** Cronograma da proposta: até 20 etapas, cada uma com início e duração na unidade escolhida. */
+  parseSchedule(raw: unknown): Schedule {
+    const input = (raw ?? {}) as Body;
+    const unit = (['dia', 'semana', 'mes'].includes(input.unit) ? input.unit : 'dia') as Schedule['unit'];
+    const list = Array.isArray(input.steps) ? input.steps : [];
+    if (list.length > 20) throw new BadRequestException('No máximo 20 etapas no cronograma');
+    const whole = (value: unknown, label: string, index: number) => {
+      const n = Math.round(Number(value));
+      if (!Number.isFinite(n) || n < 1 || n > 240) throw new BadRequestException(`Cronograma, etapa ${index + 1}: ${label} deve ficar entre 1 e 240`);
+      return n;
+    };
+    const steps = list.map((entry: Body, index: number) => {
+      const title = text(entry?.title, 80);
+      if (!title) throw new BadRequestException(`Cronograma, etapa ${index + 1}: informe o nome da etapa`);
+      return { title, start: whole(entry.start, 'o início', index), duration: whole(entry.duration, 'a duração', index) };
+    });
+    return { unit, steps };
   }
 
   async listTemplates(companyId: number, includeInactive = false) {

@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import * as sanitizeHtml from 'sanitize-html';
-import { BRAND_BLOCKS, BlockData, Brand, ProposalImage, textOnColor } from './document.blocks';
+import { BRAND_BLOCKS, BlockData, Brand, ProposalImage, Schedule, textOnColor } from './document.blocks';
 
 /**
  * Montagem do documento da proposta: funções puras (sem banco nem Nest),
@@ -22,6 +22,7 @@ export interface DocumentData {
   /** identidade da empresa, imagens da proposta e contato do responsável (blocos de capa, quem somos, imagens...) */
   brand?: Brand;
   images?: ProposalImage[];
+  schedule?: Schedule;
   seller?: { name: string | null; email: string | null; phone: string | null };
 }
 
@@ -242,6 +243,7 @@ export const VARIABLES: Array<{ key: string; label: string; block?: boolean }> =
   { key: 'prazo.dias', label: 'Prazo em dias úteis' }, { key: 'valor.total', label: 'Valor total' }, { key: 'valor.total_extenso', label: 'Valor total por extenso' },
   { key: 'cabecalho', label: 'Cabeçalho: logo, número e dados da empresa', block: true }, { key: 'cliente', label: 'Informações do cliente', block: true },
   { key: 'informacoes', label: 'Outras informações (emissão, validade, prazo, vendedor)', block: true },
+  { key: 'cronograma', label: 'Cronograma em barras', block: true },
   { key: 'dados_bancarios', label: 'Dados bancários', block: true }, { key: 'rodape', label: 'Observação final (número e e-mail de tratativas)', block: true },
   { key: 'capa', label: 'Capa com logo e dados da proposta', block: true }, { key: 'resumo', label: 'Resumo em uma olhada', block: true },
   { key: 'imagens', label: 'Imagens da proposta (com marcações)', block: true }, { key: 'investimento', label: 'Destaque do investimento total', block: true },
@@ -271,7 +273,7 @@ export function renderDocument(body: string, data: DocumentData, terms: TermText
       brand: data.brand, company: data.company, customer: data.customer, contactName: data.contactName,
       seller: data.seller ?? { name: data.sellerName, email: null, phone: null },
       number: data.number, title: data.title, date: data.date, validUntil: data.validUntil, workDays: data.workDays, total: data.total,
-      totalInWords: moneyInWords(data.total), installments: data.installments, images: data.images ?? [],
+      totalInWords: moneyInWords(data.total), installments: data.installments, images: data.images ?? [], schedule: data.schedule,
     };
     for (const [key, build] of Object.entries(BRAND_BLOCKS)) blocks[key] = build(blockData);
   } else {
