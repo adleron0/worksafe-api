@@ -10,7 +10,7 @@ import { AIModule } from 'src/common/ai';
 import { Cache, CacheEvictAll } from 'src/common/cache';
 import { ImageOptimizationInterceptor } from 'src/features/upload/image-optimization.interceptor';
 import { UploadModule } from 'src/features/upload/upload.module';
-import { getMulterOptions, getOptimizedMulterOptions } from 'src/features/upload/upload.middleware';
+import { getDocumentMulterOptions, getMulterOptions, getOptimizedMulterOptions } from 'src/features/upload/upload.middleware';
 
 import { blogCategoryEntity } from 'src/features/blog/category/rules.crud';
 import { CommentCustomController } from 'src/features/blog/comment/custom.controller';
@@ -91,6 +91,8 @@ import { StudentCertificatesModule } from 'src/features/student/student-certific
 import { CrudEntity, multipart } from './crud.module';
 
 const upload = (folder: string) => multipart(UseInterceptors(FileInterceptor('image', getMulterOptions(folder))));
+/** Nota fiscal do recebível: PDF, XML ou imagem no campo `invoiceFile`. */
+const uploadInvoice = multipart(UseInterceptors(FileInterceptor('invoiceFile', getDocumentMulterOptions('financial-invoices'))));
 const uploadOptimized = multipart(UseInterceptors(FileInterceptor('image', getOptimizedMulterOptions())));
 const uploadBranding = multipart(UseInterceptors(
   FileFieldsInterceptor([{ name: 'logo', maxCount: 1 }, { name: 'favicon', maxCount: 1 }], getOptimizedMulterOptions()),
@@ -191,7 +193,7 @@ export const crudEntities: CrudEntity[] = [
   { rules: companyGatewayEntity, controller: { decorators: {
     list: [Cache({ prefix: 'company-gateway', ttl: 604800 })],
     ...writeOps([evict('company-gateway', 'company-gateway')]) } } },
-  { rules: financialRecordEntity },
+  { rules: financialRecordEntity, controller: { decorators: { create: [uploadInvoice], update: [uploadInvoice] } } },
   { rules: splitEntity },
   // ---- aluno: guard do aluno em toda op; escopo = traineeId do token ----
   { rules: studentEntity, controller: { decorators: { list: [studentGuard], getById: [studentGuard], update: [studentGuard, upload('student-image')] } } },

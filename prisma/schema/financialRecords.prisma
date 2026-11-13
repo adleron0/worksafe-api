@@ -43,6 +43,20 @@ model FinancialRecords {
   sellerId        Int?
   seller          User?     @relation(fields: [sellerId], references: [id])
 
+  // Nota fiscal emitida FORA do sistema: só o registro (número, data, arquivo)
+  invoiceNumber     String?   @db.VarChar(60)
+  invoiceIssuedAt   DateTime?
+  invoiceUrl        String?   @db.Text
+
+  // Parcela (ex.: 2/3) quando o recebível vem de um parcelamento combinado
+  installmentNumber Int?
+  installmentTotal  Int?
+
+  // Valor líquido esperado (NF com retenções) e o que de fato entrou na baixa
+  netValue          Decimal?  @db.Decimal(18, 2)
+  receivedValue     Decimal?  @db.Decimal(18, 2)
+  settledByUserId   Int?      // quem deu a baixa manual
+
   // Transações de split
   splitTransactions SplitTransaction[] // Transações de split associadas ao registro
 
@@ -61,4 +75,6 @@ model FinancialRecords {
   @@index([sellerId, status])             // Comissões de sellers
   @@index([gateway, status])              // Análise por gateway
   @@index([createdAt])                    // Ordenação temporal
+  @@index([customerId])                   // Recebíveis por cliente
+  @@index([companyId, invoiceNumber])     // Busca por NF
 }

@@ -22,6 +22,8 @@ export class ClassGatewayValidator {
         [paymentMethods.pix]: 'PIX',
         [paymentMethods.boleto]: 'boleto',
         [paymentMethods.cartaoCredito]: 'cartão de crédito',
+        [paymentMethods.transferencia]: 'transferência',
+        [paymentMethods.dinheiro]: 'dinheiro',
       }[metodo] || metodo
     );
   }

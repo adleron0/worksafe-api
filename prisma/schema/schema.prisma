@@ -25,6 +25,10 @@ enum paymentMethods {
   cartaoCredito
   boleto
   pix
+  // Só na baixa manual de contas a receber; o checkout nunca oferece estes.
+  transferencia
+  dinheiro
+  outro
 }
 
 enum financialRecordsStatus {

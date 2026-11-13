@@ -1,12 +1,35 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   HttpException,
   HttpStatus,
+  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { UploadService } from 'src/features/upload/upload.service';
-import { financialRecordsStatus } from '@prisma/client';
+import { financialRecordsStatus, paymentMethods } from '@prisma/client';
+
+export interface SettleInput {
+  /** Data em que o dinheiro entrou (YYYY-MM-DD ou ISO). Padrão: agora. */
+  paidAt?: string;
+  /** Valor que de fato entrou. Padrão: valor líquido, senão o valor do título. */
+  receivedValue?: number | string;
+  paymentMethod?: string;
+  observations?: string;
+}
+
+export interface Actor {
+  userId: number;
+  companyId: number;
+}
+
+/** Em aberto = ainda pode receber baixa. */
+const OPEN_STATUSES: financialRecordsStatus[] = [
+  financialRecordsStatus.waiting,
+  financialRecordsStatus.overdue,
+  financialRecordsStatus.processing,
+];
 
 @Injectable()
 export class FinancialrecordsService {
@@ -105,5 +128,99 @@ export class FinancialrecordsService {
       null,
       id,
     );
+  }
+
+  private async findOwned(id: number, companyId: number) {
+    const record = await this.prisma.financialRecords.findFirst({
+      where: { id, companyId },
+    });
+    if (!record) throw new NotFoundException('Conta a receber não encontrada');
+    return record;
+  }
+
+  /**
+   * Baixa manual: o dinheiro entrou por fora do sistema (transferência, boleto
+   * do banco, dinheiro) e alguém do financeiro confirma.
+   *
+   * Só vale para recebível MANUAL. Cobrança de gateway é confirmada pelo
+   * webhook do provedor — baixar à mão criaria um "recebido" que o provedor
+   * não reconhece (e, no Asaas, não dispararia split nem confirmação).
+   */
+  async settle(id: number, input: SettleInput, actor: Actor) {
+    const record = await this.findOwned(id, actor.companyId);
+    if (record.gateway !== 'manual') {
+      throw new ConflictException(
+        'Baixa manual só está disponível para recebíveis manuais; este é confirmado pelo gateway',
+      );
+    }
+    if (record.inactiveAt) {
+      throw new ConflictException('Conta a receber inativa: reative antes de dar baixa');
+    }
+    if (!OPEN_STATUSES.includes(record.status)) {
+      throw new ConflictException('Esta conta a receber não está em aberto');
+    }
+
+    const paidAt = this.parsePaidAt(input.paidAt);
+    const expected = Number(record.netValue ?? record.value ?? 0);
+    const receivedValue =
+      input.receivedValue === undefined || input.receivedValue === null || input.receivedValue === ''
+        ? expected
+        : Number(input.receivedValue);
+    if (Number.isNaN(receivedValue) || receivedValue <= 0) {
+      throw new BadRequestException('Valor recebido deve ser maior que zero');
+    }
+
+    const data: Record<string, any> = {
+      status: financialRecordsStatus.received,
+      paidAt,
+      receivedValue: Math.round(receivedValue * 100) / 100,
+      settledByUserId: actor.userId || null,
+    };
+    if (input.paymentMethod) {
+      if (!(input.paymentMethod in paymentMethods)) {
+        throw new BadRequestException('Forma de pagamento inválida');
+      }
+      data.paymentMethod = input.paymentMethod;
+    }
+    const note = input.observations?.trim();
+    if (note) data.observations = note.slice(0, 255);
+
+    return this.prisma.update('financialRecords', data, actor, null, id);
+  }
+
+  /** Estorno da baixa: desfaz um lançamento feito errado. Volta a ficar em aberto. */
+  async unsettle(id: number, actor: Actor) {
+    const record = await this.findOwned(id, actor.companyId);
+    if (record.gateway !== 'manual') {
+      throw new ConflictException('Só é possível estornar a baixa de recebíveis manuais');
+    }
+    if (record.status !== financialRecordsStatus.received) {
+      throw new ConflictException('Esta conta a receber não está baixada');
+    }
+    return this.prisma.update(
+      'financialRecords',
+      {
+        status: financialRecordsStatus.waiting,
+        paidAt: null,
+        receivedValue: null,
+        settledByUserId: null,
+      },
+      actor,
+      null,
+      id,
+    );
+  }
+
+  private parsePaidAt(value?: string): Date {
+    if (!value) return new Date();
+    // Data só com dia: meio-dia UTC, para não cair no dia anterior no fuso do Brasil.
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(value)
+      ? new Date(`${value}T12:00:00.000Z`)
+      : new Date(value);
+    if (Number.isNaN(date.getTime())) throw new BadRequestException('Data de pagamento inválida');
+    if (date.getTime() > Date.now() + 24 * 60 * 60 * 1000) {
+      throw new BadRequestException('Data de pagamento não pode ser futura');
+    }
+    return date;
   }
 }
