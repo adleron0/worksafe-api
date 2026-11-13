@@ -239,6 +239,8 @@ model Commercial_Proposal {
   commissionRate    Decimal              @default(0) @db.Decimal(7, 6)
   commissionBase    String               @default("faturado") @db.VarChar(20)
   commissionInPrice Boolean              @default(false)
+  // nulo = a versão da base vigente na data prevista; preenchido = base escolhida à mão
+  costBaseId        Int?
   // nulo = regime padrão da empresa na data
   taxRegime         CommercialTaxRegime?
   // desconto em R$ sobre o preço líquido

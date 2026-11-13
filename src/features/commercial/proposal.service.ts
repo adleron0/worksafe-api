@@ -65,6 +65,8 @@ export interface Draft {
   validUntil: string | null; referenceDate: string; workDays: number; weekendDays: number;
   contingencyRate: number; commissionRate: number; commissionBase: 'faturado' | 'lucro'; commissionInPrice: boolean;
   taxRegime: 'tradicional' | 'hibrido' | null; discount: number; internalNotes: string | null;
+  /** base de cálculo escolhida à mão; nulo = a vigente na data prevista */
+  costBaseId: number | null;
   /** documento: cópia editável do modelo, termos escolhidos e formato da tabela de itens */
   templateId: number | null; documentBody: string | null; itemsMode: ItemsMode; termIds: number[];
   /** fotos e desenhos da proposta, com descrição e marcações */
@@ -178,6 +180,7 @@ export class ProposalService {
       commissionBase: ((seeCosts && commission.base ? commission.base : keep?.commissionBase ?? commissionDefault.base) === 'lucro' ? 'lucro' : 'faturado'),
       commissionInPrice: seeCosts && 'inPrice' in commission ? bool(commission.inPrice) : keep ? keep.commissionInPrice : bool(commissionDefault.inPrice),
       taxRegime: seeCosts ? (body.taxRegime === 'tradicional' || body.taxRegime === 'hibrido' ? body.taxRegime : null) : keep?.taxRegime ?? null,
+      costBaseId: seeCosts ? ('costBaseId' in body ? optional(body.costBaseId, 'Base de cálculo', 1, 2147483647) : keep?.costBaseId ?? null) : keep?.costBaseId ?? null,
       discount: round2(number(body.discount, 'Desconto', 0, 1e11, 0)),
       templateId: 'templateId' in body ? optional(body.templateId, 'Modelo', 1, 2147483647) : keep?.templateId ?? null,
       documentBody: 'documentBody' in body ? (sanitizeBody(body.documentBody) || null) : keep?.documentBody ?? null,
@@ -325,6 +328,7 @@ export class ProposalService {
       validUntil: iso(row.validUntil), referenceDate: iso(row.referenceDate)!, workDays: row.workDays, weekendDays: row.weekendDays,
       contingencyRate: Number(row.contingencyRate), commissionRate: Number(row.commissionRate), commissionBase: row.commissionBase === 'lucro' ? 'lucro' : 'faturado',
       commissionInPrice: row.commissionInPrice, taxRegime: row.taxRegime, discount: Number(row.discount), internalNotes: row.internalNotes,
+      costBaseId: row.costBaseId,
       templateId: row.templateId, documentBody: row.documentBody, itemsMode: (ITEMS_MODES.includes(row.itemsMode as ItemsMode) ? row.itemsMode : 'detalhado') as ItemsMode, termIds: row.termIds,
       images: this.documents.parseImages(row.images ?? []),
       sections: row.sections.map((section) => ({
@@ -399,7 +403,7 @@ export class ProposalService {
       editable, canSeeCosts: actor.canSeeCosts, customer: row.customer,
       sentAt: row.sentAt, decidedAt: row.decidedAt, statusNote: row.statusNote, createdAt: row.createdAt, updatedAt: row.updatedAt,
       // só interessa avisar quando ainda dá para recalcular
-      baseOutdated: editable ? !(await this.commercial.snapshotIsCurrent(row.companyId, snapshot, row.taxRegime)) : false,
+      baseOutdated: editable ? !(await this.commercial.snapshotIsCurrent(row.companyId, snapshot, row.taxRegime, row.costBaseId)) : false,
       baseCapturedAt: snapshot.capturedAt,
       versions: versions.map((v) => ({ ...v, total: Number(v.total) })),
       // link do cliente e trilha (enviada, visualizada, aceite com as evidências)
@@ -493,7 +497,7 @@ export class ProposalService {
     const existing = await this.byId(actor.companyId, id);
     // proposta já enviada mostra exatamente o que o cliente recebeu
     if (existing.frozenHtml && existing.status !== 'rascunho') return { html: existing.frozenHtml, frozen: true };
-    const snapshot = await this.snapshotFor(actor.companyId, body, existing);
+    const snapshot = await this.snapshotFor(actor, body, existing);
     const draft = this.parse({ ...this.draftOf(existing), ...body, customerId: body.customerId || existing.customerId, title: clean(body.title) || existing.title }, actor, snapshot, existing);
     await this.fill(actor.companyId, draft, snapshot);
     draft.termIds = await this.documents.cleanTermIds(actor.companyId, draft.termIds);
@@ -568,6 +572,8 @@ export class ProposalService {
           includedStudents: p?.includedStudents ?? null, studentPrice: p?.studentPrice == null ? null : Number(p.studentPrice) };
       }),
       sellers,
+      // versões da base para escolher à mão (a automática é a vigente na data prevista)
+      costBases: actor.canSeeCosts ? (await this.commercial.listBases(actor.companyId, date)).filter((base) => !base.inactiveAt).map((base) => ({ id: base.id, name: base.name, effectiveFrom: base.effectiveFrom, current: base.current })) : [],
       templates: (await this.documents.listTemplates(actor.companyId)).map((t) => ({ id: t.id, name: t.name, kind: t.kind, isDefault: t.isDefault, body: t.body, itemsMode: t.itemsMode, termIds: t.termIds })),
       terms: (await this.documents.listTerms(actor.companyId)).map((t) => ({ id: t.id, title: t.title, kind: t.kind })),
       variables: VARIABLES,
@@ -641,26 +647,32 @@ export class ProposalService {
   /** Calcula o rascunho da tela sem gravar. Com `id`, usa a fotografia da proposta. */
   async preview(actor: Actor, body: Body) {
     const existing = Number(body.id) > 0 ? await this.byId(actor.companyId, Number(body.id)) : undefined;
-    const snapshot = await this.snapshotFor(actor.companyId, body, existing);
+    const snapshot = await this.snapshotFor(actor, body, existing);
     const draft = this.parse({ ...body, title: clean(body.title) || 'Rascunho', customerId: body.customerId || existing?.customerId || 1 }, actor, snapshot, existing);
     await this.fill(actor.companyId, draft, snapshot);
     return this.view(draft, this.calc(draft, snapshot), snapshot, actor);
   }
 
   /** Fotografia a usar: a guardada, salvo se pedirem para recalcular ou se a data/regime mudaram. */
-  private async snapshotFor(companyId: number, body: Body, existing?: ProposalRow): Promise<PricingSnapshot> {
+  private async snapshotFor(actor: Actor, body: Body, existing?: ProposalRow): Promise<PricingSnapshot> {
+    const companyId = actor.companyId;
     const date = blank(body.referenceDate) ? (existing ? iso(existing.referenceDate)! : today()) : dateOf(body.referenceDate, 'Data prevista');
-    const regime = body.taxRegime === 'tradicional' || body.taxRegime === 'hibrido' ? body.taxRegime : 'taxRegime' in body ? null : existing?.taxRegime ?? null;
+    // regime e base só mudam para quem vê custos; para os demais vale o que a proposta já tinha
+    const see = actor.canSeeCosts;
+    const regime = !see ? existing?.taxRegime ?? null
+      : body.taxRegime === 'tradicional' || body.taxRegime === 'hibrido' ? body.taxRegime : 'taxRegime' in body ? null : existing?.taxRegime ?? null;
+    const costBaseId = !see ? existing?.costBaseId ?? null
+      : 'costBaseId' in body ? (Number(body.costBaseId) > 0 ? Number(body.costBaseId) : null) : existing?.costBaseId ?? null;
     if (existing && !bool(body.refreshBase)) {
       const stored = existing.snapshot as unknown as PricingSnapshot;
-      const sameRegime = (existing.taxRegime ?? null) === regime;
-      if (stored?.date === date && sameRegime) return JSON.parse(JSON.stringify(stored));
+      const same = (existing.taxRegime ?? null) === regime && (existing.costBaseId ?? null) === costBaseId;
+      if (stored?.date === date && same) return JSON.parse(JSON.stringify(stored));
     }
-    return this.commercial.snapshot(companyId, date, regime);
+    return this.commercial.snapshot(companyId, date, regime, costBaseId);
   }
 
   async create(actor: Actor, body: Body) {
-    const snapshot = await this.snapshotFor(actor.companyId, body);
+    const snapshot = await this.snapshotFor(actor, body);
     // Sem seções no corpo, a proposta nasce com as do tipo escolhido.
     const kind = (KINDS.includes(body.kind) ? body.kind : 'servico') as CommercialProposalKind;
     const seeded = Array.isArray(body.sections) ? body : { ...body, sections: PRESETS[kind].map((section) => ({ ...section, items: [] })) };
@@ -684,7 +696,7 @@ export class ProposalService {
     const existing = await this.byId(actor.companyId, id);
     if (existing.inactiveAt) throw new ConflictException('Proposta inativa');
     if (existing.status !== 'rascunho') throw new ConflictException('Só rascunho pode ser editado. Para mudar uma proposta enviada, crie uma revisão.');
-    const snapshot = await this.snapshotFor(actor.companyId, body, existing);
+    const snapshot = await this.snapshotFor(actor, body, existing);
     const draft = this.parse(body, actor, snapshot, existing);
     await this.assertRefs(actor.companyId, draft);
     await this.fill(actor.companyId, draft, snapshot);
@@ -698,7 +710,7 @@ export class ProposalService {
     const draft = this.draftOf(source);
     // Cópia nova recalcula com a configuração de hoje; revisão mantém a fotografia da original.
     const snapshot = revisionOf ? JSON.parse(JSON.stringify(source.snapshot)) as PricingSnapshot
-      : await this.commercial.snapshot(actor.companyId, draft.referenceDate, draft.taxRegime);
+      : await this.commercial.snapshot(actor.companyId, draft.referenceDate, draft.taxRegime, draft.costBaseId).catch(() => this.commercial.snapshot(actor.companyId, draft.referenceDate, draft.taxRegime));
     await this.fill(actor.companyId, draft, snapshot);
     const result = this.calc(draft, snapshot);
     return this.prisma.$transaction(async (tx) => {

@@ -457,8 +457,8 @@ export class CommercialService {
    * dado puro: é o que a proposta guarda para não mudar quando a configuração
    * mudar depois.
    */
-  async snapshot(companyId: number, date: string, regime?: string | null): Promise<PricingSnapshot> {
-    const base = await this.currentBase(companyId, date);
+  async snapshot(companyId: number, date: string, regime?: string | null, costBaseId?: number | null): Promise<PricingSnapshot> {
+    const base = await this.baseFor(companyId, date, costBaseId);
     const tax = await this.currentTax(companyId, date, regime ?? undefined);
     return {
       date, capturedAt: new Date().toISOString(),
@@ -470,9 +470,20 @@ export class CommercialService {
     };
   }
 
+  /** Base da proposta: a escolhida à mão (se houver) ou a vigente na data. */
+  private async baseFor(companyId: number, date: string, costBaseId?: number | null): Promise<BaseRow> {
+    if (!costBaseId) return this.currentBase(companyId, date);
+    await this.ensureSeed(companyId);
+    const row = await this.prisma.commercial_CostBase.findFirst({ where: { id: costBaseId, companyId }, include: { items: { orderBy: [{ order: 'asc' }, { id: 'asc' }] } } });
+    if (!row) throw new BadRequestException('Base de cálculo não encontrada');
+    if (row.inactiveAt) throw new BadRequestException(`A base de cálculo "${row.name}" está inativa: escolha outra ou reative-a`);
+    return row;
+  }
+
   /** A fotografia ainda é a configuração em vigor? (base, imposto e regime) */
-  async snapshotIsCurrent(companyId: number, snapshot: PricingSnapshot, regime?: string | null): Promise<boolean> {
-    const base = await this.currentBase(companyId, snapshot.date);
+  async snapshotIsCurrent(companyId: number, snapshot: PricingSnapshot, regime?: string | null, costBaseId?: number | null): Promise<boolean> {
+    const base = await this.baseFor(companyId, snapshot.date, costBaseId).catch(() => null);
+    if (!base) return false;
     const tax = await this.currentTax(companyId, snapshot.date, regime ?? undefined);
     return base.id === snapshot.costBase.id && base.updatedAt.toISOString() === snapshot.costBase.updatedAt
       && tax.id === snapshot.tax.id && tax.updatedAt.toISOString() === snapshot.tax.updatedAt;

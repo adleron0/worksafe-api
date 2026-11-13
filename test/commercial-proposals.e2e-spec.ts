@@ -197,6 +197,47 @@ describe('Comercial — propostas (e2e)', () => {
     expect(refreshed.calc.sections[0].lines[0].hourCost).toBeGreaterThan(72.2);
   });
 
+  it('com mais de uma base de cálculo, dá para escolher qual a proposta usa', async () => {
+    const { company, customer, pro } = await cenario();
+    const h = auth(company.id);
+    const current = (await api().get('/commercial/cost-bases/current').set(h).expect(200)).body;
+    // uma segunda base, que só valeria sozinha em 2099
+    const other = (await api().post('/commercial/cost-bases').set(h)
+      .send({ name: 'Base enxuta (12 pessoas)', effectiveFrom: '2099-01-01', params: { ...current.params, headcount: 12 } }).expect(201)).body;
+    const options = (await api().get('/commercial/proposals/options').set(h).expect(200)).body;
+    expect(options.costBases.map((b: any) => [b.name, b.current])).toEqual([['Base enxuta (12 pessoas)', false], ['Base da planilha FORM-COM-001', true]]);
+    expect((await api().get('/commercial/proposals/options').set(auth(company.id, BASE)).expect(200)).body.costBases).toEqual([]);
+
+    // sem escolher, vale a vigente na data
+    const proposal = await criar(company.id, exemplo(customer.id, pro('Alpinista N1')));
+    expect(proposal.draft.costBaseId).toBeNull();
+    expect(proposal.calc).toMatchObject({ costBase: 'Base da planilha FORM-COM-001', totals: { total: 20589.11 } });
+
+    const put = (body: Record<string, unknown>, headers = h) => api().put(`/commercial/proposals/${proposal.id}`).set(headers).send({ ...proposal.draft, ...body });
+    const chosen = (await put({ costBaseId: other.id }).expect(200)).body;
+    expect(chosen.draft.costBaseId).toBe(other.id);
+    expect(chosen.calc.costBase).toBe('Base enxuta (12 pessoas)');
+    expect(chosen.calc.sections[0].lines[0].hourCost).toBe(72.2);
+    expect(chosen.baseOutdated).toBe(false);
+    // a prévia já mostra o efeito antes de salvar
+    const preview = (await api().post('/commercial/proposals/preview').set(h).send({ ...chosen.draft, id: proposal.id, costBaseId: null }).expect(201)).body;
+    expect(preview.totals.total).toBe(20589.11);
+
+    // quem não vê custos não troca a base
+    const seller = (await put({ costBaseId: null }, auth(company.id, BASE)).expect(200)).body;
+    expect((await testDb().commercial_Proposal.findUniqueOrThrow({ where: { id: proposal.id } })).costBaseId).toBe(other.id);
+    expect(seller.calc.totals.total).toBe(chosen.calc.totals.total);
+
+    // base inativa ou de outra empresa não entra; voltar para a automática funciona
+    await api().patch(`/commercial/cost-bases/inactive/${other.id}`).set(h).expect(200);
+    await put({ costBaseId: other.id, refreshBase: true }).expect(400);
+    const foreign = await makeCompany();
+    const foreignBase = (await api().get('/commercial/cost-bases/current').set(auth(foreign.id)).expect(200)).body;
+    await put({ costBaseId: foreignBase.id }).expect(400);
+    const back = (await put({ costBaseId: null }).expect(200)).body;
+    expect(back.calc).toMatchObject({ costBase: 'Base da planilha FORM-COM-001', totals: { total: 20589.11 } });
+  });
+
   it('trocar o regime na proposta recalcula com o perfil híbrido', async () => {
     const { company, customer, pro } = await cenario();
     const proposal = await criar(company.id, exemplo(customer.id, pro('Alpinista N1')));
