@@ -92,6 +92,27 @@ export class PostCustomController {
   })
   @Get('public/:slug')
   async getBySlug(@Param('slug') slug: string, @Query() query: Record<string, string>) {
+    return this.posts.findBySlug(await this.resolveCompanyId(query), slug);
+  }
+
+  /**
+   * Conta uma leitura real do post. O site chama isto a partir do navegador do
+   * visitante (via server function), repassando user-agent e IP de quem leu.
+   */
+  @Public()
+  @Post('public/:slug/view')
+  async registerView(
+    @Param('slug') slug: string,
+    @Query() query: Record<string, string>,
+    @Body() body: { userAgent?: string; ip?: string },
+  ) {
+    return this.posts.registerView(await this.resolveCompanyId(query), slug, {
+      userAgent: body?.userAgent,
+      ip: body?.ip,
+    });
+  }
+
+  private async resolveCompanyId(query: Record<string, string>): Promise<number> {
     let companyId = query.companyId;
     if (!companyId && query['company.lp_domain']) {
       const company = await this.posts.findCompanyByDomain(query['company.lp_domain']);
@@ -99,6 +120,6 @@ export class PostCustomController {
       companyId = String(company.id);
     }
     if (!companyId) throw new BadRequestException('companyId ou company.lp_domain é obrigatório');
-    return this.posts.findBySlugAndIncrementViews(Number(companyId), slug);
+    return Number(companyId);
   }
 }
