@@ -1,3 +1,4 @@
+import { classificationDefaults } from 'src/features/financial/classification';
 import {
   Injectable,
   BadRequestException,
@@ -208,6 +209,8 @@ export class CheckoutService {
           {
             accrualDate,
             companyId,
+            // classificação gerencial padrão; nunca falha (devolve {} em qualquer erro)
+            ...(await classificationDefaults(this.prisma, companyId, 'inscricao')),
             gateway: gateway.gateway,
             status: 'processing',
             subscriptionId: subscription.id,
@@ -1056,6 +1059,8 @@ export class CheckoutService {
               {
                 accrualDate,
                 companyId,
+                // classificação gerencial padrão; nunca falha (devolve {} em qualquer erro)
+                ...(await classificationDefaults(this.prisma, companyId, 'inscricao')),
                 gateway: adapter.gateway,
                 status: 'processing',
                 subscriptionId: subscription.id,

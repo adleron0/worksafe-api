@@ -1,0 +1,106 @@
+// Cadastros do financeiro: plano de contas (conta mãe/filha), centros de
+// custo e contas bancárias. Classificam os lançamentos de FinancialRecords.
+
+enum ChartAccountNature {
+  receita
+  despesa
+}
+
+enum BankAccountType {
+  corrente
+  poupanca
+  caixa
+  gateway // saldo no provedor de pagamento (ex.: Asaas)
+}
+
+// Plano de contas em até 3 níveis. A hierarquia fica em `parentId` e também
+// no `code` (1, 1.2, 1.2.3), gerado pela API. Só conta sem filhas
+// (`acceptsEntries`) recebe lançamento.
+model Financial_ChartAccount {
+  id             Int                      @id @default(autoincrement())
+  companyId      Int
+  parentId       Int?
+  parent         Financial_ChartAccount?  @relation("ChartAccountTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children       Financial_ChartAccount[] @relation("ChartAccountTree")
+  code           String                   @db.VarChar(20)
+  name           String                   @db.VarChar(120)
+  nature         ChartAccountNature
+  level          Int
+  acceptsEntries Boolean                  @default(true)
+  dreGroup       String?                  @db.VarChar(40)
+  // Raízes (1 Receitas, 2 Despesas): não editáveis nem inativáveis.
+  isSystem       Boolean                  @default(false)
+
+  financialRecords       FinancialRecords[]
+  classificationDefaults Financial_ClassificationDefault[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([companyId, code])
+  @@index([companyId, parentId])
+}
+
+model Financial_CostCenter {
+  id          Int     @id @default(autoincrement())
+  companyId   Int
+  name        String  @db.VarChar(120)
+  code        String? @db.VarChar(20)
+  description String? @db.VarChar(255)
+
+  financialRecords       FinancialRecords[]
+  classificationDefaults Financial_ClassificationDefault[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([companyId, name])
+}
+
+model Financial_BankAccount {
+  id                 Int             @id @default(autoincrement())
+  companyId          Int
+  name               String          @db.VarChar(120)
+  type               BankAccountType @default(corrente)
+  bankCode           String?         @db.VarChar(10)
+  bankName           String?         @db.VarChar(120)
+  agency             String?         @db.VarChar(20)
+  agencyDigit        String?         @db.VarChar(5)
+  account            String?         @db.VarChar(30)
+  accountDigit       String?         @db.VarChar(5)
+  pixKey             String?         @db.VarChar(140)
+  holderName         String?         @db.VarChar(255)
+  holderDocument     String?         @db.VarChar(20)
+  openingBalance     Decimal         @default(0) @db.Decimal(18, 2)
+  openingBalanceDate DateTime?
+  // Conta do tipo gateway: de qual provedor é o saldo.
+  gateway            gateways?
+  isDefault          Boolean         @default(false)
+
+  financialRecords FinancialRecords[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([companyId, name])
+}
+
+// Classificação que um recebível ganha sozinho conforme a origem
+// (ex.: `inscricao` = checkout de turma). Editável em Financeiro.
+model Financial_ClassificationDefault {
+  id             Int                     @id @default(autoincrement())
+  companyId      Int
+  origin         String                  @db.VarChar(40)
+  chartAccountId Int?
+  chartAccount   Financial_ChartAccount? @relation(fields: [chartAccountId], references: [id], onDelete: SetNull)
+  costCenterId   Int?
+  costCenter     Financial_CostCenter?   @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([companyId, origin])
+}

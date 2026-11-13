@@ -57,6 +57,14 @@ model FinancialRecords {
   receivedValue     Decimal?  @db.Decimal(18, 2)
   settledByUserId   Int?      // quem deu a baixa manual
 
+  // Classificação gerencial (todas opcionais: recebível antigo fica sem)
+  chartAccountId    Int?
+  chartAccount      Financial_ChartAccount? @relation(fields: [chartAccountId], references: [id], onDelete: Restrict)
+  costCenterId      Int?
+  costCenter        Financial_CostCenter?   @relation(fields: [costCenterId], references: [id], onDelete: Restrict)
+  bankAccountId     Int?      // onde o dinheiro entrou (informado na baixa)
+  bankAccount       Financial_BankAccount?  @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+
   // Transações de split
   splitTransactions SplitTransaction[] // Transações de split associadas ao registro
 
@@ -77,4 +85,7 @@ model FinancialRecords {
   @@index([createdAt])                    // Ordenação temporal
   @@index([customerId])                   // Recebíveis por cliente
   @@index([companyId, invoiceNumber])     // Busca por NF
+  @@index([chartAccountId])
+  @@index([costCenterId])
+  @@index([bankAccountId])
 }

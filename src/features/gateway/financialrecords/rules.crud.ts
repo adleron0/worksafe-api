@@ -1,6 +1,8 @@
 import { CrudError, EntityRules, composeHooks } from '@adleron/crud-core';
 import { Request } from 'express';
 import { fileUpload, parseJsonFields } from 'src/common/crud/hooks';
+import { assertClassification, classificationDefaults } from 'src/features/financial/classification';
+import { PrismaService } from 'src/prisma/prisma.service';
 
 /**
  * Campos que só fazem sentido alterar à mão num recebível MANUAL. Num
@@ -60,22 +62,27 @@ export const financialRecordEntity: EntityRules = {
   permissions: { list: 'list_financeiro', getById: 'list_financeiro', create: 'create_financeiro',
     update: 'update_financeiro', archive: 'inactive_financeiro', restore: 'activate_financeiro' },
   filterable: ['accrualDate', 'gateway', 'status', 'paymentMethod', 'subscriptionId', 'traineeId', 'customerId', 'sellerId', 'couponId',
-    'dueDate', 'paidAt', 'externalId', 'createdAt', 'invoiceNumber', 'invoiceIssuedAt', 'trainee.name', 'customer.name', 'seller.name'],
+    'dueDate', 'paidAt', 'externalId', 'createdAt', 'invoiceNumber', 'invoiceIssuedAt',
+    'chartAccountId', 'costCenterId', 'bankAccountId', 'trainee.name', 'customer.name', 'seller.name'],
   sortable: ['id', 'dueDate', 'paidAt', 'value', 'createdAt', 'invoiceIssuedAt'],
-  includable: ['subscription', 'trainee', 'customer', 'seller', 'coupon', 'splitTransactions'],
+  includable: ['subscription', 'trainee', 'customer', 'seller', 'coupon', 'splitTransactions', 'chartAccount', 'costCenter', 'bankAccount'],
   includes: { trainee: { select: { id: true, name: true, cpf: true } }, customer: { select: { id: true, name: true, cnpj: true } },
-    seller: { select: { id: true, name: true } }, coupon: { select: { id: true, code: true } } },
-  aggregatable: ['status', 'value', 'paymentMethod', 'gateway'],
+    seller: { select: { id: true, name: true } }, coupon: { select: { id: true, code: true } },
+    chartAccount: { select: { id: true, code: true, name: true } }, costCenter: { select: { id: true, name: true } },
+    bankAccount: { select: { id: true, name: true, type: true } } },
+  aggregatable: ['status', 'value', 'paymentMethod', 'gateway', 'chartAccountId', 'costCenterId', 'bankAccountId'],
   // A key é o acesso público ao registro (GET /key/:key): nunca na listagem.
   maskedFields: ['key'],
   // Status, pagamento e quem baixou só mudam pelas rotas de baixa/estorno
   // (e pelo webhook do gateway) — nunca por um PUT genérico.
   neverWritable: ['key', 'externalId', 'requestData', 'responseData', 'errorData',
-    'paidAt', 'receivedValue', 'settledByUserId', 'billUrl', 'billNumber', 'pixUrl', 'pixNumber'],
+    'paidAt', 'receivedValue', 'settledByUserId', 'bankAccountId', 'billUrl', 'billNumber', 'pixUrl', 'pixNumber'],
   softDelete: { field: 'inactiveAt' },
   hooks: composeHooks<Request>(parseJsonFields(), fileUpload({ invoiceFile: 'invoiceUrl' }), {
-    preWrite: ({ op, data, existing }) => {
+    preWrite: async ({ op, data, existing, scopeId, deps }) => {
       if (op !== 'create' && op !== 'update') return undefined;
+      const prisma = deps.prisma as PrismaService;
+      const companyId = Number(scopeId);
       const next: Record<string, any> = { ...data };
 
       for (const field of DATE_ONLY) {
@@ -85,7 +92,7 @@ export const financialRecordEntity: EntityRules = {
       for (const field of ['invoiceNumber', 'description', 'observations'] as const) {
         if (typeof next[field] === 'string') next[field] = next[field].trim() || null;
       }
-      for (const field of ['customerId', 'traineeId', 'subscriptionId'] as const) {
+      for (const field of ['customerId', 'traineeId', 'subscriptionId', 'chartAccountId', 'costCenterId'] as const) {
         if (field in next && blank(next[field])) next[field] = null;
       }
       if ('netValue' in next) next.netValue = money(next.netValue, 'netValue', 'Valor líquido');
@@ -104,7 +111,19 @@ export const financialRecordEntity: EntityRules = {
         }
         if (blank(next.paymentMethod)) next.paymentMethod = 'outro';
         if (blank(next.accrualDate)) next.accrualDate = new Date(next.dueDate).toISOString().slice(0, 7);
+        // Sem classificação informada, vale o padrão de lançamento manual (se houver).
+        const defaults = await classificationDefaults(prisma, companyId, 'manual');
+        if (blank(next.chartAccountId) && defaults.chartAccountId) next.chartAccountId = defaults.chartAccountId;
+        if (blank(next.costCenterId) && defaults.costCenterId) next.costCenterId = defaults.costCenterId;
       }
+
+      // Conta mãe, inativa ou de outra empresa não classifica lançamento.
+      await assertClassification(
+        prisma, companyId,
+        { chartAccountId: next.chartAccountId, costCenterId: next.costCenterId },
+        { chartAccountId: existing?.chartAccountId, costCenterId: existing?.costCenterId },
+        (message, field) => { throw new CrudError('VALIDATION_FAILED', message, field); },
+      );
 
       if (op === 'update' && existing) {
         delete next.gateway;

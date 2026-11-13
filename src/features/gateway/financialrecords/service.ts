@@ -9,6 +9,7 @@ import {
 import { PrismaService } from 'src/prisma/prisma.service';
 import { UploadService } from 'src/features/upload/upload.service';
 import { financialRecordsStatus, paymentMethods } from '@prisma/client';
+import { assertClassification } from 'src/features/financial/classification';
 
 export interface SettleInput {
   /** Data em que o dinheiro entrou (YYYY-MM-DD ou ISO). Padrão: agora. */
@@ -17,6 +18,8 @@ export interface SettleInput {
   receivedValue?: number | string;
   paymentMethod?: string;
   observations?: string;
+  /** Conta bancária/caixa em que o dinheiro entrou. */
+  bankAccountId?: number | string | null;
 }
 
 export interface Actor {
@@ -182,6 +185,10 @@ export class FinancialrecordsService {
       }
       data.paymentMethod = input.paymentMethod;
     }
+    if (input.bankAccountId !== undefined && input.bankAccountId !== null && input.bankAccountId !== '') {
+      await assertClassification(this.prisma, actor.companyId, { bankAccountId: input.bankAccountId });
+      data.bankAccountId = Number(input.bankAccountId);
+    }
     const note = input.observations?.trim();
     if (note) data.observations = note.slice(0, 255);
 
@@ -204,6 +211,7 @@ export class FinancialrecordsService {
         paidAt: null,
         receivedValue: null,
         settledByUserId: null,
+        bankAccountId: null,
       },
       actor,
       null,

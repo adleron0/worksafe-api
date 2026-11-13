@@ -1,3 +1,4 @@
+import { classificationDefaults } from 'src/features/financial/classification';
 import {
   Injectable,
   HttpException,
@@ -811,6 +812,8 @@ export class AsaasService {
           {
             accrualDate,
             companyId,
+            // classificação gerencial padrão; nunca falha (devolve {} em qualquer erro)
+            ...(await classificationDefaults(this.prisma, companyId, 'inscricao')),
             subscriptionId,
             externalId: payment.id,
             gateway: 'asaas',
@@ -897,6 +900,8 @@ export class AsaasService {
         {
           accrualDate,
           companyId,
+          // classificação gerencial padrão; nunca falha (devolve {} em qualquer erro)
+          ...(await classificationDefaults(this.prisma, companyId, 'inscricao')),
           externalId: paymentData.id,
           gateway: 'asaas',
           status: this.mapPaymentStatus(paymentData.status),
