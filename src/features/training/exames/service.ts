@@ -6,6 +6,7 @@ import {
 import { PrismaService } from 'src/prisma/prisma.service';
 import { PrismaClient } from '@prisma/client';
 import { correctExam } from 'src/helpers/exameHelper';
+import { toBoolean } from 'src/utils/toBoolean';
 import { TraineeCertificateService } from '../trainee_certificate/service';
 
 type entity = {
@@ -20,8 +21,7 @@ export class ExamesService {
   constructor(
     protected prisma: PrismaService,
     protected traineeCertificateService: TraineeCertificateService,
-  ) {
-  }
+  ) {}
 
   /**
    * Método para cadastrar exame com validação de trainee
@@ -120,11 +120,22 @@ export class ExamesService {
         );
       }
 
-      // Criar o exame
+      // Criar o exame. A rota é pública e chega como FormData (tudo string):
+      // grava só os campos do modelo, já convertidos — antes ia `...dto` e o
+      // Prisma recusava traineeId "13" (400 "Bad Request" ao enviar a prova).
       const created = await this.prisma.insert(
         entity.model,
         {
-          ...dto,
+          traineeId: Number(dto.traineeId),
+          courseId: Number(dto.courseId),
+          classId: Number(dto.classId),
+          companyId: Number(dto.companyId),
+          examResponses: dto.examResponses,
+          result: Boolean(dto.result),
+          // ausente → mantém o padrão do banco (true)
+          ...(dto.showOnWebsiteConsent !== undefined && {
+            showOnWebsiteConsent: toBoolean(dto.showOnWebsiteConsent),
+          }),
         },
         logParams,
       );
