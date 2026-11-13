@@ -64,6 +64,9 @@ export class ProposalController {
   @Permissions('list_comercial') @Post('proposals/:id/document-preview')
   documentPreview(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.proposals.documentPreview(actorOf(req), id, body ?? {}); }
 
+  @Permissions('list_comercial') @Get('proposals/:id/client-view')
+  clientView(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.proposals.clientView(actorOf(req), id); }
+
   @Permissions('update_comercial') @Post('proposals/:id/send-email')
   sendEmail(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.proposals.sendEmail(actorOf(req), id, body ?? {}); }
 

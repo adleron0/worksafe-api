@@ -79,6 +79,21 @@ describe('Documento da proposta', () => {
     expect(html).toContain('class="ql-size-large"');
   });
 
+  it('identidade: título de seção que ficou sem conteúdo não aparece solto', () => {
+    const brand = { logoUrl: null, color: '#0B5ED7', tagline: '', about: '', highlights: [], differentials: [], testimonials: [], phone: '', email: '', website: '', address: '' };
+    const body = '<p>{{capa}}</p><h2>O que entendemos</h2><p>{{proposta.descricao}}</p><p>{{imagens}}</p><h2>Valores</h2><p>{{tabela_itens}}</p><h2>Por que nós</h2><p>{{sobre}}</p><p>{{depoimentos}}</p><h2>Fim</h2><p>{{contato}}</p>';
+    const empty = renderDocument(body, { ...data, description: null, brand }, [], 'detalhado');
+    expect(empty).not.toContain('O que entendemos');
+    expect(empty).not.toContain('Por que nós');
+    expect(empty).not.toContain('Fim');
+    expect(empty).toContain('<h2>Valores</h2>');
+    expect(empty).toContain('data-block="capa"');
+    const full = renderDocument(body, { ...data, brand: { ...brand, about: 'Somos especialistas.', phone: '81999990000' } }, [], 'detalhado');
+    for (const title of ['O que entendemos', 'Por que nós', 'Fim']) expect(full).toContain(title);
+    // sem identidade (documento simples), nada é removido
+    expect(renderDocument('<h2>A</h2><h2>B</h2>', data, [], 'detalhado')).toBe('<h2>A</h2><h2>B</h2>');
+  });
+
   it('CPF', () => {
     expect(validCpf('529.982.247-25')).toBe(true);
     expect(validCpf('52998224724')).toBe(false);

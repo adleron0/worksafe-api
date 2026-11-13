@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import * as sanitizeHtml from 'sanitize-html';
+import { BRAND_BLOCKS, BlockData, Brand, ProposalImage } from './document.blocks';
 
 /**
  * Montagem do documento da proposta: funções puras (sem banco nem Nest),
@@ -18,6 +19,10 @@ export interface DocumentData {
   date: Date; validUntil: string | null; workDays: number; total: number;
   sections: Array<{ title: string; show: boolean; value: number; items: Array<{ description: string; unit: string | null; quantity: number; value: number; show: boolean; detail?: string }> }>;
   installments: Array<{ description: string | null; value: number; dueRule: string; dueDate: string | null; dueDays: number | null }>;
+  /** identidade da empresa, imagens da proposta e contato do responsável (blocos de capa, quem somos, imagens...) */
+  brand?: Brand;
+  images?: ProposalImage[];
+  seller?: { name: string | null; email: string | null; phone: string | null };
 }
 
 export interface TermText { id: number; title: string; body: string }
@@ -181,6 +186,10 @@ export const VARIABLES: Array<{ key: string; label: string; block?: boolean }> =
   { key: 'proposta.numero', label: 'Número da proposta' }, { key: 'proposta.titulo', label: 'Título' }, { key: 'proposta.descricao', label: 'Descrição' },
   { key: 'proposta.data', label: 'Data da proposta' }, { key: 'proposta.validade', label: 'Validade' },
   { key: 'prazo.dias', label: 'Prazo em dias úteis' }, { key: 'valor.total', label: 'Valor total' }, { key: 'valor.total_extenso', label: 'Valor total por extenso' },
+  { key: 'capa', label: 'Capa com logo e dados da proposta', block: true }, { key: 'resumo', label: 'Resumo em uma olhada', block: true },
+  { key: 'imagens', label: 'Imagens da proposta (com marcações)', block: true }, { key: 'investimento', label: 'Destaque do investimento total', block: true },
+  { key: 'sobre', label: 'Quem somos, números e diferenciais', block: true }, { key: 'depoimentos', label: 'Depoimentos de clientes', block: true },
+  { key: 'proximos_passos', label: 'Próximos passos (como aceitar)', block: true }, { key: 'contato', label: 'Rodapé com o contato da empresa', block: true },
   { key: 'tabela_itens', label: 'Tabela de itens e valores', block: true }, { key: 'condicoes_pagamento', label: 'Condições de pagamento', block: true },
   { key: 'termos', label: 'Termos escolhidos', block: true }, { key: 'assinatura', label: 'Campo de assinatura', block: true },
 ];
@@ -198,12 +207,36 @@ export function renderDocument(body: string, data: DocumentData, terms: TermText
     'proposta.data': dateBr(data.date), 'proposta.validade': data.validUntil ? dateBr(data.validUntil) : 'a combinar',
     'prazo.dias': String(data.workDays || ''), 'valor.total': money(data.total), 'valor.total_extenso': moneyInWords(data.total),
   };
+  if (data.brand) {
+    const blockData: BlockData = {
+      brand: data.brand, company: data.company, customer: data.customer, contactName: data.contactName,
+      seller: data.seller ?? { name: data.sellerName, email: null, phone: null },
+      number: data.number, title: data.title, date: data.date, validUntil: data.validUntil, workDays: data.workDays, total: data.total,
+      totalInWords: moneyInWords(data.total), installments: data.installments, images: data.images ?? [],
+    };
+    for (const [key, build] of Object.entries(BRAND_BLOCKS)) blocks[key] = build(blockData);
+  } else {
+    // sem identidade carregada, os blocos novos somem em vez de aparecer como {{texto}}
+    for (const key of Object.keys(BRAND_BLOCKS)) blocks[key] = '';
+  }
   let html = sanitizeBody(body);
   // Bloco sozinho num parágrafo troca o parágrafo inteiro (tabela dentro de <p> é HTML inválido).
   for (const [key, block] of Object.entries(blocks)) {
     const alone = new RegExp(`<p[^>]*>(?:\\s|<[^>/]+>)*\\{\\{\\s*${key}\\s*\\}\\}(?:\\s|</[^>]+>)*</p>`, 'g');
     html = html.replace(alone, () => block).replace(new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g'), () => block);
   }
-  return html.replace(/\{\{\s*([a-z_.]+)\s*\}\}/g, (match, key: string) => (key in values ? escape(values[key]).replace(/\n/g, '<br>') : match));
+  html = html.replace(/\{\{\s*([a-z_.]+)\s*\}\}/g, (match, key: string) => (key in values ? escape(values[key]).replace(/\n/g, '<br>') : match));
+  if (data.brand) {
+    // Seção que ficou vazia (identidade ainda não preenchida, proposta sem descrição ou sem imagens)
+    // não deixa um título solto: some o parágrafo vazio e o título que não tem nada embaixo.
+    html = html.replace(/<p>\s*<\/p>/g, '');
+    let previous = '';
+    while (previous !== html) {
+      previous = html;
+      html = html.replace(/<h2[^>]*>(?:(?!<\/h2>)[\s\S])*<\/h2>(?=\s*(?:<h2|$))/g, '');
+    }
+  }
+  // a cor da marca vai como variável: os títulos do texto usam a mesma cor da capa
+  return data.brand ? `<div class="pd-root" style="--brand:${data.brand.color}">${html}</div>` : html;
 }
 

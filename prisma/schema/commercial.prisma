@@ -274,6 +274,8 @@ model Commercial_Proposal {
   frozenHtml          String?
   frozenHash          String?   @db.VarChar(64)
   viewedAt            DateTime?
+  // imagens da proposta: [{ url, title, description, annotations: [...] }]
+  images              Json?
   // código de confirmação do aceite (só o hash)
   acceptCodeHash      String?   @db.VarChar(64)
   acceptCodeExpiresAt DateTime?
@@ -505,4 +507,15 @@ model Commercial_ContractInstallment {
   billedAt    DateTime?
 
   @@index([contractId])
+}
+
+// Identidade usada nas propostas: frase, quem somos, números, diferenciais,
+// depoimentos e contato. Logo e cor vêm do cadastro da empresa, salvo se
+// definidos aqui.
+model Commercial_Settings {
+  id        Int      @id @default(autoincrement())
+  companyId Int      @unique
+  brand     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 }

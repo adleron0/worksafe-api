@@ -39,6 +39,13 @@ export class DocumentController {
   @Permissions('activate_comercial') @Patch('templates/active/:id')
   activateTemplate(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.documents.setTemplateActive(companyOf(req), id, true); }
 
+  // ---- identidade usada nas propostas
+  @Permissions('list_comercial') @Get('brand')
+  brand(@Req() req: Request) { return this.documents.brand(companyOf(req)); }
+
+  @Permissions('update_comercial') @Put('brand')
+  updateBrand(@Req() req: Request, @Body() body: Json) { return this.documents.updateBrand(companyOf(req), body ?? {}); }
+
   @Permissions('list_comercial') @Get('terms')
   terms(@Req() req: Request, @Query('inactive') inactive?: string) { return this.documents.listTerms(companyOf(req), inactive === 'true'); }
 

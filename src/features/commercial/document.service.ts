@@ -4,9 +4,11 @@ import { randomInt, randomUUID } from 'crypto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { EmailService } from 'src/features/email/email.service';
 import { ContractService } from './contract.service';
+import { Annotation, Brand, DEFAULT_COLOR, ProposalImage, safeImageUrl, validColor } from './document.blocks';
 import { ITEMS_MODES, TermText, blank, clean, escape, sanitizeBody, sha256, validCpf } from './document.render';
 
 export * from './document.render';
+export { Brand, ProposalImage } from './document.blocks';
 
 type Body = Record<string, any>;
 const KINDS: CommercialProposalKind[] = ['servico', 'treinamento', 'misto'];
@@ -46,6 +48,32 @@ const trainingBody = [
   '<h2>5. Condições gerais</h2>', '<p>{{termos}}</p>', '<p>{{assinatura}}</p>',
 ].join('');
 
+/** Modelos com identidade: capa, resumo, imagens, investimento em destaque, quem somos e próximos passos. */
+const brandedServiceBody = [
+  '<p>{{capa}}</p>',
+  '<h2>Em resumo</h2>', '<p>{{resumo}}</p>',
+  '<h2>O que entendemos da sua necessidade</h2>', '<p>{{proposta.descricao}}</p>', '<p>{{imagens}}</p>',
+  '<h2>O que vamos entregar</h2>', '<p>{{tabela_itens}}</p>',
+  '<h2>Investimento</h2>', '<p>{{investimento}}</p>', '<p>{{condicoes_pagamento}}</p>',
+  '<h2>Por que a {{empresa.nome}}</h2>', '<p>{{sobre}}</p>', '<p>{{depoimentos}}</p>',
+  '<h2>Próximos passos</h2>', '<p>{{proximos_passos}}</p>',
+  '<h2>Condições gerais</h2>', '<p>{{termos}}</p>', '<p>{{assinatura}}</p>', '<p>{{contato}}</p>',
+].join('');
+const brandedTrainingBody = [
+  '<p>{{capa}}</p>',
+  '<h2>Em resumo</h2>', '<p>{{resumo}}</p>',
+  '<h2>O treinamento</h2>', '<p>{{proposta.descricao}}</p>', '<p>{{imagens}}</p>',
+  '<h2>Turmas e valores</h2>', '<p>{{tabela_itens}}</p>',
+  '<p>Estão incluídos instrutor habilitado, material didático e certificado para os participantes aprovados.</p>',
+  '<h2>Investimento</h2>', '<p>{{investimento}}</p>', '<p>{{condicoes_pagamento}}</p>',
+  '<h2>Por que a {{empresa.nome}}</h2>', '<p>{{sobre}}</p>', '<p>{{depoimentos}}</p>',
+  '<h2>Próximos passos</h2>', '<p>{{proximos_passos}}</p>',
+  '<h2>Condições gerais</h2>', '<p>{{termos}}</p>', '<p>{{assinatura}}</p>', '<p>{{contato}}</p>',
+].join('');
+
+const text = (value: unknown, max: number) => String(value ?? '').replace(/\r/g, '').trim().slice(0, max);
+const pct = (value: unknown) => Math.round(Math.min(100, Math.max(0, Number(value) || 0)) * 100) / 100;
+
 @Injectable()
 export class DocumentService {
   constructor(private readonly prisma: PrismaService, private readonly email: EmailService, private readonly contracts: ContractService) {}
@@ -62,8 +90,11 @@ export class DocumentService {
       if (!termIds.length) {
         for (const [order, term] of DEFAULT_TERMS.entries()) termIds.push((await tx.commercial_Term.create({ data: { companyId, ...term, order } })).id);
       }
-      await tx.commercial_ProposalTemplate.create({ data: { companyId, name: 'Proposta de serviço', kind: 'servico', body: serviceBody, termIds, isDefault: true } });
-      await tx.commercial_ProposalTemplate.create({ data: { companyId, name: 'Proposta de treinamento', kind: 'treinamento', body: trainingBody, termIds: termIds.filter((_, i) => DEFAULT_TERMS[i]?.kind !== 'obrigacoes') } });
+      const trainingTerms = termIds.filter((_, i) => DEFAULT_TERMS[i]?.kind !== 'obrigacoes');
+      await tx.commercial_ProposalTemplate.create({ data: { companyId, name: 'Proposta de serviço — completa', kind: 'servico', body: brandedServiceBody, termIds, isDefault: true } });
+      await tx.commercial_ProposalTemplate.create({ data: { companyId, name: 'Proposta de treinamento — completa', kind: 'treinamento', body: brandedTrainingBody, termIds: trainingTerms } });
+      await tx.commercial_ProposalTemplate.create({ data: { companyId, name: 'Proposta de serviço — simples', body: serviceBody, termIds } });
+      await tx.commercial_ProposalTemplate.create({ data: { companyId, name: 'Proposta de treinamento — simples', body: trainingBody, termIds: trainingTerms } });
     });
   }
 
@@ -115,8 +146,97 @@ export class DocumentService {
 
   // ------------------------------------------------------------------ modelos
 
+  /**
+   * Empresas que já tinham os modelos simples ganham os modelos com identidade.
+   * O novo só vira o padrão se o padrão atual ainda for o texto original, sem edição.
+   */
+  private async ensureBrandedTemplates(companyId: number): Promise<void> {
+    const all = await this.prisma.commercial_ProposalTemplate.findMany({ where: { companyId }, select: { id: true, body: true, isDefault: true, kind: true, termIds: true } });
+    if (!all.length || all.some((t) => t.body.includes('{{capa}}'))) return;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(740118::int, ${companyId}::int)`;
+      if (await tx.commercial_ProposalTemplate.findFirst({ where: { companyId, body: { contains: '{{capa}}' } }, select: { id: true } })) return;
+      const termIds = all.find((t) => t.kind === 'servico')?.termIds ?? all[0].termIds;
+      const currentDefault = all.find((t) => t.isDefault);
+      const takeDefault = !currentDefault || currentDefault.body === serviceBody;
+      if (takeDefault) await tx.commercial_ProposalTemplate.updateMany({ where: { companyId, isDefault: true }, data: { isDefault: false } });
+      // os modelos simples originais (sem edição) saem do caminho: o tipo da proposta passa a achar o novo
+      const untouched = all.filter((t) => t.body === serviceBody || t.body === trainingBody).map((t) => t.id);
+      if (untouched.length) await tx.commercial_ProposalTemplate.updateMany({ where: { id: { in: untouched } }, data: { kind: null, isDefault: false } });
+      await tx.commercial_ProposalTemplate.create({ data: { companyId, name: 'Proposta de serviço — completa', kind: 'servico', body: brandedServiceBody, termIds, isDefault: takeDefault } });
+      await tx.commercial_ProposalTemplate.create({ data: { companyId, name: 'Proposta de treinamento — completa', kind: 'treinamento', body: brandedTrainingBody, termIds: all.find((t) => t.kind === 'treinamento')?.termIds ?? termIds } });
+      if (untouched.length) {
+        await tx.commercial_ProposalTemplate.updateMany({ where: { id: { in: untouched }, body: serviceBody }, data: { name: 'Proposta de serviço — simples' } });
+        await tx.commercial_ProposalTemplate.updateMany({ where: { id: { in: untouched }, body: trainingBody }, data: { name: 'Proposta de treinamento — simples' } });
+      }
+    });
+  }
+
+  // ------------------------------------------------------------------ identidade
+
+  /** Identidade usada nas propostas: o que foi configurado, completado pelo cadastro da empresa. */
+  async brand(companyId: number): Promise<Brand> {
+    const [settings, company] = await Promise.all([
+      this.prisma.commercial_Settings.findUnique({ where: { companyId } }),
+      this.prisma.company.findUnique({ where: { id: companyId }, select: {
+        logoUrl: true, primary_color: true, description: true, representative_contact: true, representative_email: true, websiteUrl: true,
+        address: true, addressNumber: true, neighborhood: true,
+      } }),
+    ]);
+    const saved = (settings?.brand ?? {}) as Partial<Brand>;
+    const list = <T>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
+    return {
+      logoUrl: safeImageUrl(saved.logoUrl) ?? safeImageUrl(company?.logoUrl),
+      color: validColor(saved.color ?? company?.primary_color ?? DEFAULT_COLOR),
+      tagline: saved.tagline ?? company?.description ?? '',
+      about: saved.about ?? '',
+      highlights: list<Brand['highlights'][number]>(saved.highlights), differentials: list<Brand['differentials'][number]>(saved.differentials),
+      testimonials: list<Brand['testimonials'][number]>(saved.testimonials),
+      phone: saved.phone ?? company?.representative_contact ?? '', email: saved.email ?? company?.representative_email ?? '',
+      website: saved.website ?? company?.websiteUrl ?? '',
+      address: saved.address ?? [company?.address, company?.addressNumber, company?.neighborhood].filter(Boolean).join(', '),
+    };
+  }
+
+  async updateBrand(companyId: number, body: Body): Promise<Brand> {
+    const rows = <T>(raw: unknown, max: number, map: (entry: Body) => T | null): T[] =>
+      (Array.isArray(raw) ? raw : []).slice(0, max).map((entry) => map((entry ?? {}) as Body)).filter((entry): entry is T => entry !== null);
+    if (!blank(body.logoUrl) && !safeImageUrl(body.logoUrl)) throw new BadRequestException('A logo precisa ser um endereço https');
+    if (!blank(body.color) && !/^#[0-9a-f]{6}$/i.test(String(body.color))) throw new BadRequestException('Cor inválida: use o formato #RRGGBB');
+    if (!blank(body.email) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(body.email))) throw new BadRequestException('E-mail de contato inválido');
+    const brand = {
+      logoUrl: blank(body.logoUrl) ? null : safeImageUrl(body.logoUrl), color: blank(body.color) ? null : validColor(body.color),
+      tagline: text(body.tagline, 200), about: text(body.about, 2000),
+      highlights: rows(body.highlights, 4, (e) => (text(e.value, 20) ? { value: text(e.value, 20), label: text(e.label, 60) } : null)),
+      differentials: rows(body.differentials, 6, (e) => (text(e.title, 80) ? { title: text(e.title, 80), text: text(e.text, 300) } : null)),
+      testimonials: rows(body.testimonials, 3, (e) => (text(e.quote, 500) ? { quote: text(e.quote, 500), author: text(e.author, 80), company: text(e.company, 80) } : null)),
+      phone: text(body.phone, 60), email: text(body.email, 255), website: text(body.website, 255), address: text(body.address, 255),
+    };
+    // campo vazio volta a valer o cadastro da empresa: guarda só o que foi preenchido
+    const stored = Object.fromEntries(Object.entries(brand).filter(([key, value]) =>
+      ['highlights', 'differentials', 'testimonials', 'about'].includes(key) || (value !== null && value !== '')));
+    await this.prisma.commercial_Settings.upsert({ where: { companyId }, update: { brand: stored as Prisma.InputJsonValue }, create: { companyId, brand: stored as Prisma.InputJsonValue } });
+    return this.brand(companyId);
+  }
+
+  /** Imagens da proposta: só https, textos limitados e marcações em percentual da imagem. */
+  parseImages(raw: unknown): ProposalImage[] {
+    if (!Array.isArray(raw)) return [];
+    if (raw.length > 12) throw new BadRequestException('No máximo 12 imagens por proposta');
+    return raw.map((entry: Body, index) => {
+      const url = safeImageUrl(entry?.url);
+      if (!url) throw new BadRequestException(`Imagem ${index + 1}: endereço inválido`);
+      const marks = Array.isArray(entry.annotations) ? entry.annotations.slice(0, 20) : [];
+      const annotations: Annotation[] = marks.map((mark: Body) => (mark?.type === 'seta'
+        ? { type: 'seta', x1: pct(mark.x1), y1: pct(mark.y1), x2: pct(mark.x2), y2: pct(mark.y2), label: text(mark.label, 160) }
+        : { type: 'circulo', x: pct(mark.x), y: pct(mark.y), w: pct(mark.w), h: pct(mark.h), label: text(mark.label, 160) }));
+      return { url, title: text(entry.title, 120), description: text(entry.description, 600), annotations };
+    });
+  }
+
   async listTemplates(companyId: number, includeInactive = false) {
     await this.ensureSeed(companyId);
+    await this.ensureBrandedTemplates(companyId);
     return this.prisma.commercial_ProposalTemplate.findMany({ where: { companyId, ...(includeInactive ? {} : { inactiveAt: null }) }, orderBy: [{ isDefault: 'desc' }, { name: 'asc' }] });
   }
 
@@ -230,7 +350,7 @@ export class DocumentService {
     const row = await this.prisma.commercial_Proposal.findFirst({
       where: { publicKey: key, inactiveAt: null },
       select: { id: true, companyId: true, number: true, title: true, status: true, validUntil: true, frozenHtml: true, frozenHash: true, viewedAt: true,
-        contactEmail: true, rootId: true, decidedAt: true, acceptCodeHash: true, acceptCodeExpiresAt: true, acceptCodeAttempts: true },
+        contactEmail: true, rootId: true, decidedAt: true, total: true, sellerId: true, acceptCodeHash: true, acceptCodeExpiresAt: true, acceptCodeAttempts: true },
     });
     if (!row || !row.frozenHtml) throw new NotFoundException('Proposta não encontrada');
     return row;
@@ -271,13 +391,19 @@ export class DocumentService {
       if (changed.count) await this.event(row, 'visualizada', { ip: meta.ip, userAgent: meta.userAgent });
       row = { ...row, status: 'visualizada' };
     }
-    const company = await this.prisma.company.findUnique({ where: { id: row.companyId }, select: { comercial_name: true, logoUrl: true, primary_color: true } });
+    const [company, brand, seller] = await Promise.all([
+      this.prisma.company.findUnique({ where: { id: row.companyId }, select: { comercial_name: true } }),
+      this.brand(row.companyId),
+      row.sellerId ? this.prisma.user.findUnique({ where: { id: row.sellerId }, select: { name: true } }) : null,
+    ]);
     const open = row.status === 'visualizada';
     const accepted = row.status === 'aceita'
       ? await this.prisma.commercial_ProposalEvent.findFirst({ where: { proposalId: row.id, type: 'aceita' }, orderBy: { id: 'desc' }, select: { name: true, role: true, createdAt: true } })
       : null;
     return {
-      company: { name: company?.comercial_name ?? '', logoUrl: company?.logoUrl ?? null, color: company?.primary_color ?? null },
+      company: { name: company?.comercial_name ?? '', logoUrl: brand.logoUrl, color: brand.color },
+      // para a barra de ação da página: valor e com quem falar
+      total: Number(row.total), contact: { name: seller?.name ?? null, phone: brand.phone || null, email: brand.email || null },
       number: row.number, title: row.title, status: row.status, validUntil: row.validUntil ? row.validUntil.toISOString().slice(0, 10) : null,
       // versão substituída ou cancelada não mostra mais o conteúdo
       html: row.status === 'substituida' || row.status === 'cancelada' ? null : row.frozenHtml, hash: row.frozenHash,

@@ -4,6 +4,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { CommercialService, PricingSnapshot } from './commercial.service';
 import { ContractService } from './contract.service';
 import { installmentValues } from './installments';
+import { ProposalImage } from './document.blocks';
 import { DocumentData, DocumentService, ITEMS_MODES, ItemsMode, VARIABLES, renderDocument, sanitizeBody, sha256 } from './document.service';
 import { computeBase, price, PriceInput, PriceItemInput, PriceResult, PricingError, professionalCost, resolveTax, round2 } from './pricing/engine';
 
@@ -66,6 +67,8 @@ export interface Draft {
   taxRegime: 'tradicional' | 'hibrido' | null; discount: number; internalNotes: string | null;
   /** documento: cópia editável do modelo, termos escolhidos e formato da tabela de itens */
   templateId: number | null; documentBody: string | null; itemsMode: ItemsMode; termIds: number[];
+  /** fotos e desenhos da proposta, com descrição e marcações */
+  images: ProposalImage[];
   sections: DraftSection[]; installments: DraftInstallment[];
 }
 
@@ -180,6 +183,7 @@ export class ProposalService {
       documentBody: 'documentBody' in body ? (sanitizeBody(body.documentBody) || null) : keep?.documentBody ?? null,
       itemsMode: (ITEMS_MODES.includes(body.itemsMode) ? body.itemsMode : keep?.itemsMode ?? 'detalhado') as ItemsMode,
       termIds: Array.isArray(body.termIds) ? body.termIds.map(Number).filter((id: number) => Number.isInteger(id) && id > 0).slice(0, 40) : keep?.termIds ?? [],
+      images: 'images' in body ? this.documents.parseImages(body.images) : this.documents.parseImages(keep?.images ?? []),
       sections, installments,
     };
   }
@@ -322,6 +326,7 @@ export class ProposalService {
       contingencyRate: Number(row.contingencyRate), commissionRate: Number(row.commissionRate), commissionBase: row.commissionBase === 'lucro' ? 'lucro' : 'faturado',
       commissionInPrice: row.commissionInPrice, taxRegime: row.taxRegime, discount: Number(row.discount), internalNotes: row.internalNotes,
       templateId: row.templateId, documentBody: row.documentBody, itemsMode: (ITEMS_MODES.includes(row.itemsMode as ItemsMode) ? row.itemsMode : 'detalhado') as ItemsMode, termIds: row.termIds,
+      images: this.documents.parseImages(row.images ?? []),
       sections: row.sections.map((section) => ({
         id: section.id, title: section.title, kind: section.kind, margin: Number(section.margin), showInDocument: section.showInDocument,
         items: row.items.filter((item) => item.sectionId === section.id).map((item) => ({
@@ -341,9 +346,9 @@ export class ProposalService {
   /** Grava cabeçalho, seções, itens e parcelas de uma vez (substitui os filhos). */
   private async persist(tx: Tx, companyId: number, id: number, draft: Draft, snapshot: PricingSnapshot, result: ReturnType<ProposalService['calc']>) {
     const t = result.totals;
-    const { sections, installments, ...header } = draft;
+    const { sections, installments, images, ...header } = draft;
     await tx.commercial_Proposal.update({ where: { id }, data: {
-      ...header, validUntil: header.validUntil ? asDate(header.validUntil) : null, referenceDate: asDate(header.referenceDate),
+      ...header, images: images as unknown as Prisma.InputJsonValue, validUntil: header.validUntil ? asDate(header.validUntil) : null, referenceDate: asDate(header.referenceDate),
       snapshot: snapshot as unknown as Prisma.InputJsonValue,
       totalCost: round2(t.cost), totalSuggested: round2(t.suggested), totalNet: round2(t.net), totalTax: round2(t.tax), total: round2(t.total),
       profit: round2(t.profit), commission: round2(t.commission),
@@ -424,10 +429,11 @@ export class ProposalService {
    * ficam diluídos): o cliente nunca vê custo, margem nem "imprevisibilidade".
    */
   private async documentData(companyId: number, number: string, date: Date, draft: Draft, result: ReturnType<ProposalService['calc']>): Promise<DocumentData> {
-    const [company, customer, seller] = await Promise.all([
+    const [company, customer, seller, brand] = await Promise.all([
       this.prisma.company.findUnique({ where: { id: companyId }, select: { comercial_name: true, corporate_name: true, cnpj: true } }),
       this.prisma.customer.findFirst({ where: { id: draft.customerId, companyId }, select: { name: true, corporateName: true, cnpj: true } }),
-      draft.sellerId ? this.prisma.user.findFirst({ where: { id: draft.sellerId, companyId }, select: { name: true } }) : null,
+      draft.sellerId ? this.prisma.user.findFirst({ where: { id: draft.sellerId, companyId }, select: { name: true, email: true, phone: true } }) : null,
+      this.documents.brand(companyId),
     ]);
     const total = round2(result.totals.total);
     const factor = result.totals.subtotal > 0 ? result.totals.total / result.totals.subtotal : 0;
@@ -462,6 +468,7 @@ export class ProposalService {
       customer: { name: customer?.name ?? '', corporateName: customer?.corporateName ?? '', cnpj: customer?.cnpj ?? '' },
       contactName: draft.contactName, sellerName: seller?.name ?? null, number, title: draft.title, description: draft.description,
       date, validUntil: draft.validUntil, workDays: draft.workDays, total, sections,
+      brand, images: draft.images, seller: { name: seller?.name ?? null, email: seller?.email ?? null, phone: seller?.phone ?? null },
       installments: draft.installments.map((inst, index) => ({ description: inst.description, value: values[index], dueRule: inst.dueRule, dueDate: inst.dueDate, dueDays: inst.dueDays })),
     };
   }
@@ -492,6 +499,32 @@ export class ProposalService {
     draft.termIds = await this.documents.cleanTermIds(actor.companyId, draft.termIds);
     const { html } = await this.renderFor(actor.companyId, existing.number, new Date(), draft, this.calc(draft, snapshot));
     return { html, frozen: false };
+  }
+
+  /**
+   * A página do cliente, montada com a proposta como está salva: é o que ele
+   * vai ver pelo link (documento, botão de aceite, formulário). Nada é
+   * registrado; a tela mostra a tarja de rascunho.
+   */
+  async clientView(actor: Actor, id: number) {
+    const row = await this.byId(actor.companyId, id);
+    const frozen = Boolean(row.frozenHtml) && row.status !== 'rascunho';
+    const draft = this.draftOf(row);
+    const html = frozen ? row.frozenHtml!
+      : (await this.renderFor(actor.companyId, row.number, new Date(), draft, this.calc(draft, row.snapshot as unknown as PricingSnapshot))).html;
+    const [company, brand, seller] = await Promise.all([
+      this.prisma.company.findUnique({ where: { id: actor.companyId }, select: { comercial_name: true } }),
+      this.documents.brand(actor.companyId),
+      row.sellerId ? this.prisma.user.findFirst({ where: { id: row.sellerId, companyId: actor.companyId }, select: { name: true } }) : null,
+    ]);
+    const requiresCode = this.documents.emailConfigured() && Boolean(row.contactEmail);
+    return {
+      preview: true, sent: frozen, proposalStatus: row.status,
+      company: { name: company?.comercial_name ?? '', logoUrl: brand.logoUrl, color: brand.color },
+      total: Number(row.total), contact: { name: seller?.name ?? null, phone: brand.phone || null, email: brand.email || null },
+      number: row.number, title: row.title, status: 'visualizada', validUntil: iso(row.validUntil), html, hash: row.frozenHash,
+      canDecide: true, requiresCode, codeEmail: requiresCode ? row.contactEmail!.replace(/^(.{2}).*(@.*)$/, '$1***$2') : null, accepted: null,
+    };
   }
 
   async sendEmail(actor: Actor, id: number, body: Body) {
@@ -538,6 +571,8 @@ export class ProposalService {
       templates: (await this.documents.listTemplates(actor.companyId)).map((t) => ({ id: t.id, name: t.name, kind: t.kind, isDefault: t.isDefault, body: t.body, itemsMode: t.itemsMode, termIds: t.termIds })),
       terms: (await this.documents.listTerms(actor.companyId)).map((t) => ({ id: t.id, title: t.title, kind: t.kind })),
       variables: VARIABLES,
+      // a tela avisa quando a seção "por que nós" ainda está vazia
+      brandReady: await this.documents.brand(actor.companyId).then((brand) => Boolean(brand.about || brand.differentials.length || brand.highlights.length)),
     };
   }
 

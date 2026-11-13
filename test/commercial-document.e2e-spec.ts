@@ -88,11 +88,15 @@ describe('Comercial — documento, link público e aceite (e2e)', () => {
 
   it('primeira abertura cria termos e modelos padrão, sem duplicar', async () => {
     const { h, options } = await cenario();
-    expect(options.templates.map((t: any) => [t.name, t.kind, t.isDefault])).toEqual([['Proposta de serviço', 'servico', true], ['Proposta de treinamento', 'treinamento', false]]);
+    expect(options.templates.map((t: any) => [t.name, t.kind, t.isDefault])).toEqual([
+      ['Proposta de serviço — completa', 'servico', true], ['Proposta de serviço — simples', null, false],
+      ['Proposta de treinamento — completa', 'treinamento', false], ['Proposta de treinamento — simples', null, false],
+    ]);
+    expect(options.variables.filter((v: any) => v.block).map((v: any) => v.key)).toEqual(expect.arrayContaining(['capa', 'resumo', 'imagens', 'investimento', 'sobre', 'proximos_passos', 'contato']));
     expect(options.terms.map((t: any) => t.kind)).toEqual(['aceite', 'pagamento', 'reequilibrio', 'cancelamento', 'obrigacoes', 'confidencialidade', 'lgpd']);
     expect(options.variables.some((v: any) => v.key === 'tabela_itens' && v.block)).toBe(true);
     await Promise.all([api().get('/commercial/templates').set(h), api().get('/commercial/terms').set(h)]);
-    expect(await testDb().commercial_ProposalTemplate.count()).toBe(2);
+    expect(await testDb().commercial_ProposalTemplate.count()).toBe(4);
     expect(await testDb().commercial_Term.count()).toBe(7);
   });
 
@@ -126,7 +130,7 @@ describe('Comercial — documento, link público e aceite (e2e)', () => {
     const { h, proposal } = await cenario();
     const preview = (await api().post(`/commercial/proposals/${proposal.id}/document-preview`).set(h).send({}).expect(201)).body;
     expect(preview.frozen).toBe(false);
-    for (const text of ['Proposta comercial PC-', 'Indústria Alfa SA', 'A/C Maria Souza', 'Jateamento e pintura do tanque 3.', 'Alpinista N1', '20.589,11',
+    for (const text of ['Proposta comercial', 'PC-', 'Indústria Alfa SA', 'A/C Maria Souza', 'Jateamento e pintura do tanque 3.', 'Alpinista N1', '20.589,11',
       'vinte mil, quinhentos e oitenta e nove reais e onze centavos', '28 dias após a emissão da nota fiscal', '31/12/2099', '<h3>Aceite</h3>', '22 dias úteis']) {
       expect(preview.html).toContain(text);
     }
@@ -155,7 +159,7 @@ describe('Comercial — documento, link público e aceite (e2e)', () => {
     expect(sentProposal.draft.documentBody).toContain('{{tabela_itens}}');
 
     const view = (await api().get(pub(sentProposal.publicKey)).set('User-Agent', 'Navegador de teste').set('X-Forwarded-For', '203.0.113.9, 10.0.0.1').expect(200)).body;
-    expect(Object.keys(view).sort()).toEqual(['accepted', 'canDecide', 'codeEmail', 'company', 'hash', 'html', 'number', 'requiresCode', 'status', 'title', 'validUntil']);
+    expect(Object.keys(view).sort()).toEqual(['accepted', 'canDecide', 'codeEmail', 'company', 'contact', 'hash', 'html', 'number', 'requiresCode', 'status', 'title', 'total', 'validUntil']);
     expect(view).toMatchObject({ number: sentProposal.number, status: 'visualizada', canDecide: true, requiresCode: false, hash: sentProposal.documentHash, accepted: null });
     expect(view.html).toContain('20.589,11');
     const raw = JSON.stringify(view);
@@ -316,6 +320,111 @@ describe('Comercial — documento, link público e aceite (e2e)', () => {
     expect(sent[0].html).toContain('Segue &lt;b&gt;nossa&lt;/b&gt; proposta.');
     expect((await api().get(`/commercial/proposals/${proposal.id}`).set(h)).body.events.map((e: any) => e.type)).toEqual(['enviada', 'email_enviado']);
     await api().post(`/commercial/proposals/${proposal.id}/send-email`).set(auth(proposal.id, ['list_comercial'])).send({ to: 'maria@alfa.local' }).expect(403);
+  });
+
+  it('identidade: capa com logo e cor da empresa, resumo, investimento, quem somos e próximos passos', async () => {
+    const { h, company, proposal } = await cenario();
+    await testDb().company.update({ where: { id: company.id }, data: {
+      logoUrl: 'https://cdn.teste.local/logo.webp', primary_color: '#0B5ED7', description: 'Segurança em altura e espaços confinados.', representative_contact: '81999990000',
+    } });
+    // sem configurar nada, a identidade vem do cadastro da empresa
+    const initial = (await api().get('/commercial/brand').set(h).expect(200)).body;
+    expect(initial).toMatchObject({ logoUrl: 'https://cdn.teste.local/logo.webp', color: '#0B5ED7', tagline: 'Segurança em altura e espaços confinados.', phone: '81999990000', highlights: [], differentials: [] });
+
+    await api().put('/commercial/brand').set(h).send({ color: 'verde' }).expect(400);
+    await api().put('/commercial/brand').set(h).send({ logoUrl: 'javascript:alert(1)' }).expect(400);
+    await api().put('/commercial/brand').set(auth(company.id, ['list_comercial'])).send({ tagline: 'x' }).expect(403);
+    const saved = (await api().put('/commercial/brand').set(h).send({
+      about: 'Atuamos há 12 anos em trabalhos em altura.\nEquipe própria e certificada.',
+      highlights: [{ value: '+500', label: 'profissionais treinados' }, { value: '', label: 'ignorado' }],
+      differentials: [{ title: 'Equipe certificada <b>', text: 'NR-35 e NR-33 em dia.' }],
+      testimonials: [{ quote: 'Entregaram antes do prazo.', author: 'Carlos Lima', company: 'Usina Sul' }],
+      website: 'https://worksafebrasil.com.br',
+    }).expect(200)).body;
+    expect(saved.highlights).toEqual([{ value: '+500', label: 'profissionais treinados' }]);
+    expect(saved).toMatchObject({ color: '#0B5ED7', logoUrl: 'https://cdn.teste.local/logo.webp' }); // continua vindo do cadastro
+
+    const html = (await api().post(`/commercial/proposals/${proposal.id}/document-preview`).set(h).send({}).expect(201)).body.html as string;
+    expect(html.startsWith('<div class="pd-root" style="--brand:#0B5ED7">')).toBe(true);
+    for (const piece of ['data-block="capa"', 'background:#0B5ED7', 'src="https://cdn.teste.local/logo.webp"', 'Preparada para <strong>Indústria Alfa SA</strong>',
+      'data-block="resumo"', '22 dias úteis', 'data-block="investimento"', 'Investimento total', 'Pagamento único',
+      'data-block="sobre"', 'Atuamos há 12 anos em trabalhos em altura.<br>Equipe própria e certificada.', '+500', 'Equipe certificada &lt;b&gt;',
+      'data-block="depoimentos"', 'Carlos Lima', 'data-block="proximos_passos"', 'Aceite por aqui mesmo', 'data-block="contato"', 'worksafebrasil.com.br']) {
+      expect(html).toContain(piece);
+    }
+    expect(html).not.toContain('{{');
+    // sem imagens na proposta, o bloco de imagens some
+    expect(html).not.toContain('data-block="imagens"');
+  });
+
+  it('imagens da proposta: descrição, círculos e setas numerados entram no documento enviado', async () => {
+    const { h, proposal } = await cenario();
+    const images = [{
+      url: 'https://cdn.teste.local/tanque.webp', title: 'Tanque 3 — costado norte', description: 'Pontos de corrosão a tratar.',
+      annotations: [
+        { type: 'circulo', x: 10, y: 20, w: 30, h: 25, label: 'Corrosão na solda' },
+        { type: 'seta', x1: 80, y1: 10, x2: 60, y2: 40, label: 'Ponto de ancoragem <script>' },
+        { type: 'circulo', x: 150, y: -5, w: 10, h: 10, label: '' },
+      ],
+    }];
+    const put = (list: unknown) => api().put(`/commercial/proposals/${proposal.id}`).set(h).send({ ...proposal.draft, images: list });
+    await put([{ url: 'http://inseguro.local/a.png' }]).expect(400);
+    await put([{ url: 'https://ok.local/a.png"><script>' }]).expect(400);
+    await put(Array.from({ length: 13 }, () => ({ url: 'https://cdn.teste.local/a.webp' }))).expect(400);
+    const saved = (await put(images).expect(200)).body;
+    expect(saved.draft.images[0]).toMatchObject({ title: 'Tanque 3 — costado norte', annotations: [{ type: 'circulo', x: 10 }, { type: 'seta', x2: 60 }, { type: 'circulo', x: 100, y: 0 }] });
+
+    const sentProposal = await enviar(h, proposal.id);
+    const html = (await api().get(pub(sentProposal.publicKey)).expect(200)).body.html as string;
+    for (const piece of ['data-block="imagens"', 'src="https://cdn.teste.local/tanque.webp"', 'Tanque 3 — costado norte', 'Pontos de corrosão a tratar.',
+      '<ellipse cx="25" cy="32.5" rx="15" ry="12.5"', '<line x1="80" y1="10" x2="60" y2="40"', '>1</strong> — Corrosão na solda', '>2</strong> — Ponto de ancoragem &lt;script&gt;']) {
+      expect(html).toContain(piece);
+    }
+    expect(html).not.toContain('<script');
+    // a revisão leva as imagens junto
+    await api().post(`/commercial/public/proposals/${sentProposal.publicKey}/refuse`).set('X-Forwarded-For', testIp).send({ name: 'Maria Souza' }).expect(201);
+    const revision = (await api().post(`/commercial/proposals/${proposal.id}/revise`).set(h).expect(201)).body;
+    expect(revision.draft.images).toHaveLength(1);
+  });
+
+  it('visão do cliente antes de enviar: a mesma página do link, marcada como rascunho e sem registrar nada', async () => {
+    const { h, company, proposal } = await cenario();
+    const view = (await api().get(`/commercial/proposals/${proposal.id}/client-view`).set(h).expect(200)).body;
+    expect(view).toMatchObject({ preview: true, sent: false, proposalStatus: 'rascunho', number: proposal.number, canDecide: true, total: 20589.11, accepted: null });
+    expect(view.html).toContain('data-block="capa"');
+    expect(view.html).toContain('20.589,11');
+    for (const hidden of ['10.392,60', '4.323,71', 'mprevisibilidade']) expect(view.html).not.toContain(hidden);
+    // olhar não envia, não cria link e não registra visualização
+    const after = (await api().get(`/commercial/proposals/${proposal.id}`).set(h).expect(200)).body;
+    expect(after).toMatchObject({ status: 'rascunho', publicKey: null, events: [] });
+    // depois de enviada, a visão mostra exatamente o documento congelado
+    const sentProposal = await enviar(h, proposal.id);
+    const frozen = (await api().get(`/commercial/proposals/${proposal.id}/client-view`).set(h).expect(200)).body;
+    expect(frozen).toMatchObject({ preview: true, sent: true, hash: sentProposal.documentHash });
+    expect((await api().get(`/commercial/proposals/${proposal.id}`).set(h)).body.status).toBe('enviada'); // não virou "visualizada"
+    await api().get(`/commercial/proposals/${proposal.id}/client-view`).expect(401);
+    await api().get(`/commercial/proposals/${proposal.id}/client-view`).set(auth((await makeCompany()).id)).expect(404);
+    expect(company.id).toBeGreaterThan(0);
+  });
+
+  it('empresa que já usava os modelos simples ganha os modelos com identidade, sem perder o que editou', async () => {
+    const { h, company } = await cenario();
+    const db = testDb();
+    // estado de antes desta versão: só os dois modelos simples, o de serviço como padrão
+    const simple = await db.commercial_ProposalTemplate.findMany({ where: { companyId: company.id, name: { contains: 'simples' } }, orderBy: { id: 'asc' } });
+    await db.commercial_ProposalTemplate.deleteMany({ where: { companyId: company.id, name: { contains: 'completa' } } });
+    await db.commercial_ProposalTemplate.update({ where: { id: simple[0].id }, data: { name: 'Proposta de serviço', kind: 'servico', isDefault: true } });
+    await db.commercial_ProposalTemplate.update({ where: { id: simple[1].id }, data: { name: 'Minha proposta de treinamento', kind: 'treinamento', body: '<p>Texto que eu editei {{tabela_itens}}</p>' } });
+
+    const list = (await api().get('/commercial/templates').set(h).expect(200)).body;
+    expect(list.map((t: any) => [t.name, t.kind, t.isDefault])).toEqual([
+      ['Proposta de serviço — completa', 'servico', true],
+      ['Minha proposta de treinamento', 'treinamento', false], // editado: fica como estava
+      ['Proposta de serviço — simples', null, false],
+      ['Proposta de treinamento — completa', 'treinamento', false],
+    ]);
+    await api().get('/commercial/templates').set(h).expect(200);
+    expect(await db.commercial_ProposalTemplate.count({ where: { companyId: company.id } })).toBe(4);
   });
 
   it('hora extra só na linha de um profissional', async () => {
