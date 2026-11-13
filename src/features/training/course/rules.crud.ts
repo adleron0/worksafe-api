@@ -1,5 +1,5 @@
 import { EntityRules, composeHooks } from '@adleron/crud-core';
-import { imageUpload, parseJsonFields, syncActiveFlag } from 'src/common/crud/hooks';
+import { imageUpload, parseJsonFields, slugField, syncActiveFlag } from 'src/common/crud/hooks';
 
 export const courseEntity: EntityRules = {
   entity: 'courses', model: 'Course',
@@ -9,5 +9,5 @@ export const courseEntity: EntityRules = {
   filterable: ['name', 'weekly', 'createdAt'], sortable: ['id', 'name', 'createdAt'],
   includable: ['certificates', 'classes', '_count'],
   neverWritable: ['active'], softDelete: { field: 'inactiveAt' },
-  hooks: composeHooks(syncActiveFlag, imageUpload(), parseJsonFields('faq', 'exam')),
+  hooks: composeHooks(syncActiveFlag, imageUpload(), parseJsonFields('faq', 'exam'), slugField()),
 };

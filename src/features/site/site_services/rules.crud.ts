@@ -1,6 +1,6 @@
 import { EntityRules, composeHooks } from '@adleron/crud-core';
 
-import { imageUpload, syncActiveFlag } from 'src/common/crud/hooks';
+import { imageUpload, parseJsonFields, slugField, syncActiveFlag } from 'src/common/crud/hooks';
 
 /**
  * Serviços do site — listagem pública (vitrine), escrita com permissão.
@@ -19,9 +19,9 @@ export const siteServicesEntity: EntityRules = {
     archive: 'inactive_servicos_site',
     restore: 'activate_servicos_site',
   },
-  filterable: ['name', 'createdAt'],
+  filterable: ['name', 'slug', 'createdAt'],
   sortable: ['id', 'name', 'createdAt'],
   neverWritable: ['active'],
   softDelete: { field: 'inactiveAt' },
-  hooks: composeHooks(syncActiveFlag, imageUpload()),
+  hooks: composeHooks(syncActiveFlag, imageUpload(), parseJsonFields('faq'), slugField()),
 };

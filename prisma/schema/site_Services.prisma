@@ -7,9 +7,19 @@ model Site_Services {
   features  String? @db.VarChar(255)
   active    Boolean @default(true) // Novo campo booleano para status de ativo/inativo
 
+  // Página do serviço no site (/servicos/:slug)
+  slug           String? @db.VarChar(120)
+  description    String? // resumo exibido no topo da página e nos cards
+  content        String? // texto da página (HTML do editor)
+  seoTitle       String? @db.VarChar(70)
+  seoDescription String? @db.VarChar(170)
+  faq            Json?
+
   company Company @relation(fields: [companyId], references: [id])
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
+
+  @@unique([companyId, slug])
 }

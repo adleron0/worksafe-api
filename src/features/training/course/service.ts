@@ -52,7 +52,8 @@ export class CourseService {
       const orderBy = [{ id: 'desc' }]; // Ordenação padrão
       const result = await this.prisma.select(entity.model, params, orderBy);
 
-      return result;
+      // Lista pública: o gabarito da prova não sai daqui.
+      return result.map(({ exam: _exam, ...course }) => course);
     } catch (error) {
       console.log('🚀 ~ CourseService ~ list ~ error:', error);
       throw new BadRequestException(error);

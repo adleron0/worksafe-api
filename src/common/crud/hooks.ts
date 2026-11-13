@@ -91,6 +91,26 @@ export const parseJsonFields = (...fields: string[]): EntityHooks<Request> => ({
   },
 });
 
+/** Converte um texto em slug de URL: minúsculas, sem acentos, palavras unidas por hífen. */
+export const toSlug = (value: string): string =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 120);
+
+/** Normaliza o slug da página no site; vazio vira null (sem página). */
+export const slugField = (field = 'slug'): EntityHooks<Request> => ({
+  preWrite: ({ data }) => {
+    if (!(field in data)) return data;
+    const value = data[field];
+    const slug = typeof value === 'string' ? toSlug(value) : '';
+    return { ...data, [field]: slug || null };
+  },
+});
+
 /** Data só com dia (YYYY-MM-DD) vira ISO completo. */
 export const normalizeDateOnly = (...fields: string[]): EntityHooks<Request> => ({
   preWrite: ({ data }) => {
