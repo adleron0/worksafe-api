@@ -82,6 +82,9 @@ import { splitEntity } from 'src/features/gateway/splits/rules.crud';
 import { FinancialController } from 'src/features/financial/financial.controller';
 import { FinancialModule } from 'src/features/financial/module';
 import { bankAccountEntity, costCenterEntity } from 'src/features/financial/rules.crud';
+import { CommercialController } from 'src/features/commercial/commercial.controller';
+import { CommercialModule } from 'src/features/commercial/module';
+import { professionalEntity } from 'src/features/commercial/rules.crud';
 import { studentEntity } from 'src/features/student/student/rules.crud';
 import { StudentCustomController } from 'src/features/student/student/custom.controller';
 import { StudentModule } from 'src/features/student/student/module';
@@ -200,6 +203,7 @@ export const crudEntities: CrudEntity[] = [
   { rules: splitEntity },
   { rules: costCenterEntity },
   { rules: bankAccountEntity },
+  { rules: professionalEntity },
   // ---- aluno: guard do aluno em toda op; escopo = traineeId do token ----
   { rules: studentEntity, controller: { decorators: { list: [studentGuard], getById: [studentGuard], update: [studentGuard, upload('student-image')] } } },
   { rules: studentCoursesEntity, controller: { decorators: { list: [studentGuard], getById: [studentGuard], create: [studentGuard], update: [studentGuard] } } },
@@ -229,6 +233,7 @@ export const crudExtraControllers = [
   TraineeCertificateCustomController,
   FinancialRecordsCustomController,
   FinancialController,
+  CommercialController,
   StudentCustomController,
   StudentCoursesCustomController,
   StudentCertificatesCustomController,
@@ -238,4 +243,4 @@ export const crudExtraControllers = [
 ];
 
 /** Módulos que os controllers custom precisam (services de domínio, IA). */
-export const crudExtraImports = [PostModule, CommentModule, AIModule, UploadModule, ImageModule, CompanyModule, ReviewsModule, CourseModule, ExamesModule, ClassesModule, SubscriptionModule, TraineeCertificateModule, StudentModule, StudentCoursesModule, StudentCertificatesModule, FinancialrecordsModule, FinancialModule];
+export const crudExtraImports = [PostModule, CommentModule, AIModule, UploadModule, ImageModule, CompanyModule, ReviewsModule, CourseModule, ExamesModule, ClassesModule, SubscriptionModule, TraineeCertificateModule, StudentModule, StudentCoursesModule, StudentCertificatesModule, FinancialrecordsModule, FinancialModule, CommercialModule];

@@ -1,0 +1,148 @@
+// Comercial — base de cálculo de preços (substitui as abas CALC e MDO da
+// planilha FORM-COM-001). Nada aqui é imposto: o motor só sugere valores.
+//
+// Tudo que é percentual de lei mora em tabela com data de vigência
+// (`effectiveFrom`): virar o cálculo é cadastrar uma versão nova, não mexer
+// em código.
+
+enum CommercialCostItemGroup {
+  encargo          // % sobre o salário (resultado B)
+  pessoal_indireto // cargos administrativos rateados (resultado D)
+  outro_custo      // custos mensais rateados (resultado E)
+}
+
+enum CommercialCostItemKind {
+  fixo       // rateado pelo efetivo (como a planilha faz com tudo)
+  por_pessoa // R$ por homem/mês: não muda com o efetivo
+}
+
+enum CommercialTaxRegime {
+  tradicional // tudo dentro do DAS, "por dentro" do preço
+  hibrido     // IBS/CBS fora do DAS, destacados "por fora"
+}
+
+enum CommercialTaxMode {
+  nominal // alíquota da faixa (o que a planilha usa)
+  efetiva // (RBT12 × alíquota − parcela a deduzir) ÷ RBT12
+  manual
+}
+
+// Uma versão da base de custos. Vale a de maior `effectiveFrom` que não
+// passa da data de referência.
+model Commercial_CostBase {
+  id            Int      @id @default(autoincrement())
+  companyId     Int
+  name          String   @db.VarChar(120)
+  effectiveFrom DateTime @db.Date
+  notes         String?  @db.VarChar(500)
+
+  // A — horas produtivas
+  daysInYear    Int     @default(365)
+  restDays      Int     @default(88)
+  vacationDays  Int     @default(30)
+  holidays      Int     @default(15)
+  hoursPerDay   Decimal @default(8) @db.Decimal(6, 2)
+  idleRate      Decimal @default(0.1) @db.Decimal(7, 6)
+  monthsDivisor Int     @default(11)
+
+  // Adicionais (base horária = salário ÷ additionalDivisor)
+  weeklyHours       Decimal @default(44) @db.Decimal(6, 2)
+  additionalDivisor Decimal @default(220) @db.Decimal(8, 2)
+  nightRate         Decimal @default(0.2) @db.Decimal(7, 6)
+  travelRate        Decimal @default(0.25) @db.Decimal(7, 6)
+  weekendRate       Decimal @default(2) @db.Decimal(7, 6)
+  // false = igual à planilha (adicional de FDS não multiplica pela quantidade)
+  weekendPerWorker  Boolean @default(false)
+
+  // C — benefícios por hora
+  mealPerDay         Decimal @default(0) @db.Decimal(12, 2)
+  transportFare      Decimal @default(0) @db.Decimal(12, 2)
+  transportTrips     Decimal @default(6) @db.Decimal(6, 2)
+  // parte da passagem que NÃO entra no custo (a planilha usa 60%)
+  transportDiscount  Decimal @default(0.6) @db.Decimal(7, 6)
+  // F — desconto de vale-transporte sobre o salário
+  fareDiscountRate   Decimal @default(0.06) @db.Decimal(7, 6)
+
+  // Efetivo médio em campo: divide D e E
+  headcount Decimal @default(1) @db.Decimal(8, 2)
+
+  // Padrões da proposta: margens por seção, níveis de imprevisibilidade,
+  // comissão. JSON porque só o motor e a tela leem.
+  defaults Json
+
+  items Commercial_CostBaseItem[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@index([companyId, effectiveFrom])
+}
+
+model Commercial_CostBaseItem {
+  id         Int                     @id @default(autoincrement())
+  companyId  Int
+  costBaseId Int
+  costBase   Commercial_CostBase     @relation(fields: [costBaseId], references: [id], onDelete: Cascade)
+  group      CommercialCostItemGroup
+  subgroup   String?                 @db.VarChar(80)
+  name       String                  @db.VarChar(160)
+  // encargo: fração do salário (0.08 = 8%)
+  rate       Decimal?                @db.Decimal(9, 6)
+  // pessoal_indireto: salário; outro_custo: R$/mês
+  amount     Decimal?                @db.Decimal(14, 2)
+  quantity   Decimal                 @default(1) @db.Decimal(8, 2)
+  // pessoal_indireto: aplica (1 + B)? Pró-labore entra sem encargos.
+  withCharges Boolean                @default(true)
+  kind       CommercialCostItemKind  @default(fixo)
+  // Dívida (empréstimo, imposto atrasado): aparece separada no custo hora e
+  // sai sozinha do cálculo depois de `endsAt`.
+  isDebt     Boolean                 @default(false)
+  endsAt     DateTime?               @db.Date
+  order      Int                     @default(0)
+
+  @@index([costBaseId, group])
+}
+
+// Tabela MDO: só nome e salário. Custo hora e adicionais são calculados.
+model Commercial_Professional {
+  id        Int     @id @default(autoincrement())
+  companyId Int
+  name      String  @db.VarChar(120)
+  salary    Decimal @db.Decimal(12, 2)
+  notes     String? @db.VarChar(255)
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([companyId, name])
+}
+
+// Perfil tributário com vigência. `isDefault` é a chave "tradicional ⟷
+// híbrido": no máximo um padrão por empresa.
+model Commercial_TaxProfile {
+  id            Int                 @id @default(autoincrement())
+  companyId     Int
+  name          String              @db.VarChar(120)
+  regime        CommercialTaxRegime @default(tradicional)
+  effectiveFrom DateTime            @db.Date
+  mode          CommercialTaxMode   @default(nominal)
+  rbt12         Decimal             @default(0) @db.Decimal(14, 2)
+  manualRate    Decimal?            @db.Decimal(7, 6)
+  // Parte do DAS que é IBS/CBS: sai da guia no híbrido e é o crédito do
+  // cliente no tradicional.
+  ibsCbsShare   Decimal             @default(0) @db.Decimal(7, 6)
+  // CBS + IBS cheios, por fora (só no híbrido)
+  outsideRate   Decimal             @default(0) @db.Decimal(7, 6)
+  // [{ limit, rate, deduction }] em ordem crescente de limite
+  brackets      Json
+  isDefault     Boolean             @default(false)
+  notes         String?             @db.VarChar(500)
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@index([companyId, effectiveFrom])
+}
