@@ -31,6 +31,7 @@ model Customer {
   trainees         Trainee[]
   financialRecords FinancialRecords[]
   proposals        Commercial_Proposal[]
+  contracts        Commercial_Contract[]
 
   @@unique([cnpj, companyId]) // Garante que o email seja único dentro da mesma empresa
 }

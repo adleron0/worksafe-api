@@ -3,6 +3,7 @@ import { CommercialProposalKind, Prisma } from '@prisma/client';
 import { randomInt, randomUUID } from 'crypto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { EmailService } from 'src/features/email/email.service';
+import { ContractService } from './contract.service';
 import { ITEMS_MODES, TermText, blank, clean, escape, sanitizeBody, sha256, validCpf } from './document.render';
 
 export * from './document.render';
@@ -47,7 +48,7 @@ const trainingBody = [
 
 @Injectable()
 export class DocumentService {
-  constructor(private readonly prisma: PrismaService, private readonly email: EmailService) {}
+  constructor(private readonly prisma: PrismaService, private readonly email: EmailService, private readonly contracts: ContractService) {}
 
   // ------------------------------------------------------------------ carga
 
@@ -337,6 +338,8 @@ export class DocumentService {
       } });
       if (!changed.count) throw new ConflictException('Esta proposta não está mais disponível para decisão.');
       await this.event(row, 'aceita', { ip: meta.ip, userAgent: meta.userAgent, name, cpf, role, email, documentHash: row.frozenHash, codeVerified: required }, tx);
+      // a proposta aceita vira contrato na mesma transação
+      await this.contracts.createFromProposal(tx, row.id, { name, cpf, role, email, ip: meta.ip, userAgent: meta.userAgent, at: new Date().toISOString(), codeVerified: required, manual: false });
     });
     return { status: 'aceita', name, hash: row.frozenHash };
   }

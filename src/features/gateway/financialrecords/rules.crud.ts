@@ -61,7 +61,7 @@ export const financialRecordEntity: EntityRules = {
   expose: ['list', 'getById', 'create', 'update', 'archive', 'restore'], restorePermission: 'own',
   permissions: { list: 'list_financeiro', getById: 'list_financeiro', create: 'create_financeiro',
     update: 'update_financeiro', archive: 'inactive_financeiro', restore: 'activate_financeiro' },
-  filterable: ['accrualDate', 'gateway', 'status', 'paymentMethod', 'subscriptionId', 'traineeId', 'customerId', 'sellerId', 'couponId',
+  filterable: ['contractId', 'accrualDate', 'gateway', 'status', 'paymentMethod', 'subscriptionId', 'traineeId', 'customerId', 'sellerId', 'couponId',
     'dueDate', 'paidAt', 'externalId', 'createdAt', 'invoiceNumber', 'invoiceIssuedAt',
     'chartAccountId', 'costCenterId', 'bankAccountId', 'trainee.name', 'customer.name', 'seller.name'],
   sortable: ['id', 'dueDate', 'paidAt', 'value', 'createdAt', 'invoiceIssuedAt'],
@@ -75,7 +75,8 @@ export const financialRecordEntity: EntityRules = {
   maskedFields: ['key'],
   // Status, pagamento e quem baixou só mudam pelas rotas de baixa/estorno
   // (e pelo webhook do gateway) — nunca por um PUT genérico.
-  neverWritable: ['key', 'externalId', 'requestData', 'responseData', 'errorData',
+  // contrato e parcela só são gravados pelo faturamento do contrato
+  neverWritable: ['contractId', 'contractInstallmentId', 'key', 'externalId', 'requestData', 'responseData', 'errorData',
     'paidAt', 'receivedValue', 'settledByUserId', 'bankAccountId', 'billUrl', 'billNumber', 'pixUrl', 'pixNumber'],
   softDelete: { field: 'inactiveAt' },
   hooks: composeHooks<Request>(parseJsonFields(), fileUpload({ invoiceFile: 'invoiceUrl' }), {

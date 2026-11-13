@@ -2,6 +2,8 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { CommercialDueRule, CommercialItemType, CommercialProposalKind, CommercialProposalStatus, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CommercialService, PricingSnapshot } from './commercial.service';
+import { ContractService } from './contract.service';
+import { installmentValues } from './installments';
 import { DocumentData, DocumentService, ITEMS_MODES, ItemsMode, VARIABLES, renderDocument, sanitizeBody, sha256 } from './document.service';
 import { computeBase, price, PriceInput, PriceItemInput, PriceResult, PricingError, professionalCost, resolveTax, round2 } from './pricing/engine';
 
@@ -45,22 +47,7 @@ function dateOf(value: unknown, label: string): string {
   return out;
 }
 
-/**
- * Valor de cada parcela, em centavos fechados. Percentual é sobre o total já
- * arredondado; quando as parcelas são todas percentuais e somam 100%, a última
- * absorve o centavo que sobrar, para a soma bater com o total.
- */
-export function installmentValues(total: number, installments: Array<{ percent: number | null; amount: number | null }>): number[] {
-  const rounded = round2(total);
-  const values = installments.map((inst) => round2(inst.percent !== null ? rounded * inst.percent : inst.amount ?? 0));
-  const allPercent = installments.length > 0 && installments.every((inst) => inst.percent !== null);
-  const percentSum = installments.reduce((sum, inst) => sum + (inst.percent ?? 0), 0);
-  if (allPercent && Math.abs(percentSum - 1) < 1e-6) {
-    const others = values.slice(0, -1).reduce((sum, value) => sum + value, 0);
-    values[values.length - 1] = round2(rounded - others);
-  }
-  return values;
-}
+export { installmentValues };
 
 export interface DraftItem {
   id?: number; type: CommercialItemType; description: string; unit: string | null; quantity: number;
@@ -92,7 +79,8 @@ const FULL = {
 
 @Injectable()
 export class ProposalService {
-  constructor(private readonly prisma: PrismaService, private readonly commercial: CommercialService, private readonly documents: DocumentService) {}
+  constructor(private readonly prisma: PrismaService, private readonly commercial: CommercialService, private readonly documents: DocumentService,
+    private readonly contracts: ContractService) {}
 
   // ------------------------------------------------------------------ leitura do corpo
 
@@ -413,6 +401,7 @@ export class ProposalService {
       publicKey: row.publicKey, publicUrl: row.publicKey ? await this.documents.publicUrl(row.companyId, row.publicKey) : null,
       documentFrozen: Boolean(row.frozenHtml), documentHash: row.frozenHash, viewedAt: row.viewedAt,
       emailConfigured: this.documents.emailConfigured(),
+      contract: row.status === 'aceita' ? await this.contracts.ofProposal(row.companyId, row.id) : null,
       events: (await this.documents.events(row.id)).map((e) => ({
         id: e.id, type: e.type, at: e.createdAt, name: e.name, role: e.role, email: e.email, cpf: e.cpf, ip: e.ip, userAgent: e.userAgent,
         note: e.note, codeVerified: e.codeVerified, documentHash: e.documentHash,
@@ -754,6 +743,8 @@ export class ProposalService {
         ...(target === 'aceita' || target === 'recusada' ? { decidedAt: new Date() } : {}),
       } });
       await this.documents.event(row, target, { userId: actor.userId || null, note, documentHash: frozen?.frozenHash ?? row.frozenHash }, tx);
+      // aceite registrado à mão também vira contrato
+      if (target === 'aceita') await this.contracts.createFromProposal(tx, id, { manual: true, userId: actor.userId || null, note, at: new Date().toISOString() });
     });
     return this.get(actor, id);
   }

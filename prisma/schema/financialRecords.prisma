@@ -65,6 +65,10 @@ model FinancialRecords {
   bankAccountId     Int?      // onde o dinheiro entrou (informado na baixa)
   bankAccount       Financial_BankAccount?  @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
 
+  // Contrato comercial e parcela que originaram este recebível
+  contractId            Int?
+  contractInstallmentId Int?
+
   // Transações de split
   splitTransactions SplitTransaction[] // Transações de split associadas ao registro
 
@@ -88,4 +92,5 @@ model FinancialRecords {
   @@index([chartAccountId])
   @@index([costCenterId])
   @@index([bankAccountId])
+  @@index([contractId])
 }

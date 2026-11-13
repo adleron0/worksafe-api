@@ -437,3 +437,72 @@ model Commercial_ProposalEvent {
 
   @@index([proposalId])
 }
+
+// ---------------------------------------------------------------- contrato
+
+enum CommercialContractStatus {
+  vigente
+  concluido
+  cancelado
+}
+
+// Nasce do aceite da proposta: é a proposta aceita, congelada, com quem
+// aceitou. As parcelas previstas viram contas a receber quando a nota fiscal
+// de cada uma é registrada.
+model Commercial_Contract {
+  id         Int                      @id @default(autoincrement())
+  companyId  Int
+  // CT-2026-0001
+  number     String                   @db.VarChar(30)
+  year       Int
+  sequence   Int
+  proposalId Int                      @unique
+  customerId Int
+  customer   Customer                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  kind       CommercialProposalKind
+  status     CommercialContractStatus @default(vigente)
+  title      String                   @db.VarChar(200)
+  value      Decimal                  @db.Decimal(14, 2)
+  acceptedAt DateTime
+  startDate  DateTime?                @db.Date
+  endDate    DateTime?                @db.Date
+  // documento aceito, como o cliente leu
+  documentHtml String?
+  documentHash String?                @db.VarChar(64)
+  // quem aceitou (nome, CPF, cargo, e-mail, IP...) ou o registro manual
+  signer     Json?
+  sellerId   Int?
+  // itens de treinamento da proposta e as turmas fechadas criadas para eles
+  classes    Json?
+  notes      String?
+  statusNote String?                  @db.VarChar(500)
+
+  installments Commercial_ContractInstallment[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([companyId, number])
+  @@index([companyId, status])
+  @@index([companyId, customerId])
+}
+
+model Commercial_ContractInstallment {
+  id          Int                 @id @default(autoincrement())
+  companyId   Int
+  contractId  Int
+  contract    Commercial_Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  number      Int
+  total       Int
+  description String?             @db.VarChar(200)
+  value       Decimal             @db.Decimal(14, 2)
+  dueRule     CommercialDueRule
+  dueDate     DateTime?           @db.Date
+  dueDays     Int?
+  // conta a receber gerada ao registrar a nota fiscal desta parcela
+  financialRecordId Int?          @unique
+  billedAt    DateTime?
+
+  @@index([contractId])
+}

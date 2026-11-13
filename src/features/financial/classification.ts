@@ -2,10 +2,11 @@ import { BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
 /** Origem do recebível, para a classificação automática. */
-export type ClassificationOrigin = 'inscricao' | 'manual';
+export type ClassificationOrigin = 'inscricao' | 'manual' | 'contrato';
 export const CLASSIFICATION_ORIGINS: Array<{ origin: ClassificationOrigin; label: string }> = [
   { origin: 'inscricao', label: 'Inscrição em turma (checkout)' },
   { origin: 'manual', label: 'Lançamento manual' },
+  { origin: 'contrato', label: 'Contrato comercial (proposta aceita)' },
 ];
 
 type Db = Pick<PrismaClient, 'financial_ClassificationDefault'>;
