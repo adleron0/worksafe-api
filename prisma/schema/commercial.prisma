@@ -51,6 +51,8 @@ model Commercial_CostBase {
   nightRate         Decimal @default(0.2) @db.Decimal(7, 6)
   travelRate        Decimal @default(0.25) @db.Decimal(7, 6)
   weekendRate       Decimal @default(2) @db.Decimal(7, 6)
+  // hora extra em dia normal (50% = hora × 1,5)
+  overtimeRate      Decimal @default(0.5) @db.Decimal(7, 6)
   // false = igual à planilha (adicional de FDS não multiplica pela quantidade)
   weekendPerWorker  Boolean @default(false)
 
@@ -260,6 +262,24 @@ model Commercial_Proposal {
   decidedAt     DateTime?
 
   createdByUserId Int?
+
+  // Documento: cópia editável do modelo (com variáveis), termos escolhidos e
+  // como a tabela de itens aparece. Ao enviar, o documento é congelado.
+  templateId          Int?
+  documentBody        String?
+  itemsMode           String    @default("detalhado") @db.VarChar(20)
+  termIds             Int[]     @default([])
+  // link público: /proposta/<publicKey>
+  publicKey           String?   @unique @db.VarChar(40)
+  frozenHtml          String?
+  frozenHash          String?   @db.VarChar(64)
+  viewedAt            DateTime?
+  // código de confirmação do aceite (só o hash)
+  acceptCodeHash      String?   @db.VarChar(64)
+  acceptCodeExpiresAt DateTime?
+  acceptCodeAttempts  Int       @default(0)
+  events              Commercial_ProposalEvent[]
+
   sections        Commercial_ProposalSection[]
   items           Commercial_ProposalItem[]
   installments    Commercial_ProposalInstallment[]
@@ -311,6 +331,8 @@ model Commercial_ProposalItem {
   workDays       Int?
   weekendDays    Int?
   hoursPerDay    Decimal? @db.Decimal(6, 2)
+  // horas extras por profissional da linha, no período todo
+  overtimeHours  Decimal  @default(0) @db.Decimal(8, 2)
 
   // treinamento
   courseId Int?
@@ -349,6 +371,69 @@ model Commercial_ProposalInstallment {
   dueDate     DateTime?           @db.Date
   dueDays     Int?
   description String?             @db.VarChar(200)
+
+  @@index([proposalId])
+}
+
+// ---------------------------------------------------------------- documento e aceite
+
+// Modelo de proposta: texto rico com variáveis ({{cliente.nome}}) e blocos
+// ({{tabela_itens}}, {{condicoes_pagamento}}, {{termos}}, {{assinatura}}).
+model Commercial_ProposalTemplate {
+  id        Int                     @id @default(autoincrement())
+  companyId Int
+  name      String                  @db.VarChar(120)
+  // nulo = serve para qualquer tipo de proposta
+  kind      CommercialProposalKind?
+  body      String
+  itemsMode String                  @default("detalhado") @db.VarChar(20)
+  termIds   Int[]                   @default([])
+  isDefault Boolean                 @default(false)
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@index([companyId])
+}
+
+// Texto jurídico pré-cadastrado (aceite, pagamento, cancelamento, LGPD...).
+model Commercial_Term {
+  id        Int    @id @default(autoincrement())
+  companyId Int
+  title     String @db.VarChar(160)
+  kind      String @default("geral") @db.VarChar(30)
+  body      String
+  order     Int    @default(0)
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@index([companyId])
+}
+
+// Trilha da proposta: enviada, visualizada, aceita, recusada... com as
+// evidências do aceite (quem, quando, de onde, qual documento).
+model Commercial_ProposalEvent {
+  id           Int                 @id @default(autoincrement())
+  companyId    Int
+  proposalId   Int
+  proposal     Commercial_Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  type         String              @db.VarChar(30)
+  userId       Int?
+  ip           String?             @db.VarChar(64)
+  userAgent    String?             @db.VarChar(400)
+  name         String?             @db.VarChar(160)
+  cpf          String?             @db.VarChar(14)
+  role         String?             @db.VarChar(120)
+  email        String?             @db.VarChar(255)
+  documentHash String?             @db.VarChar(64)
+  // o código foi confirmado por e-mail?
+  codeVerified Boolean?
+  note         String?             @db.VarChar(1000)
+
+  createdAt DateTime @default(now())
 
   @@index([proposalId])
 }

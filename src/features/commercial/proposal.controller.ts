@@ -61,6 +61,12 @@ export class ProposalController {
   @Permissions('update_comercial') @Put('proposals/:id')
   update(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.proposals.update(actorOf(req), id, body ?? {}); }
 
+  @Permissions('list_comercial') @Post('proposals/:id/document-preview')
+  documentPreview(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.proposals.documentPreview(actorOf(req), id, body ?? {}); }
+
+  @Permissions('update_comercial') @Post('proposals/:id/send-email')
+  sendEmail(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.proposals.sendEmail(actorOf(req), id, body ?? {}); }
+
   @Permissions('create_comercial') @Post('proposals/:id/duplicate')
   duplicate(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.proposals.duplicate(actorOf(req), id); }
 

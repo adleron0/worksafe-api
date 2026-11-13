@@ -14,6 +14,7 @@ type Body = Record<string, unknown>;
 
 /** Campos numéricos da base: [mínimo, máximo]. Tudo fora disso é erro de digitação. */
 const PARAM_RULES: Record<Exclude<keyof CostBaseParams, 'weekendPerWorker'>, [number, number]> = {
+  overtimeRate: [0, 5],
   daysInYear: [1, 366], restDays: [0, 366], vacationDays: [0, 366], holidays: [0, 366],
   hoursPerDay: [0.5, 24], idleRate: [0, 0.99], monthsDivisor: [1, 12],
   additionalDivisor: [1, 744], nightRate: [0, 5], travelRate: [0, 5], weekendRate: [0, 5],
@@ -23,7 +24,7 @@ const PARAM_RULES: Record<Exclude<keyof CostBaseParams, 'weekendPerWorker'>, [nu
 const PARAM_LABELS: Record<string, string> = {
   daysInYear: 'Dias no ano', restDays: 'DSR', vacationDays: 'Férias', holidays: 'Feriados', hoursPerDay: 'Horas por dia',
   idleRate: 'Índice de ociosidade', monthsDivisor: 'Divisor de meses', additionalDivisor: 'Divisor dos adicionais',
-  nightRate: 'Adicional noturno', travelRate: 'Adicional de viagem', weekendRate: 'Adicional de FDS/feriado',
+  nightRate: 'Adicional noturno', overtimeRate: 'Hora extra', travelRate: 'Adicional de viagem', weekendRate: 'Adicional de FDS/feriado',
   mealPerDay: 'Alimentação por dia', transportFare: 'Tarifa de transporte', transportTrips: 'Passagens por dia',
   transportDiscount: 'Desconto do transporte', fareDiscountRate: 'Desconto de vale-transporte', headcount: 'Efetivo médio',
 };
@@ -231,7 +232,8 @@ export class CommercialService {
     const source = (body.params ?? body) as Body;
     const out: Record<string, number | boolean> = {};
     for (const [key, [min, max]] of Object.entries(PARAM_RULES)) {
-      const value = key in source ? source[key] : fallback?.[key];
+      // percentual novo: quem ainda não manda vale o padrão
+      const value = key in source ? source[key] : fallback?.[key] ?? (key === 'overtimeRate' ? 0.5 : undefined);
       out[key] = number(value, PARAM_LABELS[key], min, max);
     }
     out.weekendPerWorker = 'weekendPerWorker' in source ? bool(source.weekendPerWorker) : fallback?.weekendPerWorker === true;

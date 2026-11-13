@@ -10,7 +10,7 @@ import { CostBaseParams, CostItem, TaxBracket } from './engine';
 export const SHEET_PARAMS: CostBaseParams = {
   daysInYear: 365, restDays: 88, vacationDays: 30, holidays: 15,
   hoursPerDay: 8, idleRate: 0.1, monthsDivisor: 11,
-  additionalDivisor: 220, nightRate: 0.2, travelRate: 0.25, weekendRate: 2, weekendPerWorker: false,
+  additionalDivisor: 220, nightRate: 0.2, travelRate: 0.25, weekendRate: 2, overtimeRate: 0.5, weekendPerWorker: false,
   mealPerDay: 30, transportFare: 4.5, transportTrips: 6, transportDiscount: 0.6,
   fareDiscountRate: 0.06,
   headcount: 17,

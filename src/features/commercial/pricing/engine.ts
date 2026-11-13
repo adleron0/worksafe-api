@@ -22,6 +22,8 @@ export interface CostBaseParams {
   daysInYear: number; restDays: number; vacationDays: number; holidays: number;
   hoursPerDay: number; idleRate: number; monthsDivisor: number;
   additionalDivisor: number; nightRate: number; travelRate: number; weekendRate: number;
+  /** hora extra em dia normal; ausente em fotografias antigas = 50% */
+  overtimeRate?: number;
   weekendPerWorker: boolean;
   mealPerDay: number; transportFare: number; transportTrips: number; transportDiscount: number;
   fareDiscountRate: number;
@@ -126,6 +128,8 @@ export interface ProfessionalCost {
   /** Custo hora carregado (HHT) */
   hourCost: number;
   nightPerHour: number; travelPerHour: number; weekendPerHour: number;
+  /** Custo de uma hora extra: hora de salário × (1 + adicional), com encargos */
+  overtimePerHour: number;
   /** De onde vem o custo hora */
   parts: { labor: number; benefits: number; indirect: number; other: number; debt: number; fareDiscount: number };
 }
@@ -143,6 +147,7 @@ export function professionalCost(salary: number, params: CostBaseParams, base: B
     nightPerHour: additional(params.nightRate),
     travelPerHour: additional(params.travelRate),
     weekendPerHour: additional(params.weekendRate),
+    overtimePerHour: additional(1 + num(params.overtimeRate, 0.5)),
     parts: { labor, benefits: base.C, indirect: base.D, other: base.E - base.debtPerHour, debt: base.debtPerHour, fareDiscount },
   };
 }
@@ -210,6 +215,8 @@ export interface PriceItemInput {
   salary?: number;
   night?: boolean; travel?: boolean; weekend?: boolean;
   workDays?: number; weekendDays?: number; hoursPerDay?: number;
+  /** horas extras por profissional, no período todo */
+  overtimeHours?: number;
   /** demais tipos: custo = quantity × unitCost + extraCost */
   unitCost?: number; extraCost?: number;
   /** Preço de tabela (ex.: curso in-company): vira o sugerido no lugar da conta por custo e margem */
@@ -301,6 +308,7 @@ export function price(input: PriceInput, ctx: PriceContext): PriceResult {
         hourCost = pro.hourCost + (item.night ? pro.nightPerHour : 0) + (item.travel ? pro.travelPerHour : 0);
         lineCost = hourCost * quantity * hours;
         lineDebt = base.debtPerHour * quantity * hours;
+        lineCost += pro.overtimePerHour * Math.max(0, num(item.overtimeHours)) * quantity;
         if (item.weekend) {
           const weekendHours = num(item.weekendDays ?? input.weekendDays) * hpd;
           lineCost += pro.weekendPerHour * weekendHours * (params.weekendPerWorker ? quantity : 1);

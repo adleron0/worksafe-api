@@ -312,13 +312,16 @@ describe('Comercial — propostas (e2e)', () => {
     const h = auth(company.id);
     const beta = await makeCustomer(company.id, 'Beta Engenharia');
     const a = await criar(company.id, exemplo(customer.id, pro('Alpinista N1'), { installments: [{ percent: 1, dueRule: 'dias_apos_nf', dueDays: 30 }], validUntil: '2020-01-01' }));
+    // validade vencida não envia; com a data ajustada, sim
+    await api().patch(`/commercial/proposals/status/${a.id}`).set(h).send({ status: 'enviada' }).expect(400);
+    await api().put(`/commercial/proposals/${a.id}`).set(h).send({ ...a.draft, validUntil: '2099-12-31' }).expect(200);
     await criar(company.id, { kind: 'treinamento', customerId: beta.id, title: 'NR-35 para a equipe' });
     await api().patch(`/commercial/proposals/status/${a.id}`).set(h).send({ status: 'enviada' }).expect(200);
 
     const all = (await api().get('/commercial/proposals').set(h).expect(200)).body;
     expect(all.total).toBe(2);
     expect(all.summary).toMatchObject({ enviada: { count: 1, total: 20589.11 }, rascunho: { count: 1, total: 0 } });
-    expect(all.rows.find((r: any) => r.id === a.id)).toMatchObject({ status: 'enviada', expired: true, customer: { name: 'Indústria Alfa' }, total: 20589.11 });
+    expect(all.rows.find((r: any) => r.id === a.id)).toMatchObject({ status: 'enviada', expired: false, customer: { name: 'Indústria Alfa' }, total: 20589.11 });
     const search = async (query: string) => (await api().get(`/commercial/proposals?${query}`).set(h).expect(200)).body.rows.map((r: any) => r.title);
     expect(await search('search=beta')).toEqual(['NR-35 para a equipe']);
     expect(await search('search=jateamento')).toEqual(['Jateamento de estrutura']);

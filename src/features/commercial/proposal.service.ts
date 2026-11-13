@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { CommercialDueRule, CommercialItemType, CommercialProposalKind, CommercialProposalStatus, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CommercialService, PricingSnapshot } from './commercial.service';
+import { DocumentData, DocumentService, ITEMS_MODES, ItemsMode, VARIABLES, renderDocument, sanitizeBody, sha256 } from './document.service';
 import { computeBase, price, PriceInput, PriceItemInput, PriceResult, PricingError, professionalCost, resolveTax, round2 } from './pricing/engine';
 
 type Body = Record<string, any>;
@@ -64,7 +65,7 @@ export function installmentValues(total: number, installments: Array<{ percent: 
 export interface DraftItem {
   id?: number; type: CommercialItemType; description: string; unit: string | null; quantity: number;
   professionalId: number | null; night: boolean; travel: boolean; weekend: boolean;
-  workDays: number | null; weekendDays: number | null; hoursPerDay: number | null;
+  workDays: number | null; weekendDays: number | null; hoursPerDay: number | null; overtimeHours: number;
   courseId: number | null; extra: { students?: number | null; workload?: number | null; dates?: string; location?: string } | null;
   unitCost: number; extraCost: number; margin: number | null; finalValue: number | null; showInDocument: boolean;
 }
@@ -76,6 +77,8 @@ export interface Draft {
   validUntil: string | null; referenceDate: string; workDays: number; weekendDays: number;
   contingencyRate: number; commissionRate: number; commissionBase: 'faturado' | 'lucro'; commissionInPrice: boolean;
   taxRegime: 'tradicional' | 'hibrido' | null; discount: number; internalNotes: string | null;
+  /** documento: cópia editável do modelo, termos escolhidos e formato da tabela de itens */
+  templateId: number | null; documentBody: string | null; itemsMode: ItemsMode; termIds: number[];
   sections: DraftSection[]; installments: DraftInstallment[];
 }
 
@@ -89,7 +92,7 @@ const FULL = {
 
 @Injectable()
 export class ProposalService {
-  constructor(private readonly prisma: PrismaService, private readonly commercial: CommercialService) {}
+  constructor(private readonly prisma: PrismaService, private readonly commercial: CommercialService, private readonly documents: DocumentService) {}
 
   // ------------------------------------------------------------------ leitura do corpo
 
@@ -142,6 +145,7 @@ export class ProposalService {
           workDays: type === 'mao_de_obra' ? optional(entry.workDays, `Dias de ${label}`, 0, 3660) : null,
           weekendDays: type === 'mao_de_obra' ? optional(entry.weekendDays, `Dias de FDS de ${label}`, 0, 3660) : null,
           hoursPerDay: type === 'mao_de_obra' ? optional(entry.hoursPerDay, `Horas por dia de ${label}`, 0.5, 24) : null,
+          overtimeHours: type === 'mao_de_obra' ? number(entry.overtimeHours, `Horas extras de ${label}`, 0, 100000, 0) : 0,
           courseId: type === 'treinamento' ? optional(entry.courseId, 'Curso', 1, 2147483647) : null,
           extra: type === 'treinamento' ? extra : null,
           unitCost: type === 'mao_de_obra' ? 0 : round2(number(entry.unitCost, `Custo de ${label}`, 0, 1e10, 0)),
@@ -184,6 +188,10 @@ export class ProposalService {
       commissionInPrice: seeCosts && 'inPrice' in commission ? bool(commission.inPrice) : keep ? keep.commissionInPrice : bool(commissionDefault.inPrice),
       taxRegime: seeCosts ? (body.taxRegime === 'tradicional' || body.taxRegime === 'hibrido' ? body.taxRegime : null) : keep?.taxRegime ?? null,
       discount: round2(number(body.discount, 'Desconto', 0, 1e11, 0)),
+      templateId: 'templateId' in body ? optional(body.templateId, 'Modelo', 1, 2147483647) : keep?.templateId ?? null,
+      documentBody: 'documentBody' in body ? (sanitizeBody(body.documentBody) || null) : keep?.documentBody ?? null,
+      itemsMode: (ITEMS_MODES.includes(body.itemsMode) ? body.itemsMode : keep?.itemsMode ?? 'detalhado') as ItemsMode,
+      termIds: Array.isArray(body.termIds) ? body.termIds.map(Number).filter((id: number) => Number.isInteger(id) && id > 0).slice(0, 40) : keep?.termIds ?? [],
       sections, installments,
     };
   }
@@ -250,7 +258,8 @@ export class ProposalService {
           margin: section.margin,
           items: section.items.map((item): PriceItemInput => item.type === 'mao_de_obra'
             ? { type: item.type, quantity: item.quantity, salary: snapshot.salaries[item.professionalId!].salary, night: item.night, travel: item.travel, weekend: item.weekend,
-              workDays: item.workDays ?? undefined, weekendDays: item.weekendDays ?? undefined, hoursPerDay: item.hoursPerDay ?? undefined, margin: item.margin, finalValue: item.finalValue }
+              workDays: item.workDays ?? undefined, weekendDays: item.weekendDays ?? undefined, hoursPerDay: item.hoursPerDay ?? undefined,
+              overtimeHours: item.overtimeHours, margin: item.margin, finalValue: item.finalValue }
             : { type: item.type, quantity: item.quantity, unitCost: item.unitCost, extraCost: item.extraCost, margin: item.margin, finalValue: item.finalValue,
               listPrice: item.type === 'treinamento' ? this.listPrice(item, snapshot) : null }),
         })),
@@ -305,6 +314,9 @@ export class ProposalService {
       const seller = await this.prisma.user.findFirst({ where: { id: draft.sellerId, companyId }, select: { id: true } });
       if (!seller) throw new BadRequestException('Vendedor não encontrado');
     }
+    // só termos e modelo ativos da própria empresa
+    draft.termIds = await this.documents.cleanTermIds(companyId, draft.termIds);
+    if (draft.templateId && !(await this.prisma.commercial_ProposalTemplate.findFirst({ where: { id: draft.templateId, companyId }, select: { id: true } }))) draft.templateId = null;
   }
 
   private async byId(companyId: number, id: number): Promise<ProposalRow> {
@@ -321,12 +333,13 @@ export class ProposalService {
       validUntil: iso(row.validUntil), referenceDate: iso(row.referenceDate)!, workDays: row.workDays, weekendDays: row.weekendDays,
       contingencyRate: Number(row.contingencyRate), commissionRate: Number(row.commissionRate), commissionBase: row.commissionBase === 'lucro' ? 'lucro' : 'faturado',
       commissionInPrice: row.commissionInPrice, taxRegime: row.taxRegime, discount: Number(row.discount), internalNotes: row.internalNotes,
+      templateId: row.templateId, documentBody: row.documentBody, itemsMode: (ITEMS_MODES.includes(row.itemsMode as ItemsMode) ? row.itemsMode : 'detalhado') as ItemsMode, termIds: row.termIds,
       sections: row.sections.map((section) => ({
         id: section.id, title: section.title, kind: section.kind, margin: Number(section.margin), showInDocument: section.showInDocument,
         items: row.items.filter((item) => item.sectionId === section.id).map((item) => ({
           id: item.id, type: item.type, description: item.description, unit: item.unit, quantity: Number(item.quantity),
           professionalId: item.professionalId, night: item.night, travel: item.travel, weekend: item.weekend,
-          workDays: item.workDays, weekendDays: item.weekendDays, hoursPerDay: n(item.hoursPerDay), courseId: item.courseId,
+          workDays: item.workDays, weekendDays: item.weekendDays, hoursPerDay: n(item.hoursPerDay), overtimeHours: Number(item.overtimeHours), courseId: item.courseId,
           extra: (item.extra as DraftItem['extra']) ?? null, unitCost: Number(item.unitCost), extraCost: Number(item.extraCost),
           margin: n(item.margin), finalValue: n(item.finalValue), showInDocument: item.showInDocument,
         })),
@@ -396,6 +409,14 @@ export class ProposalService {
       baseOutdated: editable ? !(await this.commercial.snapshotIsCurrent(row.companyId, snapshot, row.taxRegime)) : false,
       baseCapturedAt: snapshot.capturedAt,
       versions: versions.map((v) => ({ ...v, total: Number(v.total) })),
+      // link do cliente e trilha (enviada, visualizada, aceite com as evidências)
+      publicKey: row.publicKey, publicUrl: row.publicKey ? await this.documents.publicUrl(row.companyId, row.publicKey) : null,
+      documentFrozen: Boolean(row.frozenHtml), documentHash: row.frozenHash, viewedAt: row.viewedAt,
+      emailConfigured: this.documents.emailConfigured(),
+      events: (await this.documents.events(row.id)).map((e) => ({
+        id: e.id, type: e.type, at: e.createdAt, name: e.name, role: e.role, email: e.email, cpf: e.cpf, ip: e.ip, userAgent: e.userAgent,
+        note: e.note, codeVerified: e.codeVerified, documentHash: e.documentHash,
+      })),
       draft: actor.canSeeCosts ? draft : this.hideMargins(draft),
       calc: this.view(draft, result, snapshot, actor),
     };
@@ -404,6 +425,90 @@ export class ProposalService {
   private hideMargins(draft: Draft) {
     const { commissionRate: _r, commissionBase: _b, commissionInPrice: _p, ...rest } = draft;
     return { ...rest, sections: draft.sections.map(({ margin: _m, ...section }) => ({ ...section, items: section.items.map(({ margin: _im, ...item }) => item) })) };
+  }
+
+  // ------------------------------------------------------------------ documento
+
+  /**
+   * O que vai para o documento do cliente. Os valores das linhas são
+   * escalados para somar o total (contingência, desconto e tributo destacado
+   * ficam diluídos): o cliente nunca vê custo, margem nem "imprevisibilidade".
+   */
+  private async documentData(companyId: number, number: string, date: Date, draft: Draft, result: ReturnType<ProposalService['calc']>): Promise<DocumentData> {
+    const [company, customer, seller] = await Promise.all([
+      this.prisma.company.findUnique({ where: { id: companyId }, select: { comercial_name: true, corporate_name: true, cnpj: true } }),
+      this.prisma.customer.findFirst({ where: { id: draft.customerId, companyId }, select: { name: true, corporateName: true, cnpj: true } }),
+      draft.sellerId ? this.prisma.user.findFirst({ where: { id: draft.sellerId, companyId }, select: { name: true } }) : null,
+    ]);
+    const total = round2(result.totals.total);
+    const factor = result.totals.subtotal > 0 ? result.totals.total / result.totals.subtotal : 0;
+    const sectionValues = result.sections.map((section) => round2(section.value * factor));
+    // a última seção com valor absorve o centavo de arredondamento
+    const lastSection = sectionValues.map((value, index) => (value > 0 ? index : -1)).filter((index) => index >= 0).pop();
+    if (lastSection !== undefined) sectionValues[lastSection] = round2(total - sectionValues.reduce((sum, value, index) => (index === lastSection ? sum : sum + value), 0));
+    const sections = draft.sections.map((section, s) => {
+      const values = result.sections[s].lines.map((line) => round2(line.value * factor));
+      const lastItem = values.map((value, index) => (value > 0 ? index : -1)).filter((index) => index >= 0).pop();
+      if (lastItem !== undefined) values[lastItem] = round2(sectionValues[s] - values.reduce((sum, value, index) => (index === lastItem ? sum : sum + value), 0));
+      return {
+        // seção sem itens não vai para o documento
+        title: section.title, show: section.showInDocument && section.items.length > 0, value: sectionValues[s],
+        items: section.items.map((item, i) => {
+          const days = item.workDays ?? draft.workDays;
+          const detail = item.type === 'mao_de_obra'
+            ? [days ? `${days} dia${days === 1 ? '' : 's'} útei${days === 1 ? 'l' : 's'}` : '', item.night ? 'noturno' : '', item.weekend ? 'inclui fim de semana/feriado' : ''].filter(Boolean).join(' · ')
+            : item.type === 'treinamento'
+              ? [item.extra?.students ? `${item.extra.students} alunos` : '', item.extra?.workload ? `${item.extra.workload} h` : '', item.extra?.dates ?? '', item.extra?.location ?? ''].filter(Boolean).join(' · ')
+              : '';
+          return {
+            description: item.description, quantity: item.quantity, value: values[i], show: item.showInDocument, detail,
+            unit: item.unit ?? (item.type === 'mao_de_obra' ? 'prof.' : item.type === 'treinamento' ? 'turma' : null),
+          };
+        }),
+      };
+    });
+    const values = installmentValues(result.totals.total, draft.installments);
+    return {
+      company: { name: company?.comercial_name ?? '', corporateName: company?.corporate_name ?? '', cnpj: company?.cnpj ?? '' },
+      customer: { name: customer?.name ?? '', corporateName: customer?.corporateName ?? '', cnpj: customer?.cnpj ?? '' },
+      contactName: draft.contactName, sellerName: seller?.name ?? null, number, title: draft.title, description: draft.description,
+      date, validUntil: draft.validUntil, workDays: draft.workDays, total, sections,
+      installments: draft.installments.map((inst, index) => ({ description: inst.description, value: values[index], dueRule: inst.dueRule, dueDate: inst.dueDate, dueDays: inst.dueDays })),
+    };
+  }
+
+  /** Corpo, termos e formato a usar: os da proposta, ou os do modelo quando ela ainda não tem documento. */
+  private async documentSource(companyId: number, draft: Draft) {
+    if (draft.documentBody) return { body: draft.documentBody, termIds: draft.termIds, itemsMode: draft.itemsMode, templateId: draft.templateId };
+    const template = await this.documents.templateFor(companyId, draft.kind, draft.templateId);
+    if (!template) throw new BadRequestException('Cadastre um modelo de proposta antes de gerar o documento');
+    return { body: template.body, termIds: draft.termIds.length ? draft.termIds : template.termIds, itemsMode: (draft.documentBody ? draft.itemsMode : template.itemsMode) as ItemsMode, templateId: template.id };
+  }
+
+  private async renderFor(companyId: number, number: string, date: Date, draft: Draft, result: ReturnType<ProposalService['calc']>) {
+    const source = await this.documentSource(companyId, draft);
+    const terms = await this.documents.termsByIds(companyId, source.termIds);
+    const html = renderDocument(source.body, await this.documentData(companyId, number, date, draft, result), terms, source.itemsMode);
+    return { html, source };
+  }
+
+  /** Pré-visualização do documento com o rascunho da tela (nada é gravado). */
+  async documentPreview(actor: Actor, id: number, body: Body) {
+    const existing = await this.byId(actor.companyId, id);
+    // proposta já enviada mostra exatamente o que o cliente recebeu
+    if (existing.frozenHtml && existing.status !== 'rascunho') return { html: existing.frozenHtml, frozen: true };
+    const snapshot = await this.snapshotFor(actor.companyId, body, existing);
+    const draft = this.parse({ ...this.draftOf(existing), ...body, customerId: body.customerId || existing.customerId, title: clean(body.title) || existing.title }, actor, snapshot, existing);
+    await this.fill(actor.companyId, draft, snapshot);
+    draft.termIds = await this.documents.cleanTermIds(actor.companyId, draft.termIds);
+    const { html } = await this.renderFor(actor.companyId, existing.number, new Date(), draft, this.calc(draft, snapshot));
+    return { html, frozen: false };
+  }
+
+  async sendEmail(actor: Actor, id: number, body: Body) {
+    const row = await this.byId(actor.companyId, id);
+    if (row.status !== 'enviada' && row.status !== 'visualizada') throw new ConflictException('Só proposta enviada tem link para mandar por e-mail');
+    return this.documents.sendLink(row, body, actor.userId);
   }
 
   // ------------------------------------------------------------------ rotas
@@ -441,6 +546,9 @@ export class ProposalService {
           includedStudents: p?.includedStudents ?? null, studentPrice: p?.studentPrice == null ? null : Number(p.studentPrice) };
       }),
       sellers,
+      templates: (await this.documents.listTemplates(actor.companyId)).map((t) => ({ id: t.id, name: t.name, kind: t.kind, isDefault: t.isDefault, body: t.body, itemsMode: t.itemsMode, termIds: t.termIds })),
+      terms: (await this.documents.listTerms(actor.companyId)).map((t) => ({ id: t.id, title: t.title, kind: t.kind })),
+      variables: VARIABLES,
     };
   }
 
@@ -461,6 +569,7 @@ export class ProposalService {
   }
 
   async list(actor: Actor, query: Record<string, string>) {
+    await this.documents.expireDue(actor.companyId);
     const page = Math.max(0, Number(query.page) || 0);
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
     const status = query.status as CommercialProposalStatus | undefined;
@@ -501,6 +610,7 @@ export class ProposalService {
   }
 
   async get(actor: Actor, id: number) {
+    await this.documents.expireDue(actor.companyId);
     return this.present(await this.byId(actor.companyId, id), actor);
   }
 
@@ -577,6 +687,7 @@ export class ProposalService {
         const root = rootId === revisionOf.id ? revisionOf : await tx.commercial_Proposal.findUniqueOrThrow({ where: { id: rootId } });
         numbering = { year: root.year, sequence: root.sequence, number: `${root.number}-R${revision}`, revision, rootId };
         await tx.commercial_Proposal.update({ where: { id: revisionOf.id }, data: { status: 'substituida' } });
+        await this.documents.event(revisionOf, 'revisada', { userId: actor.userId || null, note: `Substituída por ${numbering.number}` }, tx);
       } else {
         numbering = await this.nextNumber(tx, actor.companyId);
       }
@@ -615,6 +726,7 @@ export class ProposalService {
     if (!allowed[target]) throw new BadRequestException('Situação inválida');
     if (!allowed[target]!.includes(row.status)) throw new ConflictException(`Uma proposta ${row.status} não pode passar para ${target}`);
     if (target === 'enviada') {
+      if (row.validUntil && iso(row.validUntil)! < today()) throw new BadRequestException('A validade da proposta já venceu: ajuste a data antes de enviar');
       if (!row.items.length) throw new BadRequestException('Adicione ao menos um item antes de enviar');
       if (!(Number(row.total) > 0)) throw new BadRequestException('O total da proposta está zerado');
       if (!row.installments.length) throw new BadRequestException('Defina as condições de pagamento antes de enviar');
@@ -626,11 +738,23 @@ export class ProposalService {
         throw new BadRequestException('As parcelas não somam o total da proposta');
       }
     }
-    await this.prisma.commercial_Proposal.update({ where: { id }, data: {
-      status: target, statusNote: clean(body.note, 500) || null,
-      ...(target === 'enviada' ? { sentAt: new Date() } : {}),
-      ...(target === 'aceita' || target === 'recusada' ? { decidedAt: new Date() } : {}),
-    } });
+    // Ao enviar, o documento é montado e congelado: é ele (e o hash dele) que o cliente lê e aceita.
+    let frozen: { frozenHtml: string; frozenHash: string; publicKey: string; documentBody: string; termIds: number[]; itemsMode: string; templateId: number | null } | null = null;
+    if (target === 'enviada') {
+      const draft = this.draftOf(row);
+      const sentAt = new Date();
+      const { html, source } = await this.renderFor(actor.companyId, row.number, sentAt, draft, this.calc(draft, row.snapshot as unknown as PricingSnapshot));
+      frozen = { frozenHtml: html, frozenHash: sha256(html), publicKey: this.documents.newKey(), documentBody: source.body, termIds: source.termIds, itemsMode: source.itemsMode, templateId: source.templateId };
+    }
+    const note = clean(body.note, 500) || null;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.commercial_Proposal.update({ where: { id }, data: {
+        status: target, statusNote: note,
+        ...(frozen ? { ...frozen, sentAt: new Date() } : {}),
+        ...(target === 'aceita' || target === 'recusada' ? { decidedAt: new Date() } : {}),
+      } });
+      await this.documents.event(row, target, { userId: actor.userId || null, note, documentHash: frozen?.frozenHash ?? row.frozenHash }, tx);
+    });
     return this.get(actor, id);
   }
 

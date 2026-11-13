@@ -83,6 +83,22 @@ describe('Motor de preços — planilha FORM-COM-001', () => {
     expect(round2(fixed - plain)).toBe(round2(pro.weekendPerHour * 16 * 3));
   });
 
+  it('hora extra só na linha de quem fez: hora de salário × 1,5 com encargos, vezes a quantidade', () => {
+    const ctx = { params: SHEET_PARAMS, base, tax: resolveTax(simples) };
+    const pro = professionalCost(salary('Resgatista'), SHEET_PARAMS, base);
+    expect(round2(pro.overtimePerHour)).toBe(round2((1780.84 / 220) * 1.5 * 1.4616));
+    const team = (overtimeHours: number) => price({ workDays: 5, sections: [{ margin: 0.26, items: [
+      { type: 'mao_de_obra', salary: salary('Resgatista'), quantity: 1, overtimeHours },
+      { type: 'mao_de_obra', salary: salary('Alpinista N1'), quantity: 3 },
+    ] }] }, ctx);
+    const plain = team(0), extra = team(6);
+    expect(round2(extra.sections[0].lines[0].cost - plain.sections[0].lines[0].cost)).toBe(round2(pro.overtimePerHour * 6));
+    expect(extra.sections[0].lines[1].cost).toBe(plain.sections[0].lines[1].cost);
+    // fotografia antiga, sem o percentual: vale 50%
+    const { overtimeRate: _old, ...legacy } = SHEET_PARAMS;
+    expect(professionalCost(salary('Resgatista'), legacy, base).overtimePerHour).toBe(pro.overtimePerHour);
+  });
+
   it('locação e material: custo = quantidade × unitário + taxas, com a margem da seção', () => {
     const { sections, totals } = price({
       contingencyRate: 0, sections: [
