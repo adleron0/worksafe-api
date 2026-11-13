@@ -32,8 +32,7 @@ export class StudentProgressCustomController {
   constructor(
     private readonly Service: Service,
     private readonly cacheService: CacheService,
-  ) {
-  }
+  ) {}
 
   @StudentAuth()
   @Get('my-progress')
@@ -93,6 +92,9 @@ export class StudentProgressCustomController {
 
   @StudentAuth()
   @Patch('step/:stepId/update')
+  // O front (api-s) manda FormData: sem o interceptor o corpo chegava
+  // undefined e toda atualização de progresso parcial dava 400.
+  @UseInterceptors(FileInterceptor('file'))
   @UsePipes(
     new ValidationPipe({
       whitelist: true,
@@ -106,6 +108,10 @@ export class StudentProgressCustomController {
     @Body() body: any,
   ) {
     const traineeId = req['traineeId'];
-    return this.Service.updateStepProgress(traineeId, Number(stepId), body);
+    return this.Service.updateStepProgress(
+      traineeId,
+      Number(stepId),
+      body ?? {},
+    );
   }
 }

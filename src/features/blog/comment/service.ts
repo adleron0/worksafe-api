@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { BlogCommentStatus } from '@prisma/client';
 
@@ -45,7 +49,7 @@ export class CommentService {
     });
 
     if (!post) {
-      throw new BadRequestException('Post não encontrado');
+      throw new NotFoundException('Post não encontrado');
     }
 
     // Calcula a profundidade

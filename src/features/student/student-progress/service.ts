@@ -12,8 +12,7 @@ export class StudentProgressService {
   constructor(
     protected prisma: PrismaService,
     protected uploadService: UploadService,
-  ) {
-  }
+  ) {}
 
   async getMyProgress(traineeId: number, params: any): Promise<any> {
     try {
@@ -580,6 +579,19 @@ export class StudentProgressService {
     body: any,
   ): Promise<any> {
     try {
+      // FormData: percentual chega como texto ("45") e o campo é Int
+      const percent = Number(body.progressPercent);
+      body.progressPercent = Number.isFinite(percent)
+        ? Math.min(100, Math.max(0, Math.round(percent)))
+        : undefined;
+      if (typeof body.progressData === 'string') {
+        try {
+          body.progressData = JSON.parse(body.progressData);
+        } catch {
+          // mantém o texto como veio
+        }
+      }
+
       const existingProgress = await this.prisma.selectFirst(
         'onlineStudentStepProgress',
         {

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { CacheService } from 'src/common/cache/cache.service';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -55,7 +55,7 @@ export class PostService {
     });
 
     if (!post) {
-      throw new BadRequestException('Post não encontrado');
+      throw new NotFoundException('Post não encontrado');
     }
 
     return post;
@@ -75,7 +75,7 @@ export class PostService {
       where: { companyId: Number(companyId), slug, status: 'published', inactiveAt: null },
       select: { id: true },
     });
-    if (!post) throw new BadRequestException('Post não encontrado');
+    if (!post) throw new NotFoundException('Post não encontrado');
 
     if (isBotUserAgent(visitor.userAgent)) return { counted: false, reason: 'bot' };
 
