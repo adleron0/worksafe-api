@@ -89,15 +89,16 @@ describe('Comercial — documento, link público e aceite (e2e)', () => {
   it('primeira abertura cria termos e modelos padrão, sem duplicar', async () => {
     const { h, options } = await cenario();
     expect(options.templates.map((t: any) => [t.name, t.kind, t.isDefault])).toEqual([
-      ['Proposta de serviço — completa', 'servico', true], ['Proposta de serviço — simples', null, false],
-      ['Proposta de treinamento — completa', 'treinamento', false], ['Proposta de treinamento — simples', null, false],
+      ['Orçamento de serviço', 'servico', true], ['Orçamento de treinamento', 'treinamento', false],
+      ['Proposta de serviço — completa', null, false], ['Proposta de serviço — simples', null, false],
+      ['Proposta de treinamento — completa', null, false], ['Proposta de treinamento — simples', null, false],
     ]);
-    expect(options.variables.filter((v: any) => v.block).map((v: any) => v.key)).toEqual(expect.arrayContaining(['capa', 'resumo', 'imagens', 'investimento', 'sobre', 'proximos_passos', 'contato']));
-    expect(options.terms.map((t: any) => t.kind)).toEqual(['aceite', 'pagamento', 'reequilibrio', 'cancelamento', 'obrigacoes', 'confidencialidade', 'lgpd']);
+    expect(options.variables.filter((v: any) => v.block).map((v: any) => v.key)).toEqual(expect.arrayContaining(['cabecalho', 'cliente', 'informacoes', 'dados_bancarios', 'rodape', 'capa', 'resumo', 'imagens', 'investimento', 'sobre', 'proximos_passos', 'contato']));
+    expect(options.terms.map((t: any) => t.kind)).toEqual(['pagamento', 'mobilizacao', 'obrigacoes_contratada', 'obrigacoes', 'cancelamento', 'reequilibrio', 'aceite', 'confidencialidade', 'lgpd']);
     expect(options.variables.some((v: any) => v.key === 'tabela_itens' && v.block)).toBe(true);
     await Promise.all([api().get('/commercial/templates').set(h), api().get('/commercial/terms').set(h)]);
-    expect(await testDb().commercial_ProposalTemplate.count()).toBe(4);
-    expect(await testDb().commercial_Term.count()).toBe(7);
+    expect(await testDb().commercial_ProposalTemplate.count()).toBe(6);
+    expect(await testDb().commercial_Term.count()).toBe(9);
   });
 
   it('modelos e termos: cadastro, limpeza do texto, padrão único e bloqueios', async () => {
@@ -116,8 +117,8 @@ describe('Comercial — documento, link público e aceite (e2e)', () => {
 
     await api().patch(`/commercial/templates/inactive/${template.id}`).set(h).expect(200);
     await api().patch(`/commercial/terms/inactive/${term.id}`).set(h).expect(200);
-    expect((await api().get('/commercial/terms').set(h)).body).toHaveLength(7);
-    expect((await api().get('/commercial/terms?inactive=true').set(h)).body).toHaveLength(8);
+    expect((await api().get('/commercial/terms').set(h)).body).toHaveLength(9);
+    expect((await api().get('/commercial/terms?inactive=true').set(h)).body).toHaveLength(10);
 
     // outra empresa não mexe nem usa
     const other = await makeCompany();
@@ -130,8 +131,8 @@ describe('Comercial — documento, link público e aceite (e2e)', () => {
     const { h, proposal } = await cenario();
     const preview = (await api().post(`/commercial/proposals/${proposal.id}/document-preview`).set(h).send({}).expect(201)).body;
     expect(preview.frozen).toBe(false);
-    for (const text of ['Proposta comercial', 'PC-', 'Indústria Alfa SA', 'A/C Maria Souza', 'Jateamento e pintura do tanque 3.', 'Alpinista N1', '20.589,11',
-      'vinte mil, quinhentos e oitenta e nove reais e onze centavos', '28 dias após a emissão da nota fiscal', '31/12/2099', '<h3>Aceite</h3>', '22 dias úteis']) {
+    for (const text of ['PROPOSTA Nº PC-', 'Informações do cliente', 'INDÚSTRIA ALFA SA', 'A/C Maria Souza', 'Jateamento e pintura do tanque 3.', 'Alpinista N1', '20.589,11',
+      'vinte mil, quinhentos e oitenta e nove reais e onze centavos', '28 dias após a emissão da nota fiscal', '31/12/2099', '>Aceite</div>', '22 dias úteis']) {
       expect(preview.html).toContain(text);
     }
     // nada de custo, margem, imposto, comissão ou "imprevisibilidade" no documento
@@ -344,7 +345,9 @@ describe('Comercial — documento, link público e aceite (e2e)', () => {
     expect(saved.highlights).toEqual([{ value: '+500', label: 'profissionais treinados' }]);
     expect(saved).toMatchObject({ color: '#0B5ED7', logoUrl: 'https://cdn.teste.local/logo.webp' }); // continua vindo do cadastro
 
-    const html = (await api().post(`/commercial/proposals/${proposal.id}/document-preview`).set(h).send({}).expect(201)).body.html as string;
+    // o modelo "completa" continua disponível para quem quiser a proposta com capa
+    const complete = (await api().get('/commercial/templates').set(h).expect(200)).body.find((t: any) => t.name === 'Proposta de serviço — completa');
+    const html = (await api().post(`/commercial/proposals/${proposal.id}/document-preview`).set(h).send({ ...proposal.draft, templateId: complete.id }).expect(201)).body.html as string;
     expect(html.startsWith('<div class="pd-root" style="--brand:#0B5ED7">')).toBe(true);
     for (const piece of ['data-block="capa"', 'background:#0B5ED7', 'src="https://cdn.teste.local/logo.webp"', 'Preparada para <strong>Indústria Alfa SA</strong>',
       'data-block="resumo"', '22 dias úteis', 'data-block="investimento"', 'Investimento total', 'Pagamento único',
@@ -391,7 +394,7 @@ describe('Comercial — documento, link público e aceite (e2e)', () => {
     const { h, company, proposal } = await cenario();
     const view = (await api().get(`/commercial/proposals/${proposal.id}/client-view`).set(h).expect(200)).body;
     expect(view).toMatchObject({ preview: true, sent: false, proposalStatus: 'rascunho', number: proposal.number, canDecide: true, total: 20589.11, accepted: null });
-    expect(view.html).toContain('data-block="capa"');
+    expect(view.html).toContain('data-block="cabecalho"');
     expect(view.html).toContain('20.589,11');
     for (const hidden of ['10.392,60', '4.323,71', 'mprevisibilidade']) expect(view.html).not.toContain(hidden);
     // olhar não envia, não cria link e não registra visualização
@@ -412,19 +415,43 @@ describe('Comercial — documento, link público e aceite (e2e)', () => {
     const db = testDb();
     // estado de antes desta versão: só os dois modelos simples, o de serviço como padrão
     const simple = await db.commercial_ProposalTemplate.findMany({ where: { companyId: company.id, name: { contains: 'simples' } }, orderBy: { id: 'asc' } });
-    await db.commercial_ProposalTemplate.deleteMany({ where: { companyId: company.id, name: { contains: 'completa' } } });
+    await db.commercial_ProposalTemplate.deleteMany({ where: { companyId: company.id, OR: [{ name: { contains: 'completa' } }, { name: { startsWith: 'Orçamento' } }] } });
     await db.commercial_ProposalTemplate.update({ where: { id: simple[0].id }, data: { name: 'Proposta de serviço', kind: 'servico', isDefault: true } });
     await db.commercial_ProposalTemplate.update({ where: { id: simple[1].id }, data: { name: 'Minha proposta de treinamento', kind: 'treinamento', body: '<p>Texto que eu editei {{tabela_itens}}</p>' } });
 
     const list = (await api().get('/commercial/templates').set(h).expect(200)).body;
     expect(list.map((t: any) => [t.name, t.kind, t.isDefault])).toEqual([
-      ['Proposta de serviço — completa', 'servico', true],
+      ['Orçamento de serviço', 'servico', true],
       ['Minha proposta de treinamento', 'treinamento', false], // editado: fica como estava
+      ['Orçamento de treinamento', 'treinamento', false],
+      ['Proposta de serviço — completa', null, false],
       ['Proposta de serviço — simples', null, false],
-      ['Proposta de treinamento — completa', 'treinamento', false],
+      ['Proposta de treinamento — completa', null, false],
     ]);
     await api().get('/commercial/templates').set(h).expect(200);
-    expect(await db.commercial_ProposalTemplate.count({ where: { companyId: company.id } })).toBe(4);
+    expect(await db.commercial_ProposalTemplate.count({ where: { companyId: company.id } })).toBe(6);
+  });
+
+  it('modelo de orçamento: cabeçalho da empresa, cliente, tabelas, dados bancários e obrigações', async () => {
+    const { h, company, proposal } = await cenario();
+    await testDb().company.update({ where: { id: company.id }, data: { primary_color: '#00BFB3', address: 'Rodovia BR 101 Sul', addressNumber: '1781', zipCode: '54590000' } });
+    const brand = (await api().put('/commercial/brand').set(h).send({
+      registrations: 'Inscrição Estadual: 0848343-40', payment: 'BANCO: TESTE\nAGÊNCIA: 0001 <b>', email: 'comercial@teste.local', phone: '(81) 99999-0000',
+    }).expect(200)).body;
+    expect(brand).toMatchObject({ registrations: 'Inscrição Estadual: 0848343-40', payment: 'BANCO: TESTE\nAGÊNCIA: 0001 <b>' });
+
+    const html = (await api().post(`/commercial/proposals/${proposal.id}/document-preview`).set(h).send({}).expect(201)).body.html as string;
+    expect(html.startsWith('<div class="pd-root pd-classic" style="--brand:#00BFB3">')).toBe(true);
+    for (const piece of ['data-block="cabecalho"', `PROPOSTA Nº ${proposal.number}`, 'Inscrição Estadual: 0848343-40', 'Rodovia BR 101 Sul, 1781', 'CEP 54590-000', 'Telefone: (81) 99999-0000',
+      'data-block="cliente"', 'Informações do cliente', 'INDÚSTRIA ALFA SA', '<h2>Lista dos serviços</h2>', 'Descrição do serviço', 'background:#00BFB3', 'Valor unit.', '20.589,11',
+      '<h2>Vencimentos</h2>', 'data-block="informacoes"', 'Proposta emitida em', 'data-block="dados_bancarios"', 'BANCO: TESTE<br>AGÊNCIA: 0001 &lt;b&gt;',
+      'Obrigações da contratada', 'relatório fotográfico', 'Obrigações da contratante', 'multa de 1% do valor total desta proposta por hora de atraso', 'Mobilização e prazo',
+      'data-block="rodape"', 'comercial@teste.local']) {
+      expect(html).toContain(piece);
+    }
+    for (const gone of ['{{', 'data-block="capa"', 'Próximos passos', 'Investimento total']) expect(html).not.toContain(gone);
+    // custos e margens continuam fora do documento
+    for (const hidden of ['10.392,60', '4.323,71', 'mprevisibilidade']) expect(html).not.toContain(hidden);
   });
 
   it('hora extra só na linha de um profissional', async () => {

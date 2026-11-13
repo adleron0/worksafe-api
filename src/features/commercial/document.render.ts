@@ -1,6 +1,6 @@
 import { createHash } from 'crypto';
 import * as sanitizeHtml from 'sanitize-html';
-import { BRAND_BLOCKS, BlockData, Brand, ProposalImage } from './document.blocks';
+import { BRAND_BLOCKS, BlockData, Brand, ProposalImage, textOnColor } from './document.blocks';
 
 /**
  * Montagem do documento da proposta: funções puras (sem banco nem Nest),
@@ -12,8 +12,8 @@ export type ItemsMode = (typeof ITEMS_MODES)[number];
 
 /** Tudo que o documento mostra ao cliente. Nunca leva custo, margem, imposto ou comissão. */
 export interface DocumentData {
-  company: { name: string; corporateName: string; cnpj: string };
-  customer: { name: string; corporateName: string; cnpj: string };
+  company: { name: string; corporateName: string; cnpj: string; addressLines?: string[] };
+  customer: { name: string; corporateName: string; cnpj: string; email?: string; phone?: string; addressLines?: string[] };
   contactName: string | null; sellerName: string | null;
   number: string; title: string; description: string | null;
   date: Date; validUntil: string | null; workDays: number; total: number;
@@ -122,6 +122,60 @@ const TD = 'padding:6px 8px;border-bottom:1px solid #ddd;vertical-align:top';
 const RIGHT = ';text-align:right;white-space:nowrap';
 const quantity = (value: number) => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 3 }).format(value);
 
+/** Aparência das tabelas do modelo de orçamento: faixa na cor da marca e linhas alternadas. */
+interface Classic { color: string; on: string }
+const PRINT = '-webkit-print-color-adjust:exact;print-color-adjust:exact';
+const cTable = 'width:100%;border-collapse:separate;border-spacing:1px 1px;margin:4px 0 8px;font-size:0.9em';
+const cTh = (c: Classic) => `text-align:left;padding:5px 8px;background:${c.color};color:${c.on};font-weight:400;letter-spacing:.03em;${PRINT}`;
+const cTd = (c: Classic, tinted: boolean) => `padding:5px 8px;vertical-align:top${tinted ? `;background:${c.color}1A;${PRINT}` : ''}`;
+
+function classicItemsTable(data: DocumentData, mode: ItemsMode, c: Classic): string {
+  const sections = data.sections.filter((section) => section.show);
+  const rows: string[] = [];
+  const detailed = mode === 'detalhado';
+  const columns = detailed ? 4 : mode === 'por_secao' ? 2 : 1;
+  for (const section of sections) {
+    const items = section.items.filter((item) => item.show);
+    if (detailed) {
+      if (sections.length > 1) rows.push(`<tr><td colspan="4" style="${cTd(c, false)};font-weight:700;padding-top:8px">${escape(section.title)}</td></tr>`);
+      for (const item of items) {
+        const unit = item.quantity ? item.value / item.quantity : item.value;
+        rows.push(`<tr><td style="${cTd(c, true)}">${escape(item.description)}${item.detail ? `<br><span style="color:#555;font-size:0.92em">${escape(item.detail)}</span>` : ''}</td>`
+          + `<td style="${cTd(c, false)}${RIGHT}">${quantity(item.quantity)}${item.unit ? ` <span style="color:#555">${escape(item.unit)}</span>` : ''}</td>`
+          + `<td style="${cTd(c, true)}${RIGHT}">${money(unit)}</td><td style="${cTd(c, false)}${RIGHT}">${money(item.value)}</td></tr>`);
+      }
+      if (sections.length > 1) rows.push(`<tr><td colspan="3" style="${cTd(c, false)}${RIGHT}">Subtotal:</td><td style="${cTd(c, true)}${RIGHT}">${money(section.value)}</td></tr>`);
+    } else if (mode === 'por_secao') {
+      rows.push(`<tr><td style="${cTd(c, true)}">${escape(section.title)}</td><td style="${cTd(c, false)}${RIGHT}">${money(section.value)}</td></tr>`);
+    } else {
+      const names = items.map((item) => `<li>${escape(item.description)}${item.detail ? ` <span style="color:#555">(${escape(item.detail)})</span>` : ''}</li>`).join('');
+      rows.push(`<tr><td style="${cTd(c, true)}"><strong>${escape(section.title)}</strong>${names ? `<ul style="margin:4px 0 0 18px">${names}</ul>` : ''}</td></tr>`);
+    }
+  }
+  const total = columns === 1
+    ? `<tr><td style="${cTd(c, false)}${RIGHT}">Total: <strong>${money(data.total)}</strong></td></tr>`
+    : `<tr><td colspan="${columns - 1}" style="${cTd(c, false)}${RIGHT}">Total:</td><td style="${cTd(c, true)}${RIGHT};font-weight:700">${money(data.total)}</td></tr>`;
+  const head = detailed
+    ? `<tr><th style="${cTh(c)}">Descrição do serviço</th><th style="${cTh(c)}${RIGHT}">Quantidade</th><th style="${cTh(c)}${RIGHT}">Valor unit.</th><th style="${cTh(c)}${RIGHT}">Valor total</th></tr>`
+    : mode === 'por_secao' ? `<tr><th style="${cTh(c)}">Descrição do serviço</th><th style="${cTh(c)}${RIGHT}">Valor total</th></tr>`
+      : `<tr><th style="${cTh(c)}">Descrição do serviço</th></tr>`;
+  return `<table style="${cTable}"><thead>${head}</thead><tbody>${rows.join('')}${total}</tbody></table>`;
+}
+
+function classicPaymentTable(data: DocumentData, c: Classic): string {
+  if (!data.installments.length) return '<p>A combinar.</p>';
+  const many = data.installments.length > 1;
+  const rows = data.installments.map((inst, index) =>
+    `<tr><td style="${cTd(c, true)}">${many ? `${index + 1}` : 'Única'}</td><td style="${cTd(c, false)}">${escape(dueText(inst))}${inst.description && inst.description !== dueText(inst) ? ` <span style="color:#555">— ${escape(inst.description)}</span>` : ''}</td>`
+    + `<td style="${cTd(c, true)}${RIGHT}">${money(inst.value)}</td></tr>`);
+  return `<table style="${cTable}"><thead><tr><th style="${cTh(c)}">Parcela</th><th style="${cTh(c)}">Vencimento</th><th style="${cTh(c)}${RIGHT}">Valor</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+}
+
+/** Termos no modelo de orçamento: um traço, o título em caixa alta e o texto em letra menor. */
+const classicTermsBlock = (terms: TermText[]) => terms.map((term) =>
+  `<div data-block="termo" style="border-top:1px solid #999;margin-top:14px;padding-top:8px;font-size:.9em;line-height:1.5">`
+  + `<div style="font-size:.95em;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin:0 0 6px">${escape(term.title)}</div>${term.body}</div>`).join('');
+
 function itemsTable(data: DocumentData, mode: ItemsMode): string {
   const sections = data.sections.filter((section) => section.show);
   const rows: string[] = [];
@@ -186,6 +240,9 @@ export const VARIABLES: Array<{ key: string; label: string; block?: boolean }> =
   { key: 'proposta.numero', label: 'Número da proposta' }, { key: 'proposta.titulo', label: 'Título' }, { key: 'proposta.descricao', label: 'Descrição' },
   { key: 'proposta.data', label: 'Data da proposta' }, { key: 'proposta.validade', label: 'Validade' },
   { key: 'prazo.dias', label: 'Prazo em dias úteis' }, { key: 'valor.total', label: 'Valor total' }, { key: 'valor.total_extenso', label: 'Valor total por extenso' },
+  { key: 'cabecalho', label: 'Cabeçalho: logo, número e dados da empresa', block: true }, { key: 'cliente', label: 'Informações do cliente', block: true },
+  { key: 'informacoes', label: 'Outras informações (emissão, validade, prazo, vendedor)', block: true },
+  { key: 'dados_bancarios', label: 'Dados bancários', block: true }, { key: 'rodape', label: 'Observação final (número e e-mail de tratativas)', block: true },
   { key: 'capa', label: 'Capa com logo e dados da proposta', block: true }, { key: 'resumo', label: 'Resumo em uma olhada', block: true },
   { key: 'imagens', label: 'Imagens da proposta (com marcações)', block: true }, { key: 'investimento', label: 'Destaque do investimento total', block: true },
   { key: 'sobre', label: 'Quem somos, números e diferenciais', block: true }, { key: 'depoimentos', label: 'Depoimentos de clientes', block: true },
@@ -196,9 +253,11 @@ export const VARIABLES: Array<{ key: string; label: string; block?: boolean }> =
 
 /** Monta o documento: troca variáveis (com escape) e blocos no corpo já sanitizado. */
 export function renderDocument(body: string, data: DocumentData, terms: TermText[], mode: ItemsMode): string {
-  const blocks: Record<string, string> = {
-    tabela_itens: itemsTable(data, mode), condicoes_pagamento: paymentTable(data), termos: termsBlock(terms), assinatura: signatureBlock(data),
-  };
+  // o modelo de orçamento (o que tem o bloco de cabeçalho) usa tabelas e termos com a aparência dele
+  const classic: Classic | null = data.brand && /\{\{\s*cabecalho\s*\}\}/.test(body) ? { color: data.brand.color, on: textOnColor(data.brand.color) } : null;
+  const blocks: Record<string, string> = classic
+    ? { tabela_itens: classicItemsTable(data, mode, classic), condicoes_pagamento: classicPaymentTable(data, classic), termos: classicTermsBlock(terms), assinatura: signatureBlock(data) }
+    : { tabela_itens: itemsTable(data, mode), condicoes_pagamento: paymentTable(data), termos: termsBlock(terms), assinatura: signatureBlock(data) };
   const values: Record<string, string> = {
     'cliente.nome': data.customer.name, 'cliente.razao_social': data.customer.corporateName, 'cliente.cnpj': cnpjBr(data.customer.cnpj),
     'contato.nome': data.contactName ?? '', 'vendedor.nome': data.sellerName ?? '',
@@ -237,6 +296,6 @@ export function renderDocument(body: string, data: DocumentData, terms: TermText
     }
   }
   // a cor da marca vai como variável: os títulos do texto usam a mesma cor da capa
-  return data.brand ? `<div class="pd-root" style="--brand:${data.brand.color}">${html}</div>` : html;
+  return data.brand ? `<div class="pd-root${classic ? ' pd-classic' : ''}" style="--brand:${data.brand.color}">${html}</div>` : html;
 }
 

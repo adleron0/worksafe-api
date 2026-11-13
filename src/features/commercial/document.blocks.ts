@@ -17,6 +17,10 @@ export interface Brand {
   differentials: Array<{ title: string; text: string }>;
   testimonials: Array<{ quote: string; author: string; company: string }>;
   phone: string; email: string; website: string; address: string;
+  /** linhas extras do cabeçalho (inscrição estadual, municipal...) */
+  registrations?: string;
+  /** dados para pagamento: banco, agência, conta, chave PIX */
+  payment?: string;
 }
 
 export type Annotation =
@@ -27,8 +31,8 @@ export interface ProposalImage { url: string; title: string; description: string
 
 export interface BlockData {
   brand: Brand;
-  company: { name: string };
-  customer: { name: string; corporateName: string };
+  company: { name: string; corporateName?: string; cnpj?: string; addressLines?: string[] };
+  customer: { name: string; corporateName: string; cnpj?: string; email?: string; phone?: string; addressLines?: string[] };
   contactName: string | null;
   seller: { name: string | null; email: string | null; phone: string | null };
   number: string; title: string; date: Date; validUntil: string | null; workDays: number; total: number;
@@ -48,6 +52,8 @@ const dateBr = (value: Date | string | null | undefined) => {
 const dateLong = (value: Date) => new Intl.DateTimeFormat('pt-BR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(value);
 
 export const DEFAULT_COLOR = '#16A34A';
+/** Texto que lê melhor sobre a cor da marca (para o cabeçalho das tabelas). */
+export const textOnColor = (color: string) => textOn(color);
 export const validColor = (value: unknown) => (/^#[0-9a-f]{6}$/i.test(String(value ?? '')) ? String(value).toUpperCase() : DEFAULT_COLOR);
 /** Só imagem por https entra no documento. */
 export const safeImageUrl = (value: unknown): string | null => {
@@ -222,7 +228,69 @@ export function contactBlock(d: BlockData): string {
     + `<strong style="color:#111">${esc(d.company.name)}</strong><br>${parts.join(' · ')}</div>`;
 }
 
+// ---------------------------------------------------------------- modelo de orçamento
+// Blocos sóbrios, na ordem do orçamento que a empresa sempre usou: cabeçalho com
+// os dados da empresa, cliente, outras informações, dados bancários e rodapé.
+
+const cnpjBr = (cnpj?: string) => (cnpj?.length === 14 ? cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : cnpj ?? '');
+const HEADING = 'font-size:1.25em;font-weight:400;letter-spacing:.02em;color:#111;margin:0 0 10px';
+const SMALL = 'font-size:.9em;color:#222;line-height:1.5';
+
+export function headerBlock(d: BlockData): string {
+  const { brand, company } = d;
+  const logo = brand.logoUrl
+    ? `<img src="${esc(brand.logoUrl)}" alt="${esc(company.name)}" style="display:block;height:56px;width:auto;max-width:220px">`
+    : `<div style="font-size:1.5em;font-weight:800">${esc(company.name)}</div>`;
+  const right = [
+    company.cnpj ? `CNPJ: ${esc(cnpjBr(company.cnpj))}` : '',
+    ...(brand.registrations ?? '').split('\n').map((line) => esc(line.trim())),
+    ...(company.addressLines?.length ? company.addressLines.map(esc) : [esc(brand.address)]),
+    brand.phone ? `Telefone: ${esc(brand.phone)}` : '',
+  ].filter(Boolean);
+  return `<div data-block="cabecalho" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:16px 24px;margin:0 0 22px">`
+    + `<div style="min-width:0">${logo}<div style="font-size:1.6em;font-weight:400;color:#111;margin-top:22px;line-height:1.2">PROPOSTA Nº ${esc(d.number)}</div></div>`
+    + `<div style="min-width:0;margin-left:auto;text-align:right;${SMALL}"><div style="font-size:1.25em;color:#111;margin-bottom:6px">${esc((company.corporateName || company.name).toUpperCase())}</div>${right.join('<br>')}</div>`
+    + `</div>`;
+}
+
+export function customerBlock(d: BlockData): string {
+  const { customer } = d;
+  const left = [customer.cnpj ? `CNPJ: ${esc(cnpjBr(customer.cnpj))}` : '', esc(customer.email ?? ''), d.contactName ? `A/C ${esc(d.contactName)}` : ''].filter(Boolean);
+  const right = [...(customer.addressLines ?? []).map(esc), customer.phone ? `Telefone: ${esc(customer.phone)}` : ''].filter(Boolean);
+  return `<div data-block="cliente" style="margin:0 0 22px"><div style="${HEADING}">Informações do cliente</div>`
+    + `<div style="font-size:1.05em;color:#111;margin-bottom:8px">${esc((customer.corporateName || customer.name).toUpperCase())}</div>`
+    + `<div style="display:flex;flex-wrap:wrap;gap:6px 40px;${SMALL}"><div style="flex:1 1 220px;min-width:0">${left.join('<br>')}</div>${right.length ? `<div style="flex:1 1 260px;min-width:0">${right.join('<br>')}</div>` : ''}</div>`
+    + `</div>`;
+}
+
+export function infoBlock(d: BlockData): string {
+  const rows: Array<[string, string]> = [
+    ['Proposta emitida em', dateBr(d.date)],
+    ['Validade da proposta', d.validUntil ? `até ${dateBr(d.validUntil)}` : 'a combinar'],
+    ...(d.workDays ? [['Prazo de execução', `${d.workDays} dia${d.workDays === 1 ? '' : 's'} útei${d.workDays === 1 ? 'l' : 's'}`] as [string, string]] : []),
+    ...(d.seller.name ? [['Vendedor', d.seller.name.toUpperCase()] as [string, string]] : []),
+  ];
+  return `<div data-block="informacoes" style="${SMALL};margin:0 0 14px">${rows.map(([label, value]) => `${esc(label)}: <span style="color:#111">${esc(value)}</span>`).join('<br>')}</div>`;
+}
+
+const SUBTITLE = 'font-size:.85em;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#111;margin:0 0 6px';
+
+export function bankBlock(d: BlockData): string {
+  const payment = (d.brand.payment ?? '').trim();
+  if (!payment) return '';
+  return `<div data-block="dados_bancarios" style="${SMALL};margin:14px 0"><div style="${SUBTITLE}">Dados bancários</div>${lines(payment)}</div>`;
+}
+
+export function footerNoteBlock(d: BlockData): string {
+  const notes = [
+    `Ao responder esta proposta por e-mail, mencione o número ${esc(d.number)} para nossa referência.`,
+    d.brand.email ? `Tratativas sobre esta proposta sempre pelo e-mail ${esc(d.brand.email)}.` : '',
+  ].filter(Boolean);
+  return `<div data-block="rodape" style="border-top:1px solid #999;margin-top:22px;padding-top:10px;${SMALL}">${notes.join('<br>')}</div>`;
+}
+
 export const BRAND_BLOCKS: Record<string, (d: BlockData) => string> = {
+  cabecalho: headerBlock, cliente: customerBlock, informacoes: infoBlock, dados_bancarios: bankBlock, rodape: footerNoteBlock,
   capa: coverBlock, resumo: summaryBlock, investimento: investmentBlock, sobre: aboutBlock, depoimentos: testimonialsBlock,
   imagens: imagesBlock, proximos_passos: nextStepsBlock, contato: contactBlock,
 };

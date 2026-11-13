@@ -27,6 +27,45 @@ const DEFAULT_TERMS: Array<{ title: string; kind: string; body: string }> = [
   { title: 'Proteção de dados', kind: 'lgpd', body: '<p>Os dados pessoais tratados em razão desta proposta e da execução dos serviços serão utilizados exclusivamente para essas finalidades, em conformidade com a Lei nº 13.709/2018 (LGPD).</p>' },
 ];
 
+/**
+ * Textos do modelo de orçamento. Substituem os termos iniciais de mesmo tipo
+ * (só quando ainda não foram editados) e acrescentam os que faltavam.
+ */
+const CLASSIC_TERMS: Array<{ title: string; kind: string; body: string }> = [
+  { title: 'Condições de pagamento', kind: 'pagamento', body: '<p>Os pagamentos seguem as parcelas e os vencimentos indicados nesta proposta e são feitos por transferência bancária ou PIX para a conta da CONTRATADA, mediante emissão de nota fiscal.</p>'
+    + '<p>O atraso no pagamento sujeita a CONTRATANTE a multa de 2% sobre o valor em atraso, juros de mora de 1% ao mês e correção monetária pelo IPCA, calculados até a data do efetivo pagamento, e autoriza a CONTRATADA a suspender os serviços até a regularização.</p>' },
+  { title: 'Mobilização e prazo', kind: 'mobilizacao', body: '<p>O prazo para mobilização da equipe e início das atividades é de 15 (quinze) dias, contados da confirmação do pagamento da parcela de mobilização, quando prevista, ou do aceite desta proposta. O prazo de execução é contado a partir da liberação da frente de serviço pela CONTRATANTE.</p>' },
+  { title: 'Obrigações da contratada', kind: 'obrigacoes_contratada', body: '<ul>'
+    + '<li>Arcar com a alimentação e o transporte da sua equipe de trabalho.</li>'
+    + '<li>Cumprir os horários de trabalho combinados nesta proposta.</li>'
+    + '<li>Entregar a documentação de segurança do trabalho exigida para a atividade, quando for de sua responsabilidade.</li>'
+    + '<li>Fornecer os materiais e os equipamentos necessários à execução dos serviços descritos nesta proposta.</li>'
+    + '<li>Emitir e enviar o relatório fotográfico das atividades em até 72 (setenta e duas) horas após a conclusão dos serviços.</li>'
+    + '</ul>' },
+  { title: 'Obrigações da contratante', kind: 'obrigacoes', body: '<p>Os serviços estão orçados em jornada administrativa, de segunda a sexta-feira, das 7h às 17h, com intervalo de 1 (uma) hora para refeição, sendo sábados e domingos dias de descanso.</p><ul>'
+    + '<li>Liberar a frente de serviço na data e no horário combinados, com acesso, autorizações e condições de segurança da área sob sua responsabilidade, e indicar um responsável para acompanhar os trabalhos.</li>'
+    + '<li>Trabalhos em fins de semana e feriados, quando solicitados pela CONTRATANTE, serão cobrados por aditivo, com acréscimo de 100% sobre o valor diário da mão de obra (valor total da mão de obra dividido por 30).</li>'
+    + '<li>Horas extras devem ser solicitadas com antecedência, limitadas a 2 (duas) horas por expediente e respeitado o intervalo entre jornadas, e serão cobradas por aditivo, incluídos os custos adicionais de alimentação e transporte da equipe.</li>'
+    + '<li>O atraso na liberação da frente de serviço por responsabilidade da CONTRATANTE sujeita-a a multa de 1% do valor total desta proposta por hora de atraso, sem prejuízo dos juros de mora de 1% ao mês e do ressarcimento dos custos adicionais comprovados, uma vez que o atraso compromete o prazo e estende a permanência da equipe.</li>'
+    + '<li>Custos adicionais decorrentes de fatos não previstos no orçamento, como dificuldade ou impossibilidade de acesso ao local, condições climáticas, exigências administrativas ou aumento do dimensionamento, serão revistos por aditivo, de comum acordo entre as partes.</li>'
+    + '</ul>' },
+];
+/** Ordem dos termos no modelo de orçamento. */
+const CLASSIC_ORDER = ['pagamento', 'mobilizacao', 'obrigacoes_contratada', 'obrigacoes', 'cancelamento', 'reequilibrio', 'aceite', 'confidencialidade', 'lgpd'];
+
+/** Modelo de orçamento: a estrutura do orçamento que a empresa sempre usou. */
+const classicBody = (training: boolean) => [
+  '<p>{{cabecalho}}</p>', '<p>{{cliente}}</p>',
+  '<h2>Objeto</h2>', '<p><strong>{{proposta.titulo}}</strong></p>', '<p>{{proposta.descricao}}</p>', '<p>{{imagens}}</p>',
+  `<h2>${training ? 'Lista dos treinamentos' : 'Lista dos serviços'}</h2>`, '<p>{{tabela_itens}}</p>',
+  '<p>Valor total desta proposta: <strong>{{valor.total}}</strong> ({{valor.total_extenso}}).</p>',
+  ...(training ? ['<p>Estão incluídos instrutor habilitado, material didático e certificado para os participantes aprovados.</p>'] : []),
+  '<h2>Vencimentos</h2>', '<p>{{condicoes_pagamento}}</p>',
+  '<h2>Outras informações</h2>', '<p>{{informacoes}}</p>', '<p>{{dados_bancarios}}</p>',
+  '<p>{{termos}}</p>', '<p>{{rodape}}</p>',
+].join('');
+const classicServiceBody = classicBody(false), classicTrainingBody = classicBody(true);
+
 const serviceBody = [
   '<h1>Proposta comercial {{proposta.numero}}</h1>',
   '<p><strong>{{cliente.razao_social}}</strong> — CNPJ {{cliente.cnpj}}</p>', '<p>A/C {{contato.nome}}</p>', '<p>{{proposta.data}}</p>',
@@ -102,6 +141,8 @@ export class DocumentService {
 
   async listTerms(companyId: number, includeInactive = false) {
     await this.ensureSeed(companyId);
+    await this.ensureBrandedTemplates(companyId);
+    await this.ensureClassicTemplates(companyId);
     return this.prisma.commercial_Term.findMany({ where: { companyId, ...(includeInactive ? {} : { inactiveAt: null }) }, orderBy: [{ order: 'asc' }, { id: 'asc' }] });
   }
 
@@ -172,6 +213,46 @@ export class DocumentService {
     });
   }
 
+  /**
+   * Modelo de orçamento (estrutura do orçamento que a empresa já usava) e os textos dele.
+   * Termo inicial que ninguém editou é trocado pelo texto novo; o editado fica como está.
+   * O modelo novo só vira o padrão se o padrão atual ainda for um dos textos originais.
+   */
+  private async ensureClassicTemplates(companyId: number): Promise<void> {
+    const marker = '{{cabecalho}}';
+    const all = await this.prisma.commercial_ProposalTemplate.findMany({ where: { companyId }, select: { id: true, body: true, isDefault: true } });
+    if (!all.length || all.some((t) => t.body.includes(marker))) return;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(740119::int, ${companyId}::int)`;
+      if (await tx.commercial_ProposalTemplate.findFirst({ where: { companyId, body: { contains: marker } }, select: { id: true } })) return;
+      const terms = await tx.commercial_Term.findMany({ where: { companyId }, orderBy: [{ order: 'asc' }, { id: 'asc' }] });
+      const byKind = new Map(terms.map((term) => [term.kind, term]));
+      for (const fresh of CLASSIC_TERMS) {
+        const current = byKind.get(fresh.kind);
+        const original = DEFAULT_TERMS.find((term) => term.kind === fresh.kind);
+        if (!current) byKind.set(fresh.kind, await tx.commercial_Term.create({ data: { companyId, ...fresh, order: CLASSIC_ORDER.indexOf(fresh.kind) } }));
+        else if (original && current.body === original.body && current.title === original.title) {
+          byKind.set(fresh.kind, await tx.commercial_Term.update({ where: { id: current.id }, data: { title: fresh.title, body: fresh.body } }));
+        }
+      }
+      // a lista de termos passa a seguir a ordem em que eles aparecem no orçamento
+      for (const [order, kind] of CLASSIC_ORDER.entries()) {
+        const term = byKind.get(kind);
+        if (term && term.order !== order) await tx.commercial_Term.update({ where: { id: term.id }, data: { order } });
+      }
+      const termIds = CLASSIC_ORDER.map((kind) => byKind.get(kind)).filter((term) => term && !term.inactiveAt).map((term) => term!.id);
+      const originals = [serviceBody, trainingBody, brandedServiceBody, brandedTrainingBody];
+      const currentDefault = all.find((t) => t.isDefault);
+      const takeDefault = !currentDefault || originals.includes(currentDefault.body);
+      // os modelos originais (sem edição) saem do caminho: o tipo da proposta passa a achar o modelo de orçamento
+      const untouched = all.filter((t) => originals.includes(t.body)).map((t) => t.id);
+      if (untouched.length) await tx.commercial_ProposalTemplate.updateMany({ where: { id: { in: untouched } }, data: takeDefault ? { kind: null, isDefault: false } : { kind: null } });
+      if (takeDefault) await tx.commercial_ProposalTemplate.updateMany({ where: { companyId, isDefault: true }, data: { isDefault: false } });
+      await tx.commercial_ProposalTemplate.create({ data: { companyId, name: 'Orçamento de serviço', kind: 'servico', body: classicServiceBody, termIds, isDefault: takeDefault } });
+      await tx.commercial_ProposalTemplate.create({ data: { companyId, name: 'Orçamento de treinamento', kind: 'treinamento', body: classicTrainingBody, termIds } });
+    });
+  }
+
   // ------------------------------------------------------------------ identidade
 
   /** Identidade usada nas propostas: o que foi configurado, completado pelo cadastro da empresa. */
@@ -195,6 +276,7 @@ export class DocumentService {
       phone: saved.phone ?? company?.representative_contact ?? '', email: saved.email ?? company?.representative_email ?? '',
       website: saved.website ?? company?.websiteUrl ?? '',
       address: saved.address ?? [company?.address, company?.addressNumber, company?.neighborhood].filter(Boolean).join(', '),
+      registrations: saved.registrations ?? '', payment: saved.payment ?? '',
     };
   }
 
@@ -211,6 +293,7 @@ export class DocumentService {
       differentials: rows(body.differentials, 6, (e) => (text(e.title, 80) ? { title: text(e.title, 80), text: text(e.text, 300) } : null)),
       testimonials: rows(body.testimonials, 3, (e) => (text(e.quote, 500) ? { quote: text(e.quote, 500), author: text(e.author, 80), company: text(e.company, 80) } : null)),
       phone: text(body.phone, 60), email: text(body.email, 255), website: text(body.website, 255), address: text(body.address, 255),
+      registrations: text(body.registrations, 300), payment: text(body.payment, 1000),
     };
     // campo vazio volta a valer o cadastro da empresa: guarda só o que foi preenchido
     const stored = Object.fromEntries(Object.entries(brand).filter(([key, value]) =>
@@ -237,6 +320,7 @@ export class DocumentService {
   async listTemplates(companyId: number, includeInactive = false) {
     await this.ensureSeed(companyId);
     await this.ensureBrandedTemplates(companyId);
+    await this.ensureClassicTemplates(companyId);
     return this.prisma.commercial_ProposalTemplate.findMany({ where: { companyId, ...(includeInactive ? {} : { inactiveAt: null }) }, orderBy: [{ isDefault: 'desc' }, { name: 'asc' }] });
   }
 

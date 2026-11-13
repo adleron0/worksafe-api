@@ -82,6 +82,16 @@ const FULL = {
   customer: { select: { id: true, name: true, corporateName: true, cnpj: true, email: true, phone: true } },
 };
 
+/** Endereço em até duas linhas: "Rua, número, complemento" e "Bairro - Cidade - UF - CEP 00000-000". */
+function addressLines(street: Array<string | number | null | undefined>, neighborhood?: string | null, city?: string | null, uf?: string | null, zip?: string | null): string[] {
+  const digits = String(zip ?? '').replace(/\D/g, '');
+  const cep = digits.length === 8 ? `CEP ${digits.slice(0, 5)}-${digits.slice(5)}` : '';
+  return [
+    street.map((part) => String(part ?? '').trim()).filter(Boolean).join(', '),
+    [neighborhood, city, uf, cep].map((part) => String(part ?? '').trim()).filter(Boolean).join(' - '),
+  ].filter(Boolean);
+}
+
 @Injectable()
 export class ProposalService {
   constructor(private readonly prisma: PrismaService, private readonly commercial: CommercialService, private readonly documents: DocumentService,
@@ -434,8 +444,14 @@ export class ProposalService {
    */
   private async documentData(companyId: number, number: string, date: Date, draft: Draft, result: ReturnType<ProposalService['calc']>): Promise<DocumentData> {
     const [company, customer, seller, brand] = await Promise.all([
-      this.prisma.company.findUnique({ where: { id: companyId }, select: { comercial_name: true, corporate_name: true, cnpj: true } }),
-      this.prisma.customer.findFirst({ where: { id: draft.customerId, companyId }, select: { name: true, corporateName: true, cnpj: true } }),
+      this.prisma.company.findUnique({ where: { id: companyId }, select: {
+        comercial_name: true, corporate_name: true, cnpj: true, address: true, addressNumber: true, addressComplement: true, neighborhood: true, zipCode: true,
+        city: { select: { name: true } }, state: { select: { uf: true } },
+      } }),
+      this.prisma.customer.findFirst({ where: { id: draft.customerId, companyId }, select: {
+        name: true, corporateName: true, cnpj: true, email: true, phone: true, street: true, number: true, complement: true, neighborhood: true, zipcode: true,
+        city: { select: { name: true } }, state: { select: { uf: true } },
+      } }),
       draft.sellerId ? this.prisma.user.findFirst({ where: { id: draft.sellerId, companyId }, select: { name: true, email: true, phone: true } }) : null,
       this.documents.brand(companyId),
     ]);
@@ -468,8 +484,14 @@ export class ProposalService {
     });
     const values = installmentValues(result.totals.total, draft.installments);
     return {
-      company: { name: company?.comercial_name ?? '', corporateName: company?.corporate_name ?? '', cnpj: company?.cnpj ?? '' },
-      customer: { name: customer?.name ?? '', corporateName: customer?.corporateName ?? '', cnpj: customer?.cnpj ?? '' },
+      company: {
+        name: company?.comercial_name ?? '', corporateName: company?.corporate_name ?? '', cnpj: company?.cnpj ?? '',
+        addressLines: addressLines([company?.address, company?.addressNumber, company?.addressComplement], company?.neighborhood, company?.city?.name, company?.state?.uf, company?.zipCode),
+      },
+      customer: {
+        name: customer?.name ?? '', corporateName: customer?.corporateName ?? '', cnpj: customer?.cnpj ?? '', email: customer?.email ?? '', phone: customer?.phone ?? '',
+        addressLines: addressLines([customer?.street, customer?.number, customer?.complement], customer?.neighborhood, customer?.city?.name, customer?.state?.uf, customer?.zipcode),
+      },
       contactName: draft.contactName, sellerName: seller?.name ?? null, number, title: draft.title, description: draft.description,
       date, validUntil: draft.validUntil, workDays: draft.workDays, total, sections,
       brand, images: draft.images, seller: { name: seller?.name ?? null, email: seller?.email ?? null, phone: seller?.phone ?? null },
