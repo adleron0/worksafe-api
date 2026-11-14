@@ -482,6 +482,11 @@ model Commercial_Contract {
   classes      Json?
   notes        String?
   statusNote   String?                  @db.VarChar(500)
+  // pedido de compra que o cliente manda para confirmar o aceite (vai na NF)
+  customerOrderNumber   String?   @db.VarChar(60)
+  customerOrderDate     DateTime? @db.Date
+  customerOrderUrl      String?   @db.VarChar(500)
+  customerOrderFileName String?   @db.VarChar(200)
 
   installments Commercial_ContractInstallment[]
 

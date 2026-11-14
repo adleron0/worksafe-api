@@ -27,9 +27,15 @@ const noonUtc = (value: string) => new Date(`${value}T12:00:00.000Z`);
 const addDays = (value: string, days: number) => { const d = asDate(value); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10); };
 function dateOf(value: unknown, label: string): string {
   const out = String(value ?? '').slice(0, 10);
-  if (!DATE.test(out) || Number.isNaN(asDate(out).getTime())) throw new BadRequestException(`${label}: data inválida`);
+  // 31 de fevereiro "vira" março no JavaScript: só vale a data que volta igual
+  if (!DATE.test(out) || Number.isNaN(asDate(out).getTime()) || asDate(out).toISOString().slice(0, 10) !== out) throw new BadRequestException(`${label}: data inválida`);
   return out;
 }
+
+/** Pedido de compra do cliente, como a tela lê. */
+const customerOrderOf = (row: { customerOrderNumber: string | null; customerOrderDate: Date | null; customerOrderUrl: string | null; customerOrderFileName: string | null }) => ({
+  number: row.customerOrderNumber, date: iso(row.customerOrderDate), fileUrl: row.customerOrderUrl, fileName: row.customerOrderFileName,
+});
 
 interface ClassSlot { courseId: number | null; description: string; quantity: number; students: number | null; workload: number | null; dates: string; location: string; classIds: number[] }
 
@@ -186,6 +192,7 @@ export class ContractService {
     return {
       id: row.id, number: row.number, kind: row.kind, status: row.status, title: row.title, value, acceptedAt: row.acceptedAt,
       startDate: iso(row.startDate), endDate: iso(row.endDate), notes: row.notes, statusNote: row.statusNote,
+      customerOrder: customerOrderOf(row),
       customer: row.customer, proposal, documentHash: row.documentHash, hasDocument: Boolean(row.documentHtml), signer: row.signer,
       billed: round2(b?.billed ?? 0), received: round2(b?.received ?? 0), toBill: round2(value - (b?.billed ?? 0)),
       installments: row.installments.map((inst) => {
@@ -223,7 +230,95 @@ export class ContractService {
 
   /** Contrato de uma proposta (para a tela da proposta mostrar o link). */
   async ofProposal(companyId: number, proposalId: number) {
-    return this.prisma.commercial_Contract.findFirst({ where: { companyId, proposalId }, select: { id: true, number: true, status: true } });
+    const row = await this.prisma.commercial_Contract.findFirst({
+      where: { companyId, proposalId },
+      select: { id: true, number: true, status: true, customerOrderNumber: true, customerOrderDate: true, customerOrderUrl: true, customerOrderFileName: true },
+    });
+    return row ? { id: row.id, number: row.number, status: row.status, customerOrder: customerOrderOf(row) } : null;
+  }
+
+  // ------------------------------------------------------------------ pedido do cliente
+
+  /**
+   * Pedido de compra do cliente: número, data e arquivo. É o que confirma o
+   * aceite na maioria das vendas e o que o financeiro cita na nota fiscal.
+   */
+  async setCustomerOrder(actor: ContractActor, id: number, body: Body, file?: { location?: string; originalname?: string }) {
+    await this.byId(actor.companyId, id);
+    await this.prisma.commercial_Contract.update({ where: { id }, data: this.customerOrderData(body, file) });
+    return this.get(actor, id);
+  }
+
+  /** Campos do pedido do cliente a gravar: só o que veio no corpo muda. */
+  customerOrderData(body: Body, file?: { location?: string; originalname?: string }): Prisma.Commercial_ContractUncheckedUpdateInput {
+    const data: Prisma.Commercial_ContractUncheckedUpdateInput = {};
+    if ('number' in body) data.customerOrderNumber = clean(body.number, 60) || null;
+    if ('date' in body) data.customerOrderDate = blank(body.date) ? null : asDate(dateOf(body.date, 'Data do pedido'));
+    if (file?.location) {
+      data.customerOrderUrl = file.location;
+      data.customerOrderFileName = clean(file.originalname, 200) || 'pedido';
+    } else if (body.removeFile === true || body.removeFile === 'true') {
+      data.customerOrderUrl = null;
+      data.customerOrderFileName = null;
+    }
+    return data;
+  }
+
+  // ------------------------------------------------------------------ fila de faturamento
+
+  /**
+   * "A faturar": as parcelas de todas as vendas fechadas, na etapa em que estão.
+   * aguardando = a condição combinada ainda não aconteceu (conclusão do serviço);
+   * liberada = já pode emitir a nota; faturada = virou conta a receber; recebida = paga.
+   */
+  async billingQueue(actor: ContractActor, query: Record<string, string>) {
+    await this.backfill(actor.companyId);
+    const term = clean(query.search, 80);
+    const recentDays = Math.min(365, Math.max(1, Number(query.recentDays) || 45));
+    const contracts = await this.prisma.commercial_Contract.findMany({
+      where: {
+        companyId: actor.companyId, inactiveAt: null, status: { not: 'cancelado' },
+        ...(['servico', 'treinamento', 'misto'].includes(query.kind) ? { kind: query.kind as ContractRow['kind'] } : {}),
+        ...(term ? { OR: [
+          { number: { contains: term, mode: 'insensitive' } }, { title: { contains: term, mode: 'insensitive' } }, { customerOrderNumber: { contains: term, mode: 'insensitive' } },
+          { customer: { name: { contains: term, mode: 'insensitive' } } }, { customer: { corporateName: { contains: term, mode: 'insensitive' } } },
+        ] } : {}),
+      },
+      include: FULL, orderBy: [{ acceptedAt: 'asc' }, { id: 'asc' }], take: 500,
+    });
+    const [billing, proposals] = await Promise.all([
+      this.billing(contracts.map((contract) => contract.id)),
+      this.prisma.commercial_Proposal.findMany({ where: { id: { in: contracts.map((contract) => contract.proposalId) } }, select: { id: true, number: true } }),
+    ]);
+    const proposalOf = new Map(proposals.map((proposal) => [proposal.id, proposal]));
+    const since = new Date(Date.now() - recentDays * 86400000);
+    const rows = contracts.flatMap((contract) => {
+      const recordOf = new Map((billing.get(contract.id)?.records ?? []).map((record) => [record.id, record]));
+      return contract.installments.flatMap((inst) => {
+        const record = inst.financialRecordId ? recordOf.get(inst.financialRecordId) : undefined;
+        const paid = Boolean(record && PAID.includes(record.status));
+        // recebidas antigas saem do quadro: ficam em Contas a Receber
+        if (paid && record!.paidAt && record!.paidAt < since) return [];
+        const waitsEnd = inst.dueRule === 'dias_apos_conclusao' && !contract.endDate && contract.status !== 'concluido';
+        const stage = paid ? 'recebida' : record ? 'faturada' : waitsEnd ? 'aguardando' : 'liberada';
+        return [{
+          id: inst.id, stage, contractId: contract.id, contractNumber: contract.number, contractStatus: contract.status, kind: contract.kind, title: contract.title,
+          proposal: proposalOf.get(contract.proposalId) ?? null, customer: { id: contract.customer.id, name: contract.customer.name },
+          number: inst.number, total: inst.total, description: inst.description, value: Number(inst.value),
+          dueRule: inst.dueRule, dueDate: iso(inst.dueDate), dueDays: inst.dueDays, suggestedDue: this.suggestedDue(inst, contract, today()),
+          waitingFor: waitsEnd ? 'a conclusão do serviço' : null,
+          customerOrder: customerOrderOf(contract),
+          record: record ? {
+            id: record.id, status: record.status, dueDate: iso(record.dueDate), paidAt: record.paidAt, invoiceNumber: record.invoiceNumber,
+            invoiceIssuedAt: iso(record.invoiceIssuedAt), hasInvoiceFile: Boolean(record.invoiceUrl), paid,
+          } : null,
+        }];
+      });
+    });
+    const summary: Record<string, { count: number; total: number }> = {};
+    for (const stage of ['aguardando', 'liberada', 'faturada', 'recebida']) summary[stage] = { count: 0, total: 0 };
+    for (const row of rows) { summary[row.stage].count += 1; summary[row.stage].total = round2(summary[row.stage].total + row.value); }
+    return { rows, summary, recentDays };
   }
 
   // ------------------------------------------------------------------ alteração
@@ -291,7 +386,7 @@ export class ContractService {
         dueDate: noonUtc(dueDate), accrualDate: invoiceDate.slice(0, 7),
         invoiceNumber, invoiceIssuedAt: noonUtc(invoiceDate), installmentNumber: installment.number, installmentTotal: installment.total,
         description: clean(body.description, 255) || `${label} · ${row.title}`.slice(0, 255),
-        observations: clean(body.observations, 255) || null,
+        observations: clean(body.observations, 255) || (row.customerOrderNumber ? `Pedido do cliente ${row.customerOrderNumber}` : null),
         contractId: id, contractInstallmentId: installmentId,
         ...(await classificationDefaults(tx, actor.companyId, 'contrato')),
       } });

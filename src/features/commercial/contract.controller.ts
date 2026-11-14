@@ -1,4 +1,6 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { getDocumentMulterOptions } from 'src/features/upload/upload.middleware';
 import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { ContractActor, ContractService } from './contract.service';
@@ -20,6 +22,10 @@ export class ContractController {
   @Permissions('list_comercial') @Get()
   list(@Req() req: Request, @Query() query: Record<string, string>) { return this.contracts.list(actorOf(req), query ?? {}); }
 
+  /** Fila "A faturar" do Financeiro: precisa vir antes de `:id`. */
+  @Permissions('list_financeiro') @Get('billing')
+  billing(@Req() req: Request, @Query() query: Record<string, string>) { return this.contracts.billingQueue(actorOf(req), query ?? {}); }
+
   @Permissions('list_comercial') @Get(':id')
   get(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.contracts.get(actorOf(req), id); }
 
@@ -28,6 +34,13 @@ export class ContractController {
 
   @Permissions('update_comercial') @Put(':id')
   update(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.contracts.update(actorOf(req), id, body ?? {}); }
+
+  /** Pedido de compra do cliente: número, data e arquivo (PDF ou imagem) no campo `file`. */
+  @Permissions('update_comercial') @Put(':id/customer-order')
+  @UseInterceptors(FileInterceptor('file', getDocumentMulterOptions('commercial-customer-orders')))
+  customerOrder(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json, @UploadedFile() file?: { location?: string; originalname?: string }) {
+    return this.contracts.setCustomerOrder(actorOf(req), id, body ?? {}, file);
+  }
 
   @Permissions('update_comercial') @Patch('status/:id')
   status(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.contracts.setStatus(actorOf(req), id, body ?? {}); }

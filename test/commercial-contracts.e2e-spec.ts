@@ -309,4 +309,74 @@ describe('Comercial — contratos e contas a receber (e2e)', () => {
     expect((await api().get(`/financial-records?contractId=${contract.id}`).set(foreign).expect(200)).body.rows).toHaveLength(0);
     expect(h).toBeTruthy();
   });
+  it('pedido do cliente: vem com o aceite, aparece na proposta, é editado na venda e vai para a nota', async () => {
+    const { h, proposal, company } = await cenario();
+    const accepted = (await api().patch(`/commercial/proposals/status/${proposal.id}`).set(h)
+      .send({ status: 'aceita', note: 'Aceite por e-mail', customerOrderNumber: ' 4500123 ', customerOrderDate: TODAY }).expect(200)).body;
+    expect(accepted.contract.customerOrder).toEqual({ number: '4500123', date: TODAY, fileUrl: null, fileName: null });
+    const contractId = accepted.contract.id as number;
+
+    // corrigir o número sem mexer na data; depois limpar a data
+    const put = (body: Record<string, unknown>) => api().put(`/commercial/contracts/${contractId}/customer-order`).set(h).send(body);
+    expect((await put({ number: 'PO-777' }).expect(200)).body.customerOrder).toMatchObject({ number: 'PO-777', date: TODAY });
+    expect((await put({ date: '' }).expect(200)).body.customerOrder).toMatchObject({ number: 'PO-777', date: null });
+    await put({ date: '2026-02-31' }).expect(400);
+
+    // a conta a receber cita o pedido do cliente
+    const contract = (await api().get(`/commercial/contracts/${contractId}`).set(h).expect(200)).body;
+    const billed = (await faturar(h, contractId, contract.installments[0].id).expect(201)).body;
+    const record = await testDb().financialRecords.findUniqueOrThrow({ where: { id: billed.financialRecordId } });
+    expect(record.observations).toBe('Pedido do cliente PO-777');
+
+    // quem só lista não grava; outra empresa não acha a venda
+    await api().put(`/commercial/contracts/${contractId}/customer-order`).set(auth(company.id, ['list_comercial'])).send({ number: 'X' }).expect(403);
+    const outsider = await makeCompany();
+    await api().put(`/commercial/contracts/${contractId}/customer-order`).set(auth(outsider.id)).send({ number: 'X' }).expect(404);
+    expect((await api().get(`/commercial/contracts/${contractId}`).set(h).expect(200)).body.customerOrder.number).toBe('PO-777');
+  });
+
+  it('aceite sem pedido do cliente deixa os campos em branco', async () => {
+    const { contract } = await contratoAceito();
+    expect(contract.customerOrder).toEqual({ number: null, date: null, fileUrl: null, fileName: null });
+  });
+
+  it('fila "A faturar": aguardando, liberada, faturada e recebida; só o financeiro vê', async () => {
+    const { h, contract, company } = await contratoAceito({ installments: [
+      { percent: 0.4, dueRule: 'dias_apos_aceite', dueDays: 5, description: 'Entrada' },
+      { percent: 0.3, dueRule: 'dias_apos_nf', dueDays: 28, description: 'Medição' },
+      { percent: 0.3, dueRule: 'dias_apos_conclusao', dueDays: 10, description: 'Fim da obra' },
+    ] });
+    const fila = async (query: Record<string, unknown> = {}, headers = h) => (await api().get('/commercial/contracts/billing').query(query).set(headers).expect(200)).body;
+    const stages = (queue: any) => queue.rows.map((row: any) => [row.description, row.stage]);
+
+    let queue = await fila();
+    // a parcela do fim da obra espera a conclusão; as outras já podem ser faturadas
+    expect(stages(queue)).toEqual([['Entrada', 'liberada'], ['Medição', 'liberada'], ['Fim da obra', 'aguardando']]);
+    expect(queue.rows[2]).toMatchObject({ waitingFor: 'a conclusão do serviço', contractNumber: contract.number, customer: { name: 'Indústria Alfa' }, total: 3 });
+    expect(queue.rows[0].proposal.number).toBeTruthy();
+    expect(queue.summary).toMatchObject({ aguardando: { count: 1 }, liberada: { count: 2 }, faturada: { count: 0, total: 0 }, recebida: { count: 0, total: 0 } });
+
+    // faturar e receber movem a parcela de coluna
+    const billed = (await faturar(h, contract.id, contract.installments[0].id).expect(201)).body;
+    expect(stages(await fila())[0]).toEqual(['Entrada', 'faturada']);
+    await api().patch(`/financial-records/settle/${billed.financialRecordId}`).set(h).send({ paidAt: TODAY, paymentMethod: 'pix' }).expect(200);
+    queue = await fila();
+    expect(queue.rows[0]).toMatchObject({ stage: 'recebida', record: { paid: true, invoiceNumber: 'NF-1001' } });
+
+    // informar a conclusão libera a parcela do fim da obra
+    await api().put(`/commercial/contracts/${contract.id}`).set(h).send({ endDate: TODAY }).expect(200);
+    expect(stages(await fila())[2]).toEqual(['Fim da obra', 'liberada']);
+
+    // busca pelo cliente, pelo número da venda ou do pedido do cliente
+    await api().put(`/commercial/contracts/${contract.id}/customer-order`).set(h).send({ number: 'PO-4500' }).expect(200);
+    expect((await fila({ search: 'PO-4500' })).rows).toHaveLength(3);
+    expect((await fila({ search: 'não existe' })).rows).toHaveLength(0);
+    expect((await fila({ kind: 'treinamento' })).rows).toHaveLength(0);
+
+    // venda cancelada sai da fila; outra empresa não vê; sem permissão do financeiro não entra
+    await api().get('/commercial/contracts/billing').set(auth(company.id, COMMERCIAL)).expect(403);
+    expect((await fila({}, auth(company.id, FINANCE))).rows).toHaveLength(3);
+    const outsider = await makeCompany();
+    expect((await fila({}, auth(outsider.id))).rows).toHaveLength(0);
+  });
 });
