@@ -93,7 +93,7 @@ export const SHEET_DEFAULTS = {
     { label: 'Média', rate: 0.15 }, { label: 'Alta', rate: 0.2 },
   ],
   contingencyRate: 0.05,
-  commission: { rate: 0.02, base: 'faturado', inPrice: false },
+  commission: { rate: 0.02, base: 'lucro', inPrice: false },
 };
 
 /** Tabela MDO da planilha: [nome, custo hora, noturno, viagem, FDS/feriado]. */

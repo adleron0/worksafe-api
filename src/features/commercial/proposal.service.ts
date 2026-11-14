@@ -577,7 +577,8 @@ export class ProposalService {
       this.prisma.commercial_Professional.findMany({ where: { companyId: actor.companyId, inactiveAt: null }, orderBy: { name: 'asc' } }),
       this.prisma.course.findMany({ where: { companyId: actor.companyId, inactiveAt: null }, orderBy: { name: 'asc' }, select: { id: true, name: true, hoursDuration: true } }),
       this.prisma.commercial_CoursePrice.findMany({ where: { companyId: actor.companyId } }),
-      this.prisma.user.findMany({ where: { companyId: actor.companyId, inactiveAt: null, isSeller: true }, orderBy: { name: 'asc' }, select: { id: true, name: true } }),
+      // vendedor da proposta é qualquer usuário ativo da empresa (não depende da subconta de "seller" do gateway)
+      this.prisma.user.findMany({ where: { companyId: actor.companyId, inactiveAt: null }, orderBy: { name: 'asc' }, select: { id: true, name: true } }),
     ]);
     const priceOf = new Map(prices.map((p) => [p.courseId, p]));
     const defaults = snapshot.defaults ?? {};
@@ -708,6 +709,8 @@ export class ProposalService {
     const kind = (KINDS.includes(body.kind) ? body.kind : 'servico') as CommercialProposalKind;
     const seeded = Array.isArray(body.sections) ? body : { ...body, sections: PRESETS[kind].map((section) => ({ ...section, items: [] })) };
     const draft = this.parse(seeded, actor, snapshot);
+    // sem vendedor informado, a proposta nasce com quem a está criando
+    if (!('sellerId' in body) && actor.userId && (await this.prisma.user.findFirst({ where: { id: actor.userId, companyId: actor.companyId, inactiveAt: null }, select: { id: true } }))) draft.sellerId = actor.userId;
     await this.assertRefs(actor.companyId, draft);
     await this.fill(actor.companyId, draft, snapshot);
     const result = this.calc(draft, snapshot);

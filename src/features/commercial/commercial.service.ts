@@ -280,7 +280,8 @@ export class CommercialService {
       contingencyRate: rate(source.contingencyRate, 'Imprevisibilidade padrão', 1),
       commission: {
         rate: rate(source.commission?.rate, 'Comissão padrão', 0.5),
-        base: source.commission?.base === 'lucro' ? 'lucro' : 'faturado',
+        // padrão da empresa: comissão sobre o lucro; sobre o faturado só quando escolhido
+        base: source.commission?.base === 'faturado' ? 'faturado' : 'lucro',
         inPrice: bool(source.commission?.inPrice),
       },
     };

@@ -75,7 +75,7 @@ describe('Comercial — propostas (e2e)', () => {
     const servico = await criar(company.id, { kind: 'servico', customerId: customer.id, title: 'Pintura de tanque' });
     expect(servico).toMatchObject({ number: `PC-${YEAR}-0001`, status: 'rascunho', revision: 0, editable: true });
     expect(servico.draft.sections.map((s: any) => [s.title, s.margin])).toEqual([['Mão de obra', 0.26], ['Locações', 0.05], ['Materiais de consumo', 0]]);
-    expect(servico.draft).toMatchObject({ contingencyRate: 0.05, commissionRate: 0.02, commissionBase: 'faturado' });
+    expect(servico.draft).toMatchObject({ contingencyRate: 0.05, commissionRate: 0.02, commissionBase: 'lucro' });
     const treino = await criar(company.id, { kind: 'treinamento', customerId: customer.id, title: 'NR-35 in company' });
     expect(treino.number).toBe(`PC-${YEAR}-0002`);
     expect(treino.draft.sections.map((s: any) => s.kind)).toEqual(['treinamento']);
