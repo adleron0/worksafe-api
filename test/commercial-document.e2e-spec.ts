@@ -450,6 +450,13 @@ describe('Comercial — documento, link público e aceite (e2e)', () => {
       expect(html).toContain(piece);
     }
     for (const gone of ['{{', 'data-block="capa"', 'Próximos passos', 'Investimento total']) expect(html).not.toContain(gone);
+    // cliente sem rua e com número 0 no cadastro: nenhuma linha solta de endereço
+    await testDb().customer.updateMany({ where: { companyId: company.id }, data: { street: null, number: 0, complement: null } });
+    const bare = (await api().post(`/commercial/proposals/${proposal.id}/document-preview`).set(h).send({}).expect(201)).body.html as string;
+    expect(bare).not.toMatch(/min-width:0">0<br>/);
+    expect(bare).toContain('Recife - PE');
+    await testDb().customer.updateMany({ where: { companyId: company.id }, data: { street: 'Av. Brasil', number: 0 } });
+    expect((await api().post(`/commercial/proposals/${proposal.id}/document-preview`).set(h).send({}).expect(201)).body.html).toContain('min-width:0">Av. Brasil<br>Recife - PE');
     // custos e margens continuam fora do documento
     for (const hidden of ['10.392,60', '4.323,71', 'mprevisibilidade']) expect(html).not.toContain(hidden);
   });

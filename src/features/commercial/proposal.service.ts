@@ -88,8 +88,11 @@ const FULL = {
 function addressLines(street: Array<string | number | null | undefined>, neighborhood?: string | null, city?: string | null, uf?: string | null, zip?: string | null): string[] {
   const digits = String(zip ?? '').replace(/\D/g, '');
   const cep = digits.length === 8 ? `CEP ${digits.slice(0, 5)}-${digits.slice(5)}` : '';
+  // sem rua não há o que numerar; e número 0 é campo em branco no cadastro, não endereço
+  const [road, number, complement] = street.map((part) => String(part ?? '').trim());
+  const numbered = road ? [road, number && number !== '0' ? number : '', complement] : [];
   return [
-    street.map((part) => String(part ?? '').trim()).filter(Boolean).join(', '),
+    numbered.filter(Boolean).join(', '),
     [neighborhood, city, uf, cep].map((part) => String(part ?? '').trim()).filter(Boolean).join(' - '),
   ].filter(Boolean);
 }
