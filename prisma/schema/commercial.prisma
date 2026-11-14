@@ -269,26 +269,26 @@ model Commercial_Proposal {
   // como a tabela de itens aparece. Ao enviar, o documento é congelado.
   templateId          Int?
   documentBody        String?
-  itemsMode           String    @default("detalhado") @db.VarChar(20)
-  termIds             Int[]     @default([])
+  itemsMode           String                     @default("detalhado") @db.VarChar(20)
+  termIds             Int[]                      @default([])
   // link público: /proposta/<publicKey>
-  publicKey           String?   @unique @db.VarChar(40)
+  publicKey           String?                    @unique @db.VarChar(40)
   frozenHtml          String?
-  frozenHash          String?   @db.VarChar(64)
+  frozenHash          String?                    @db.VarChar(64)
   viewedAt            DateTime?
   // imagens da proposta: [{ url, title, description, annotations: [...] }]
   images              Json?
   // cronograma: { unit: dia|semana|mes, steps: [{ title, start, duration }] }
   schedule            Json?
   // código de confirmação do aceite (só o hash)
-  acceptCodeHash      String?   @db.VarChar(64)
+  acceptCodeHash      String?                    @db.VarChar(64)
   acceptCodeExpiresAt DateTime?
-  acceptCodeAttempts  Int       @default(0)
+  acceptCodeAttempts  Int                        @default(0)
   events              Commercial_ProposalEvent[]
 
-  sections        Commercial_ProposalSection[]
-  items           Commercial_ProposalItem[]
-  installments    Commercial_ProposalInstallment[]
+  sections     Commercial_ProposalSection[]
+  items        Commercial_ProposalItem[]
+  installments Commercial_ProposalInstallment[]
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
@@ -456,32 +456,32 @@ enum CommercialContractStatus {
 // aceitou. As parcelas previstas viram contas a receber quando a nota fiscal
 // de cada uma é registrada.
 model Commercial_Contract {
-  id         Int                      @id @default(autoincrement())
-  companyId  Int
+  id           Int                      @id @default(autoincrement())
+  companyId    Int
   // CT-2026-0001
-  number     String                   @db.VarChar(30)
-  year       Int
-  sequence   Int
-  proposalId Int                      @unique
-  customerId Int
-  customer   Customer                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  kind       CommercialProposalKind
-  status     CommercialContractStatus @default(vigente)
-  title      String                   @db.VarChar(200)
-  value      Decimal                  @db.Decimal(14, 2)
-  acceptedAt DateTime
-  startDate  DateTime?                @db.Date
-  endDate    DateTime?                @db.Date
+  number       String                   @db.VarChar(30)
+  year         Int
+  sequence     Int
+  proposalId   Int                      @unique
+  customerId   Int
+  customer     Customer                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  kind         CommercialProposalKind
+  status       CommercialContractStatus @default(vigente)
+  title        String                   @db.VarChar(200)
+  value        Decimal                  @db.Decimal(14, 2)
+  acceptedAt   DateTime
+  startDate    DateTime?                @db.Date
+  endDate      DateTime?                @db.Date
   // documento aceito, como o cliente leu
   documentHtml String?
-  documentHash String?                @db.VarChar(64)
+  documentHash String?                  @db.VarChar(64)
   // quem aceitou (nome, CPF, cargo, e-mail, IP...) ou o registro manual
-  signer     Json?
-  sellerId   Int?
+  signer       Json?
+  sellerId     Int?
   // itens de treinamento da proposta e as turmas fechadas criadas para eles
-  classes    Json?
-  notes      String?
-  statusNote String?                  @db.VarChar(500)
+  classes      Json?
+  notes        String?
+  statusNote   String?                  @db.VarChar(500)
 
   installments Commercial_ContractInstallment[]
 
@@ -495,20 +495,20 @@ model Commercial_Contract {
 }
 
 model Commercial_ContractInstallment {
-  id          Int                 @id @default(autoincrement())
-  companyId   Int
-  contractId  Int
-  contract    Commercial_Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
-  number      Int
-  total       Int
-  description String?             @db.VarChar(200)
-  value       Decimal             @db.Decimal(14, 2)
-  dueRule     CommercialDueRule
-  dueDate     DateTime?           @db.Date
-  dueDays     Int?
+  id                Int                 @id @default(autoincrement())
+  companyId         Int
+  contractId        Int
+  contract          Commercial_Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  number            Int
+  total             Int
+  description       String?             @db.VarChar(200)
+  value             Decimal             @db.Decimal(14, 2)
+  dueRule           CommercialDueRule
+  dueDate           DateTime?           @db.Date
+  dueDays           Int?
   // conta a receber gerada ao registrar a nota fiscal desta parcela
-  financialRecordId Int?          @unique
-  billedAt    DateTime?
+  financialRecordId Int?                @unique
+  billedAt          DateTime?
 
   @@index([contractId])
 }
@@ -522,4 +522,71 @@ model Commercial_Settings {
   brand     Json
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
+}
+
+/// Carteira de comissões de um vendedor (um usuário marcado como vendedor).
+/// O saldo nunca é guardado: sai sempre da soma dos lançamentos.
+model Commercial_SellerWallet {
+  id        Int                            @id @default(autoincrement())
+  companyId Int
+  userId    Int                            @unique
+  entries   Commercial_SellerWalletEntry[]
+  createdAt DateTime                       @default(now())
+  updatedAt DateTime                       @default(now()) @updatedAt
+
+  @@index([companyId])
+}
+
+/// Histórico da carteira: comissões (que nascem de uma conta a receber),
+/// pagamentos ao vendedor (baixas) e ajustes manuais.
+model Commercial_SellerWalletEntry {
+  id          Int                     @id @default(autoincrement())
+  companyId   Int
+  walletId    Int
+  wallet      Commercial_SellerWallet @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  sellerId    Int
+  /// comissao | pagamento | ajuste
+  type        String                  @db.VarChar(20)
+  /// treinamento | servico | manual
+  origin      String                  @db.VarChar(20)
+  /// comissão: prevista | liberada | cancelada · pagamento e ajuste: efetivado | estornado
+  status      String                  @db.VarChar(20)
+  /// com sinal: comissão e crédito positivos; pagamento e débito negativos
+  amount      Decimal                 @db.Decimal(18, 2)
+  /// sobre quanto a comissão foi calculada e o percentual (0–100)
+  baseValue   Decimal?                @db.Decimal(18, 2)
+  rate        Decimal?                @db.Decimal(7, 4)
+  description String                  @db.VarChar(255)
+
+  // de onde veio a comissão (um lançamento de comissão por conta a receber)
+  financialRecordId     Int? @unique
+  couponId              Int?
+  classId               Int?
+  subscriptionId        Int?
+  proposalId            Int?
+  contractId            Int?
+  contractInstallmentId Int?
+
+  /// data do fato: da venda (comissão), do pagamento ao vendedor ou do ajuste
+  occurredAt DateTime
+  /// quando a comissão entrou no saldo (o cliente pagou)
+  releasedAt DateTime?
+
+  // pagamento ao vendedor
+  paymentMethod String? @db.VarChar(30)
+  bankAccountId Int?
+  receiptUrl    String? @db.VarChar(500)
+  note          String? @db.VarChar(500)
+
+  createdByUserId  Int?
+  reversedAt       DateTime?
+  reversedByUserId Int?
+  reverseReason    String?   @db.VarChar(255)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([companyId, sellerId, type, status])
+  @@index([walletId, occurredAt])
+  @@index([contractId])
 }

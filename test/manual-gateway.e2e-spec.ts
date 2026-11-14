@@ -135,19 +135,16 @@ describe('Gateway manual — sem provedor (e2e)', () => {
     expect(Number(record.value)).toBe(450);
     expect(Number(record.originalValue)).toBe(500);
 
-    const splits = await testDb().splitTransaction.findMany({
+    const entries = await testDb().commercial_SellerWalletEntry.findMany({
       where: { financialRecordId: res.body.financialRecordId },
     });
 
-    // O ponto deste teste: a comissão NÃO some por não haver carteira.
-    // Ela fica registrada, sem destino, aguardando repasse por fora.
-    expect(splits).toHaveLength(1);
-    expect(splits[0].sellerId).toBe(seller.id);
-    expect(splits[0].toWalletId).toBeNull();
-    expect(splits[0].status).toBe('PENDING');
-    expect(splits[0].splitDescription).toMatch(/repasse manual/i);
-    // Sem taxa de provedor: o vendedor recebe o valor cheio combinado.
-    expect(Number(splits[0].netValue)).toBe(Number(splits[0].splitValue));
+    // O ponto deste teste: a comissão NÃO some por não haver provedor.
+    // Ela fica na carteira do vendedor, prevista, aguardando o cliente pagar.
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ sellerId: seller.id, type: 'comissao', origin: 'treinamento', status: 'prevista' });
+    // Sem taxa de provedor: o vendedor recebe o valor cheio combinado (20% de 450).
+    expect(Number(entries[0].amount)).toBe(90);
   });
 
   it('baixa manual: marcar como recebido não depende de webhook', async () => {

@@ -1,4 +1,4 @@
-import { CrudError, EntityHooks, EntityRules, composeHooks } from '@adleron/crud-core';
+import { EntityHooks, EntityRules, composeHooks } from '@adleron/crud-core';
 import { Request } from 'express';
 
 import { AuthCacheService } from 'src/common/cache/auth-cache.service';
@@ -9,53 +9,17 @@ import {
   parseJsonFields,
   syncActiveFlag,
 } from 'src/common/crud/hooks';
-import { SellerAccountService } from 'src/payments/application/seller-account.service';
+import { SellerWalletService } from 'src/features/commercial/wallet.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 
-const SELLER_REQUIRED = ['email', 'cpf', 'phone', 'name'] as const;
-
 /**
- * Ativação de seller: abre a subconta no gateway da empresa e grava
- * `sellerConfig`. O provisionamento (e a mesclagem por gateway/ambiente) é do
- * SellerAccountService — esta entidade não conhece fornecedor.
+ * Vendedor é só uma marcação no usuário, sem subconta em gateway. Marcar por aqui
+ * (ou pela tela de Vendedores) cria a carteira de comissões; nada mais é exigido.
  */
-const sellerActivation: EntityHooks<Request> = {
-  preWrite: async ({ op, data, existing, scopeId, deps }) => {
-    if (data.isSeller !== true && data.isSeller !== 'true') return undefined;
-    if (op !== 'create' && op !== 'update' && op !== 'updateSelf') return undefined;
-
-    const sellerAccounts = deps.sellerAccounts as SellerAccountService;
-    const merged = { ...(existing ?? {}), ...data } as Record<string, any>;
-    const companyId = Number(scopeId ?? merged.companyId);
-    if (await sellerAccounts.hasAccountForCurrentEnvironment(companyId, existing?.sellerConfig)) {
-      return { ...data, isSeller: true };
-    }
-
-    // Mesma regra de antes: sem os dados obrigatórios, falha antes do gateway.
-    const missing = SELLER_REQUIRED.filter((field) => !merged[field]);
-    if (missing.length) {
-      throw new CrudError('VALIDATION_FAILED', `Dados insuficientes para seller: ${missing.join(', ')}`, missing[0]);
-    }
-
-    const { sellerConfig } = await sellerAccounts.provision(
-      {
-        id: Number(existing?.id ?? 0),
-        name: merged.name, cpf: merged.cpf, email: merged.email, phone: merged.phone,
-        birthDate: merged.birthDate, address: merged.address, addressNumber: merged.addressNumber,
-        addressComplement: merged.addressComplement, neighborhood: merged.neighborhood,
-        city: merged.city, state: merged.state, zipCode: merged.zipCode,
-        companyId,
-        sellerConfig: data.sellerConfig,
-      },
-      existing?.sellerConfig,
-    );
-    return {
-      ...data,
-      isSeller: true,
-      sellerStatus: 'ACTIVE',
-      ...(existing?.sellerActivatedAt ? {} : { sellerActivatedAt: new Date() }),
-      sellerConfig,
-    };
+const sellerWallet: EntityHooks<Request> = {
+  postWrite: async ({ result, deps }) => {
+    if (result?.isSeller !== true) return;
+    await (deps.wallet as SellerWalletService).createWallet(Number(result.companyId), Number(result.id));
   },
 };
 
@@ -94,7 +58,7 @@ export const userEntity: EntityRules = {
     parseJsonFields('bankAccount', 'sellerConfig'),
     normalizeDateOnly('birthDate'),
     hashPassword,
-    sellerActivation,
+    sellerWallet,
     invalidateAuthCache,
   ),
 };

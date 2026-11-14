@@ -1,3 +1,4 @@
+import { SellerWalletService } from './wallet.service';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CommercialContractStatus, Prisma, financialRecordsStatus, paymentMethods } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -40,7 +41,7 @@ type ContractRow = Prisma.Commercial_ContractGetPayload<{ include: typeof FULL }
 
 @Injectable()
 export class ContractService {
-  constructor(private readonly prisma: PrismaService, private readonly cache: CacheService) {}
+  constructor(private readonly prisma: PrismaService, private readonly cache: CacheService, private readonly wallet: SellerWalletService) {}
 
   // ------------------------------------------------------------------ criação
 
@@ -273,6 +274,12 @@ export class ContractService {
     if (netRaw !== null && (!Number.isFinite(netRaw) || netRaw <= 0 || netRaw > value)) throw new BadRequestException('Valor líquido deve ficar entre zero e o valor da parcela');
     const method = METHODS.includes(body.paymentMethod) ? (body.paymentMethod as paymentMethods) : 'outro';
     const label = `${row.number} — ${installment.total > 1 ? `parcela ${installment.number}/${installment.total}` : 'pagamento único'}`;
+    // Comissão do vendedor: a parte desta parcela na comissão calculada na proposta aceita.
+    // Ela entra na carteira como prevista e é liberada quando esta parcela for paga.
+    const proposal = row.sellerId ? await this.prisma.commercial_Proposal.findUnique({ where: { id: row.proposalId }, select: { commission: true, total: true } }) : null;
+    const whole = Number(proposal?.total ?? 0) > 0 ? Number(proposal!.total) : Number(row.value);
+    const commissionValue = proposal && whole > 0 ? round2((Number(proposal.commission) * value) / whole) : 0;
+    const commission = commissionValue > 0 ? { commissionValue, commissionPercentage: Math.min(999.99, round2((commissionValue / value) * 100)) } : {};
 
     const recordId = await this.prisma.$transaction(async (tx) => {
       // trava a parcela: duas pessoas faturando a mesma não geram dois títulos
@@ -280,7 +287,7 @@ export class ContractService {
       if (!locked.count) throw new ConflictException('Esta parcela já foi faturada');
       const record = await tx.financialRecords.create({ data: {
         companyId: actor.companyId, gateway: 'manual', status: 'waiting', paymentMethod: method,
-        customerId: row.customerId, sellerId: row.sellerId, value, netValue: netRaw === null ? null : round2(netRaw),
+        customerId: row.customerId, sellerId: row.sellerId, value, netValue: netRaw === null ? null : round2(netRaw), ...commission,
         dueDate: noonUtc(dueDate), accrualDate: invoiceDate.slice(0, 7),
         invoiceNumber, invoiceIssuedAt: noonUtc(invoiceDate), installmentNumber: installment.number, installmentTotal: installment.total,
         description: clean(body.description, 255) || `${label} · ${row.title}`.slice(0, 255),
@@ -291,6 +298,7 @@ export class ContractService {
       await tx.commercial_ContractInstallment.update({ where: { id: installmentId }, data: { financialRecordId: record.id } });
       return record.id;
     });
+    await this.wallet.syncRecordSafe(recordId);
     return { ...(await this.get(actor, id)), financialRecordId: recordId };
   }
 
@@ -306,6 +314,8 @@ export class ContractService {
       if (record) await tx.financialRecords.update({ where: { id: record.id }, data: { inactiveAt: new Date(), status: 'cancelled' } });
       await tx.commercial_ContractInstallment.update({ where: { id: installmentId }, data: { financialRecordId: null, billedAt: null } });
     });
+    // o título saiu do Contas a Receber: a comissão prevista dele é cancelada
+    if (record) await this.wallet.syncRecordSafe(record.id);
     return this.get(actor, id);
   }
 

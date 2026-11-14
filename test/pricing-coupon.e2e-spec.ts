@@ -141,7 +141,7 @@ describe('Preço, cupom e split (e2e)', () => {
     expect(sent.createPayment.value).toBe(500);
   });
 
-  it('cupom com comissão envia split ao gateway e grava SplitTransaction', async () => {
+  it('cupom com comissão: nada de split no gateway; a comissão vai prevista para a carteira do vendedor', async () => {
     const scenario = await makeCheckoutScenario({ price: 500 });
     const seller = await makeSeller(scenario.company.id);
     await makeCoupon(scenario.company.id, {
@@ -161,21 +161,21 @@ describe('Preço, cupom e split (e2e)', () => {
       couponCode: 'VENDEDOR',
     }).expect(201);
 
-    // O split vai para a carteira do vendedor com o percentual do cupom.
-    expect(sent.createPayment.split).toEqual([
-      expect.objectContaining({
-        walletId: 'wallet_teste_123',
-        percentualValue: 20,
-      }),
-    ]);
+    // O gateway recebe a cobrança inteira: não há mais divisão nem subconta.
+    expect(sent.createPayment.split).toBeUndefined();
+    expect(sent.createPayment.value).toBe(450);
 
-    const splits = await testDb().splitTransaction.findMany({
+    // A comissão (20% de 450) fica na carteira do vendedor, prevista até o cliente pagar.
+    const entries = await testDb().commercial_SellerWalletEntry.findMany({
       where: { financialRecordId: res.body.financialRecordId },
     });
-    expect(splits).toHaveLength(1);
-    expect(splits[0].sellerId).toBe(seller.id);
-    expect(splits[0].status).toBe('PENDING');
-    expect(splits[0].toWalletId).toBe('wallet_teste_123');
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ sellerId: seller.id, type: 'comissao', origin: 'treinamento', status: 'prevista' });
+    expect(Number(entries[0].amount)).toBe(90);
+    expect(Number(entries[0].rate)).toBe(20);
+    expect(entries[0].description).toContain('cupom VENDEDOR');
+    // nada mais é gravado na tabela antiga
+    expect(await testDb().splitTransaction.count({ where: { financialRecordId: res.body.financialRecordId } })).toBe(0);
   });
 
   it('recusa método de pagamento não aceito pela turma', async () => {

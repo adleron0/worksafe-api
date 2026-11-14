@@ -1,3 +1,4 @@
+import { SellerWalletService } from 'src/features/commercial/wallet.service';
 import { CrudError, EntityRules, composeHooks } from '@adleron/crud-core';
 import { Request } from 'express';
 import { fileUpload, parseJsonFields } from 'src/common/crud/hooks';
@@ -80,6 +81,12 @@ export const financialRecordEntity: EntityRules = {
     'paidAt', 'receivedValue', 'settledByUserId', 'bankAccountId', 'billUrl', 'billNumber', 'pixUrl', 'pixNumber'],
   softDelete: { field: 'inactiveAt' },
   hooks: composeHooks<Request>(parseJsonFields(), fileUpload({ invoiceFile: 'invoiceUrl' }), {
+    // vendedor, comissão ou situação mudaram por aqui: a carteira do vendedor acompanha
+    postWrite: async ({ result, deps }) => {
+      // ainda dentro da transação: a linha recém-gravada vai junto, porque por fora só se vê a antiga
+      await (deps.wallet as SellerWalletService).syncRecordSafe(Number(result?.id), result);
+    },
+  }, {
     preWrite: async ({ op, data, existing, scopeId, deps }) => {
       if (op !== 'create' && op !== 'update') return undefined;
       const prisma = deps.prisma as PrismaService;

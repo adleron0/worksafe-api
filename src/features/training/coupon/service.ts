@@ -23,7 +23,6 @@ export class CouponService {
       commissionValue?: number;
       couponId?: number;
       sellerId?: number;
-      sellerWalletId?: string | null;
     },
   ): any {
     const response: any = {
@@ -39,7 +38,6 @@ export class CouponService {
         response.commissionValue = extras.commissionValue || 0;
         response.couponId = extras.couponId;
         response.sellerId = extras.sellerId;
-        response.sellerWalletId = extras.sellerWalletId;
       } else {
         response.commissionPercentage = 0;
         response.commissionValue = 0;
@@ -81,54 +79,6 @@ export class CouponService {
       commissionPercentage: Number(commissionPercentage.toFixed(2)),
       commissionValue: Number(commissionValue.toFixed(2)),
     };
-  }
-
-  /**
-   * Valida e retorna o walletId do vendedor para o ambiente correto
-   */
-  private getSellerWalletId(seller: any, gatewayKey = 'asaas'): string | null {
-    if (!seller?.sellerConfig) {
-      return null;
-    }
-
-    try {
-      const config =
-        typeof seller.sellerConfig === 'string'
-          ? JSON.parse(seller.sellerConfig)
-          : seller.sellerConfig;
-
-      // O gateway deixou de ser literal: quem chama informa qual é. O formato
-      // interno (por ambiente, com walletId) segue o mesmo.
-      const gatewayConfig = config.gateways?.[gatewayKey];
-      if (!gatewayConfig) {
-        return null;
-      }
-
-      const isDevelopment = process.env.BASE_SETUP === 'development';
-      const environment = isDevelopment ? 'sandbox' : 'production';
-
-      const envConfig = gatewayConfig[environment];
-      if (!envConfig) {
-        return null;
-      }
-
-      // Sem estes três campos o repasse não sai; devolver null aqui é o que
-      // faz a venda seguir sem split em vez de falhar.
-      const requiredFields = ['apiKey', 'walletId', 'accountId'];
-      const hasAllFields = requiredFields.every((field) => envConfig[field]);
-      if (!hasAllFields) {
-        return null;
-      }
-
-      if (envConfig.accountStatus !== 'ACTIVE') {
-        return null;
-      }
-
-      return envConfig.walletId;
-    } catch (error) {
-      console.error('Erro ao validar sellerConfig:', error);
-      return null;
-    }
   }
 
   /**
@@ -326,22 +276,6 @@ export class CouponService {
       // 10. Calcular comissão (sobre valor final)
       const commission = this.calculateCommission(coupon, finalPrice);
 
-      // 11. Obter walletId do vendedor se internal = true
-      let sellerWalletId = null;
-      if (internal && coupon.seller) {
-        // Qual gateway a empresa usa é decisão do resolver, não deste service.
-        const { adapter } = await this.gatewayResolver.forCompany(
-          courseClass.companyId,
-        );
-        // Só faz sentido resolver carteira quando o provedor divide sozinho.
-        // Em 'manualRecord' a comissão é calculada e gravada do mesmo jeito,
-        // mas o repasse é administrado por fora — ver SplitTransaction.
-        sellerWalletId =
-          adapter.capabilities.commission === 'gatewaySplit'
-            ? this.getSellerWalletId(coupon.seller, adapter.gateway)
-            : null;
-      }
-
       // ✅ Cupom válido!
       return this.createValidationResponse(
         true,
@@ -354,7 +288,6 @@ export class CouponService {
           commissionValue: commission.commissionValue,
           couponId: coupon.id,
           sellerId: coupon.sellerId,
-          sellerWalletId: sellerWalletId,
         },
       );
     } catch (error) {

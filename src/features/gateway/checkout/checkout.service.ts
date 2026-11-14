@@ -1,3 +1,4 @@
+import { SellerWalletService } from 'src/features/commercial/wallet.service';
 import { classificationDefaults } from 'src/features/financial/classification';
 import {
   Injectable,
@@ -41,7 +42,6 @@ interface CouponData {
   commissionValue?: number;
   couponId?: number; // ID do cupom usado
   sellerId?: number; // ID do vendedor associado ao cupom
-  sellerWalletId?: string | null; // WalletId do vendedor para o ambiente correto
 }
 
 export interface CheckoutData {
@@ -60,6 +60,7 @@ export class CheckoutService {
     private readonly gatewayResolver: GatewayResolver,
     @Inject(forwardRef(() => SubscriptionService))
     private readonly subscriptionService: SubscriptionService,
+    private readonly wallet: SellerWalletService,
   ) {}
 
   /**
@@ -267,62 +268,15 @@ export class CheckoutService {
         companyId, // Passa o companyId para os logs
       );
 
-      // 9. Registra a comissão do vendedor, quando houver.
+      // 9. Comissão do vendedor: vai para a carteira dele.
       //
-      // A condição deixou de exigir carteira: em provedor sem split
-      // automático — e no modo manual — a comissão é devida do mesmo jeito e
-      // precisa ficar registrada para ser conferida e paga por fora. Exigir
-      // sellerWalletId aqui fazia a comissão desaparecer silenciosamente
-      // justamente nos modos em que ela depende de acompanhamento humano.
-      if (
-        checkoutData.couponData?.valid &&
-        checkoutData.couponData?.commissionPercentage > 0 &&
-        checkoutData.couponData?.sellerId
-      ) {
-        const repasseAutomatico =
-          adapter.capabilities.commission === 'gatewaySplit';
-
-        // Id do split no provedor, quando ele mesmo divide.
-        let externalSplitId = null;
-        if (repasseAutomatico && Array.isArray((paymentResult as any)?.split)) {
-          const splitInfo = (paymentResult as any).split.find(
-            (s: any) => s.walletId === checkoutData.couponData.sellerWalletId,
-          );
-          externalSplitId = splitInfo?.id || null;
-        }
-
-        // A taxa só é descontada quando o provedor faz o repasse. Em
-        // pagamento manual o vendedor recebe o valor cheio combinado.
-        const TAXA_SPLIT_ASAAS = 0.9701; // 2,99%
-        const netValue = repasseAutomatico
-          ? checkoutData.couponData.commissionValue * TAXA_SPLIT_ASAAS
-          : checkoutData.couponData.commissionValue;
-
-        try {
-          await this.prisma.insert(
-            'splitTransaction',
-            {
-              financialRecordId,
-              toWalletId: checkoutData.couponData.sellerWalletId || null,
-              sellerId: checkoutData.couponData.sellerId,
-              originalValue: value,
-              splitValue: checkoutData.couponData.commissionValue,
-              splitPercentage: checkoutData.couponData.commissionPercentage,
-              netValue,
-              splitDescription: repasseAutomatico
-                ? `Comissão cupom - ${subscription.courseClass.name}`
-                : `Comissão cupom (repasse manual) - ${subscription.courseClass.name}`,
-              companyId,
-              status: 'PENDING',
-              asaasSplitId: externalSplitId,
-            },
-            { companyId },
-          );
-        } catch (error) {
-          console.error('Erro ao registrar comissão:', error);
-          // Não bloqueia a venda: a comissão pode ser lançada depois.
-        }
-      }
+      // O vendedor e o valor da comissão já estão na conta a receber (passo 4);
+      // a carteira lê de lá. A comissão nasce PREVISTA e só entra no saldo a
+      // pagar quando o cliente paga. Não há mais divisão no gateway nem
+      // subconta: o pagamento ao vendedor é feito por fora e baixado na carteira.
+      // Nunca derruba a venda: se falhar, fica no log e a conferência da
+      // carteira acerta depois.
+      await this.wallet.syncRecordSafe(financialRecordId);
 
       // 10. Busca o registro financeiro atualizado com campos específicos
       const updatedFinancialRecord = await this.prisma.selectOne(
@@ -594,9 +548,6 @@ export class CheckoutService {
               holderInfo: customerData,
             };
 
-            const retrySplit = this.buildSplits(checkoutData, adapter);
-            if (retrySplit) paymentData.splits = retrySplit;
-
             payment = await adapter.createPayment(paymentData, companyId);
           }
         }
@@ -633,14 +584,6 @@ export class CheckoutService {
         holderInfo: customerData,
       };
 
-      const splits = this.buildSplits(checkoutData, adapter);
-      if (splits) {
-        paymentData.splits = splits;
-        console.log('Split configurado para vendedor:');
-        console.log('- Recebedor:', splits[0].recipientId);
-        console.log('- Percentual de comissão:', splits[0].percentage + '%');
-      }
-
       // Cria o pagamento no gateway
       payment = await adapter.createPayment(paymentData, companyId);
     }
@@ -667,33 +610,6 @@ export class CheckoutService {
 
     // Retorna os dados específicos de acordo com o método de pagamento
     return this.formatPaymentResponse(payment, paymentMethod);
-  }
-
-  /**
-   * Monta a instrução de split a partir do cupom validado, no vocabulário do
-   * domínio. Traduzir `recipientId` para o campo do fornecedor (walletId, no
-   * caso do Asaas) é responsabilidade do adapter.
-   */
-  private buildSplits(checkoutData: CheckoutData, adapter: PaymentGatewayPort) {
-    const coupon = checkoutData.couponData;
-    // Em 'manualRecord' a comissão existe e é registrada, mas não vai como
-    // instrução de divisão para o provedor: o repasse é administrado por nós.
-    if (adapter.capabilities.commission !== 'gatewaySplit') {
-      return null;
-    }
-    if (
-      !coupon?.valid ||
-      !(coupon.commissionPercentage > 0) ||
-      !coupon.sellerWalletId
-    ) {
-      return null;
-    }
-    return [
-      {
-        recipientId: coupon.sellerWalletId,
-        percentage: coupon.commissionPercentage,
-      },
-    ];
   }
 
   /**
@@ -1093,6 +1009,8 @@ export class CheckoutService {
         null,
         financialRecord.id,
       );
+      // pago libera a comissão; cancelado ou estornado cancela
+      await this.wallet.syncRecordSafe(financialRecord.id);
 
       // Atualiza o status da inscrição se houver
       if (financialRecord.subscriptionId) {

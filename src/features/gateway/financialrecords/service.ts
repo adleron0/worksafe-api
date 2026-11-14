@@ -1,3 +1,4 @@
+import { SellerWalletService } from 'src/features/commercial/wallet.service';
 import {
   BadRequestException,
   ConflictException,
@@ -39,6 +40,7 @@ export class FinancialrecordsService {
   constructor(
     protected prisma: PrismaService,
     protected uploadService: UploadService,
+    protected wallet: SellerWalletService,
   ) {
   }
 
@@ -192,7 +194,10 @@ export class FinancialrecordsService {
     const note = input.observations?.trim();
     if (note) data.observations = note.slice(0, 255);
 
-    return this.prisma.update('financialRecords', data, actor, null, id);
+    const updated = await this.prisma.update('financialRecords', data, actor, null, id);
+    // o cliente pagou: a comissão do vendedor, se houver, é liberada na carteira
+    await this.wallet.syncRecordSafe(id);
+    return updated;
   }
 
   /** Estorno da baixa: desfaz um lançamento feito errado. Volta a ficar em aberto. */
@@ -204,7 +209,7 @@ export class FinancialrecordsService {
     if (record.status !== financialRecordsStatus.received) {
       throw new ConflictException('Esta conta a receber não está baixada');
     }
-    return this.prisma.update(
+    const updated = await this.prisma.update(
       'financialRecords',
       {
         status: financialRecordsStatus.waiting,
@@ -217,6 +222,9 @@ export class FinancialrecordsService {
       null,
       id,
     );
+    // baixa desfeita: a comissão volta a ficar prevista
+    await this.wallet.syncRecordSafe(id);
+    return updated;
   }
 
   private parsePaidAt(value?: string): Date {

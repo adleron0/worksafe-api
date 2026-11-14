@@ -1,3 +1,4 @@
+import { SellerWalletModule } from './features/commercial/wallet.module';
 import { Module } from '@nestjs/common';
 import * as cookieParser from 'cookie-parser';
 import { UserModule } from './features/users/user/module';
@@ -54,6 +55,7 @@ import { AIModule } from './common/ai';
     PermissionsModule,
     UploadModule,
     AreaModule,
+    SellerWalletModule, // global: a carteira do vendedor é sincronizada de vários módulos
     CrudModule.forEntities(crudEntities, crudExtraControllers, crudExtraImports),
     CourseModule,
     ClassesModule,

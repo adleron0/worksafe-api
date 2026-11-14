@@ -85,6 +85,7 @@ import { bankAccountEntity, costCenterEntity } from 'src/features/financial/rule
 import { CommercialController } from 'src/features/commercial/commercial.controller';
 import { ProposalController } from 'src/features/commercial/proposal.controller';
 import { ContractController } from 'src/features/commercial/contract.controller';
+import { SellerWalletController } from 'src/features/commercial/wallet.controller';
 import { DocumentController, PublicProposalController } from 'src/features/commercial/document.controller';
 import { CommercialModule } from 'src/features/commercial/module';
 import { professionalEntity } from 'src/features/commercial/rules.crud';
@@ -239,6 +240,7 @@ export const crudExtraControllers = [
   CommercialController,
   ProposalController,
   ContractController,
+  SellerWalletController,
   DocumentController,
   PublicProposalController,
   StudentCustomController,

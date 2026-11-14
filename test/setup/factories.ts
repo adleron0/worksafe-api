@@ -111,7 +111,7 @@ export async function makeCoupon(
   });
 }
 
-/** Vendedor com subconta Asaas já provisionada — habilita o split. */
+/** Vendedor: um usuário marcado como vendedor. A carteira nasce na primeira comissão. */
 export async function makeSeller(
   companyId: number,
   overrides: Record<string, any> = {},
@@ -126,18 +126,6 @@ export async function makeSeller(
       companyId,
       isSeller: true,
       sellerStatus: 'ACTIVE',
-      sellerConfig: {
-        gateways: {
-          asaas: {
-            production: {
-              apiKey: 'sub_apikey_teste',
-              walletId: 'wallet_teste_123',
-              accountId: 'acc_teste_123',
-              accountStatus: 'ACTIVE',
-            },
-          },
-        },
-      },
       ...overrides,
     },
   });

@@ -3,11 +3,6 @@ import { paymentMethods, gateways } from '@prisma/client';
 import { AsaasService } from 'src/common/gateways/asaas/asaas.service';
 import { CacheService } from 'src/common/cache/cache.service';
 import {
-  SellerIdentity,
-  SubAccountCapablePort,
-  SubAccountResult,
-} from 'src/payments/domain/ports/subaccount-capable.port';
-import {
   CreatePaymentInput,
   CustomerData,
   GatewayCapabilities,
@@ -29,7 +24,7 @@ import {
  * `paymentMethods.cartaoCredito`, o Asaas fala `'cartao'` / `'CREDIT_CARD'`.
  */
 @Injectable()
-export class AsaasAdapter implements SubAccountCapablePort {
+export class AsaasAdapter implements PaymentGatewayPort {
   readonly gateway = gateways.asaas;
 
   readonly capabilities: GatewayCapabilities = {
@@ -43,7 +38,8 @@ export class AsaasAdapter implements SubAccountCapablePort {
     // Webhook confirma sozinho; receiveInCash permite baixa manual também.
     confirmation: ['webhook', 'manual'],
     approval: 'onPayment',
-    commission: 'gatewaySplit',
+    // a comissão é registrada na carteira do vendedor e paga por fora (sem divisão no Asaas)
+    commission: 'manualRecord',
     // O PAN passa pela nossa API — é isto que coloca o backend em PCI SAQ-D.
     cardHandling: 'serverSide',
     webhook: 'registered',
@@ -180,10 +176,4 @@ export class AsaasAdapter implements SubAccountCapablePort {
     return this.asaas.configureWebhooks(companyId, webhookId, authToken);
   }
 
-  /** SubAccountCapablePort — o Asaas provisiona subcontas com walletId. */
-  async getOrCreateSubAccount(
-    seller: SellerIdentity,
-  ): Promise<SubAccountResult> {
-    return this.asaas.getOrCreateSubAccount(seller as any);
-  }
 }
