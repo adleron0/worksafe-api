@@ -54,18 +54,22 @@ const CLASSIC_TERMS: Array<{ title: string; kind: string; body: string }> = [
 const CLASSIC_ORDER = ['pagamento', 'mobilizacao', 'obrigacoes_contratada', 'obrigacoes', 'cancelamento', 'reequilibrio', 'aceite', 'confidencialidade', 'lgpd'];
 
 /** Modelo de orçamento: a estrutura do orçamento que a empresa sempre usou. */
-const classicBody = (training: boolean) => [
+const classicBody = (training: boolean, imagesFirst = false) => [
   '<p>{{cabecalho}}</p>', '<p>{{cliente}}</p>',
-  '<h2>Objeto</h2>', '<p><strong>{{proposta.titulo}}</strong></p>', '<p>{{proposta.descricao}}</p>', '<p>{{imagens}}</p>',
+  '<h2>Objeto</h2>', '<p><strong>{{proposta.titulo}}</strong></p>', '<p>{{proposta.descricao}}</p>', ...(imagesFirst ? ['<p>{{imagens}}</p>'] : []),
   `<h2>${training ? 'Lista dos treinamentos' : 'Lista dos serviços'}</h2>`, '<p>{{tabela_itens}}</p>',
   '<p>Valor total desta proposta: <strong>{{valor.total}}</strong> ({{valor.total_extenso}}).</p>',
   ...(training ? ['<p>Estão incluídos instrutor habilitado, material didático e certificado para os participantes aprovados.</p>'] : []),
+  // as imagens vêm depois dos serviços e do valor, com título próprio (que some quando não há imagem)
+  ...(imagesFirst ? [] : ['<h2>Imagens de referência</h2>', '<p>{{imagens}}</p>']),
   '<h2>Cronograma</h2>', '<p>{{cronograma}}</p>',
   '<h2>Vencimentos</h2>', '<p>{{condicoes_pagamento}}</p>',
   '<h2>Outras informações</h2>', '<p>{{informacoes}}</p>', '<p>{{dados_bancarios}}</p>',
   '<p>{{termos}}</p>', '<p>{{rodape}}</p>',
 ].join('');
 const classicServiceBody = classicBody(false), classicTrainingBody = classicBody(true);
+/** Versão anterior do modelo de orçamento (imagens logo depois do objeto): quem não editou recebe a nova. */
+const CLASSIC_UPGRADES: Array<[string, string]> = [[classicBody(false, true), classicServiceBody], [classicBody(true, true), classicTrainingBody]];
 
 const serviceBody = [
   '<h1>Proposta comercial {{proposta.numero}}</h1>',
@@ -225,6 +229,11 @@ export class DocumentService {
   private async ensureClassicTemplates(companyId: number): Promise<void> {
     const marker = '{{cabecalho}}';
     const all = await this.prisma.commercial_ProposalTemplate.findMany({ where: { companyId }, select: { id: true, body: true, isDefault: true } });
+    // modelo de orçamento que ninguém editou acompanha a versão atual do texto padrão
+    for (const [previous, current] of CLASSIC_UPGRADES) {
+      const stale = all.filter((t) => t.body === previous).map((t) => t.id);
+      if (stale.length) await this.prisma.commercial_ProposalTemplate.updateMany({ where: { id: { in: stale }, body: previous }, data: { body: current } });
+    }
     if (!all.length || all.some((t) => t.body.includes(marker))) return;
     await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(740119::int, ${companyId}::int)`;

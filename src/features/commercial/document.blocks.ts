@@ -165,51 +165,64 @@ export function testimonialsBlock(d: BlockData): string {
 }
 
 const clamp = (value: unknown) => Math.min(100, Math.max(0, Number(value) || 0));
-const MARK = '#E11D48';
-const badge = (n: number, left: number, top: number) =>
-  `<div style="position:absolute;left:${left}%;top:${top}%;transform:translate(-50%,-50%);width:26px;height:26px;border-radius:50%;background:${MARK};color:#FFF;border:2px solid #FFF;`
-  + `font:700 13px/22px system-ui,sans-serif;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.4);${PRINT}">${n}</div>`;
+// Marcações neutras (quase preto com contorno branco): leem bem sobre qualquer foto e não brigam com a cor da marca.
+const MARK = '#111111';
+const dot = (n: number | null, left: number, top: number) => {
+  const size = n === null ? 10 : 22;
+  return `<div style="position:absolute;left:${left}%;top:${top}%;transform:translate(-50%,-50%);width:${size}px;height:${size}px;border-radius:50%;background:${MARK};color:#FFF;`
+    + `box-shadow:0 0 0 2px #FFF,0 1px 4px rgba(0,0,0,.35);font:600 12px/${size}px system-ui,sans-serif;text-align:center;${PRINT}">${n ?? ''}</div>`;
+};
+/** O mesmo número da foto, em miniatura, para a legenda. */
+const legendNumber = (n: number) =>
+  `<span style="flex:0 0 auto;display:inline-block;width:18px;height:18px;border-radius:50%;background:${MARK};color:#FFF;font:600 11px/18px system-ui,sans-serif;text-align:center;${PRINT}">${n}</span>`;
 
-/** Imagem com as marcações por cima (círculos e setas numerados) e a legenda embaixo. */
-export function imageFigure(image: ProposalImage, alt = ''): string {
-  const shapes: string[] = [], badges: string[] = [], legend: string[] = [];
+/**
+ * Uma imagem com as marcações por cima (pontos numerados, com traço ou contorno fino)
+ * e, ao lado ou embaixo, o título, a descrição e a legenda de cada número.
+ */
+export function imageFigure(image: ProposalImage, alt = '', side = false): string {
+  const shapes: string[] = [], marks: string[] = [], legend: string[] = [];
   image.annotations.forEach((mark, index) => {
     const n = index + 1;
     if (mark.type === 'circulo') {
       const x = clamp(mark.x), y = clamp(mark.y), w = clamp(mark.w), h = clamp(mark.h);
       const ellipse = (stroke: string, width: number) => `<ellipse cx="${x + w / 2}" cy="${y + h / 2}" rx="${w / 2}" ry="${h / 2}" fill="none" stroke="${stroke}" stroke-width="${width}" vector-effect="non-scaling-stroke"/>`;
-      shapes.push(ellipse('#FFFFFF', 6), ellipse(MARK, 3));
-      badges.push(badge(n, x + w / 2, y));
+      shapes.push(ellipse('#FFFFFF', 4.5), ellipse(MARK, 2));
+      marks.push(dot(n, x + w / 2, y));
     } else {
       const x1 = clamp(mark.x1), y1 = clamp(mark.y1), x2 = clamp(mark.x2), y2 = clamp(mark.y2);
       const line = (stroke: string, width: number) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${stroke}" stroke-width="${width}" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`;
-      shapes.push(line('#FFFFFF', 6), line(MARK, 3));
-      badges.push(badge(n, x1, y1));
-      // ponta: um ponto no detalhe apontado (seta em SVG esticado ficaria torta)
-      badges.push(`<div style="position:absolute;left:${x2}%;top:${y2}%;transform:translate(-50%,-50%);width:14px;height:14px;border-radius:50%;background:${MARK};border:2px solid #FFF;box-shadow:0 1px 3px rgba(0,0,0,.4);${PRINT}"></div>`);
+      shapes.push(line('#FFFFFF', 4.5), line(MARK, 2));
+      // o número fica onde o traço começa; um ponto pequeno marca o detalhe apontado
+      marks.push(dot(n, x1, y1), dot(null, x2, y2));
     }
-    if (mark.label) legend.push(`<li style="margin:2px 0"><strong style="color:${MARK}">${n}</strong> — ${esc(mark.label)}</li>`);
+    if (mark.label) legend.push(`<div style="display:flex;gap:8px;align-items:flex-start;margin-top:6px">${legendNumber(n)}<span style="min-width:0">${esc(mark.label)}</span></div>`);
   });
-  return `<figure data-block="imagem" style="margin:0;break-inside:avoid;page-break-inside:avoid">`
-    + `<div style="position:relative;line-height:0;border-radius:10px;overflow:hidden;border:1px solid #DDD">`
+  const picture = `<div style="position:relative;line-height:0;border-radius:8px;overflow:hidden;background:#F2F2F2;${PRINT}">`
     + `<img src="${esc(image.url)}" alt="${esc(image.title || alt)}" style="display:block;width:100%;height:auto">`
     + (shapes.length ? `<svg viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;left:0;top:0;width:100%;height:100%" aria-hidden="true">${shapes.join('')}</svg>` : '')
-    + badges.join('')
-    + `</div>`
-    + ((image.title || image.description || legend.length) ? `<figcaption style="font-size:14px;color:#333;margin-top:8px;line-height:1.45">`
-      + (image.title ? `<strong style="color:#111">${esc(image.title)}</strong>` : '')
-      + (image.description ? `<div>${lines(image.description)}</div>` : '')
-      + (legend.length ? `<ul style="list-style:none;margin:6px 0 0;padding:0">${legend.join('')}</ul>` : '')
-      + `</figcaption>` : '')
-    + `</figure>`;
+    + marks.join('')
+    + `</div>`;
+  const notes = (image.title || image.description || legend.length)
+    ? `<figcaption style="font-size:.9em;color:#333;line-height:1.45">`
+      + (image.title ? `<div style="font-weight:600;color:#111">${esc(image.title)}</div>` : '')
+      + (image.description ? `<div style="color:#555;margin-top:2px">${lines(image.description)}</div>` : '')
+      + (legend.length ? `<div style="margin-top:${image.title || image.description ? 8 : 0}px">${legend.join('')}</div>` : '')
+      + `</figcaption>`
+    : '';
+  // Sozinha e com anotações, a foto fica ao lado do texto (e desce para baixo dele em tela estreita).
+  const body = side && notes
+    ? `<div style="display:flex;flex-wrap:wrap;gap:14px 20px;align-items:flex-start"><div style="flex:3 1 320px;min-width:0">${picture}</div><div style="flex:2 1 200px;min-width:0">${notes}</div></div>`
+    : `${picture}${notes ? `<div style="margin-top:8px">${notes}</div>` : ''}`;
+  return `<figure data-block="imagem" style="margin:0;break-inside:avoid;page-break-inside:avoid">${body}</figure>`;
 }
 
 export function imagesBlock(d: BlockData): string {
   if (!d.images.length) return '';
-  // uma imagem sozinha fica centralizada, sem ocupar a tela inteira; várias ficam lado a lado e quebram no celular
-  const single = d.images.length === 1;
-  return `<div data-block="imagens" style="display:flex;flex-wrap:wrap;justify-content:center;gap:18px;margin:10px 0 20px">`
-    + d.images.map((image) => `<div style="flex:${single ? '0 1 620px' : '1 1 300px'};max-width:${single ? '620px' : '100%'};min-width:0">${imageFigure(image, d.title)}</div>`).join('')
+  // uma imagem: foto e legenda lado a lado; várias: grade de duas colunas, cada foto com a legenda embaixo
+  if (d.images.length === 1) return `<div data-block="imagens" style="margin:6px 0 18px">${imageFigure(d.images[0], d.title, true)}</div>`;
+  return `<div data-block="imagens" style="display:flex;flex-wrap:wrap;gap:18px 20px;margin:6px 0 18px">`
+    + d.images.map((image) => `<div style="flex:1 1 280px;max-width:100%;min-width:0">${imageFigure(image, d.title)}</div>`).join('')
     + `</div>`;
 }
 
