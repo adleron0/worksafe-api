@@ -53,23 +53,31 @@ const CLASSIC_TERMS: Array<{ title: string; kind: string; body: string }> = [
 /** Ordem dos termos no modelo de orçamento. */
 const CLASSIC_ORDER = ['pagamento', 'mobilizacao', 'obrigacoes_contratada', 'obrigacoes', 'cancelamento', 'reequilibrio', 'aceite', 'confidencialidade', 'lgpd'];
 
-/** Modelo de orçamento: a estrutura do orçamento que a empresa sempre usou. */
-const classicBody = (training: boolean, imagesFirst = false) => [
+/**
+ * Modelo de orçamento: a estrutura do orçamento que a empresa sempre usou.
+ * As imagens ficam depois de "Outras informações", com título no mesmo estilo das condições
+ * (o título some quando a proposta não tem imagem). As posições antigas existem só para
+ * reconhecer, e atualizar, o modelo de quem ainda não o editou.
+ */
+type ImagesAt = 'objeto' | 'lista' | 'fim';
+const classicBody = (training: boolean, images: ImagesAt = 'fim') => [
   '<p>{{cabecalho}}</p>', '<p>{{cliente}}</p>',
-  '<h2>Objeto</h2>', '<p><strong>{{proposta.titulo}}</strong></p>', '<p>{{proposta.descricao}}</p>', ...(imagesFirst ? ['<p>{{imagens}}</p>'] : []),
+  '<h2>Objeto</h2>', '<p><strong>{{proposta.titulo}}</strong></p>', '<p>{{proposta.descricao}}</p>', ...(images === 'objeto' ? ['<p>{{imagens}}</p>'] : []),
   `<h2>${training ? 'Lista dos treinamentos' : 'Lista dos serviços'}</h2>`, '<p>{{tabela_itens}}</p>',
   '<p>Valor total desta proposta: <strong>{{valor.total}}</strong> ({{valor.total_extenso}}).</p>',
   ...(training ? ['<p>Estão incluídos instrutor habilitado, material didático e certificado para os participantes aprovados.</p>'] : []),
-  // as imagens vêm depois dos serviços e do valor, com título próprio (que some quando não há imagem)
-  ...(imagesFirst ? [] : ['<h2>Imagens de referência</h2>', '<p>{{imagens}}</p>']),
+  ...(images === 'lista' ? ['<h2>Imagens de referência</h2>', '<p>{{imagens}}</p>'] : []),
   '<h2>Cronograma</h2>', '<p>{{cronograma}}</p>',
   '<h2>Vencimentos</h2>', '<p>{{condicoes_pagamento}}</p>',
   '<h2>Outras informações</h2>', '<p>{{informacoes}}</p>', '<p>{{dados_bancarios}}</p>',
+  ...(images === 'fim' ? ['<h3>Imagens de referência</h3>', '<p>{{imagens}}</p>'] : []),
   '<p>{{termos}}</p>', '<p>{{rodape}}</p>',
 ].join('');
 const classicServiceBody = classicBody(false), classicTrainingBody = classicBody(true);
-/** Versão anterior do modelo de orçamento (imagens logo depois do objeto): quem não editou recebe a nova. */
-const CLASSIC_UPGRADES: Array<[string, string]> = [[classicBody(false, true), classicServiceBody], [classicBody(true, true), classicTrainingBody]];
+/** Versões anteriores do modelo de orçamento: quem não editou recebe a atual. */
+const CLASSIC_UPGRADES: Array<[string, string]> = (['objeto', 'lista'] as ImagesAt[]).flatMap((at) => [
+  [classicBody(false, at), classicServiceBody], [classicBody(true, at), classicTrainingBody],
+] as Array<[string, string]>);
 
 const serviceBody = [
   '<h1>Proposta comercial {{proposta.numero}}</h1>',

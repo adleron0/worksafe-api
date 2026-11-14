@@ -298,7 +298,8 @@ export function renderDocument(body: string, data: DocumentData, terms: TermText
     let previous = '';
     while (previous !== html) {
       previous = html;
-      html = html.replace(/<h2[^>]*>(?:(?!<\/h2>)[\s\S])*<\/h2>(?=\s*(?:<h2|$))/g, '');
+      // título (h2 ou h3) seguido direto de outro título, de um termo, da observação final ou do fim
+      html = html.replace(/<h([23])[^>]*>(?:(?!<\/h\1>)[\s\S])*<\/h\1>(?=\s*(?:<h[23]|<div data-block="(?:termo|rodape)"|$))/g, '');
     }
   }
   // a cor da marca vai como variável: os títulos do texto usam a mesma cor da capa

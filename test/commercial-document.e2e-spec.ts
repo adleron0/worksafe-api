@@ -406,13 +406,13 @@ describe('Comercial — documento, link público e aceite (e2e)', () => {
     const html = (await api().get(pub(sentProposal.publicKey)).expect(200)).body.html as string;
     for (const piece of ['data-block="imagens"', 'src="https://cdn.teste.local/tanque.webp"', 'Tanque 3 — costado norte', 'Pontos de corrosão a tratar.',
       '<ellipse cx="25" cy="32.5" rx="15" ry="12.5"', '<line x1="80" y1="10" x2="60" y2="40"', '>1</span><span style="min-width:0">Corrosão na solda</span>',
-      '>2</span><span style="min-width:0">Ponto de ancoragem &lt;script&gt;</span>', '<h2>Imagens de referência</h2>']) {
+      '>2</span><span style="min-width:0">Ponto de ancoragem &lt;script&gt;</span>', '<h3>Imagens de referência</h3>']) {
       expect(html).toContain(piece);
     }
     expect(html).not.toContain('<script');
-    // as imagens vêm depois da lista dos serviços, antes dos vencimentos
-    expect(html.indexOf('Lista dos serviços')).toBeLessThan(html.indexOf('data-block="imagens"'));
-    expect(html.indexOf('data-block="imagens"')).toBeLessThan(html.indexOf('<h2>Vencimentos</h2>'));
+    // as imagens vêm depois de "Outras informações", antes das condições
+    expect(html.indexOf('data-block="informacoes"')).toBeLessThan(html.indexOf('data-block="imagens"'));
+    expect(html.indexOf('data-block="imagens"')).toBeLessThan(html.indexOf('data-block="termo"'));
     // a revisão leva as imagens junto
     await api().post(`/commercial/public/proposals/${sentProposal.publicKey}/refuse`).set('X-Forwarded-For', testIp).send({ name: 'Maria Souza' }).expect(201);
     const revision = (await api().post(`/commercial/proposals/${proposal.id}/revise`).set(h).expect(201)).body;
@@ -479,14 +479,19 @@ describe('Comercial — documento, link público e aceite (e2e)', () => {
       expect(html).toContain(piece);
     }
     for (const gone of ['{{', 'data-block="capa"', 'Próximos passos', 'Investimento total', 'treina@teste.local', 'geral@teste.local', 'Imagens de referência']) expect(html).not.toContain(gone);
-    // modelo de orçamento da versão anterior (imagens logo depois do objeto), sem edição, recebe o texto atual
+    // modelo de orçamento das versões anteriores (imagens depois do objeto ou da lista), sem edição, recebe o texto atual
     const db = testDb();
     const service = await db.commercial_ProposalTemplate.findFirstOrThrow({ where: { companyId: company.id, name: 'Orçamento de serviço' } });
-    const previous = service.body.replace('<h2>Imagens de referência</h2><p>{{imagens}}</p>', '').replace('<p>{{proposta.descricao}}</p>', '<p>{{proposta.descricao}}</p><p>{{imagens}}</p>');
-    expect(previous).not.toBe(service.body);
-    await db.commercial_ProposalTemplate.update({ where: { id: service.id }, data: { body: previous } });
-    await api().get('/commercial/templates').set(h).expect(200);
-    expect((await db.commercial_ProposalTemplate.findUniqueOrThrow({ where: { id: service.id } })).body).toBe(service.body);
+    const noImages = service.body.replace('<h3>Imagens de referência</h3><p>{{imagens}}</p>', '');
+    expect(noImages).not.toBe(service.body);
+    for (const previous of [
+      noImages.replace('<p>{{proposta.descricao}}</p>', '<p>{{proposta.descricao}}</p><p>{{imagens}}</p>'),
+      noImages.replace('<h2>Cronograma</h2>', '<h2>Imagens de referência</h2><p>{{imagens}}</p><h2>Cronograma</h2>'),
+    ]) {
+      await db.commercial_ProposalTemplate.update({ where: { id: service.id }, data: { body: previous } });
+      await api().get('/commercial/templates').set(h).expect(200);
+      expect((await db.commercial_ProposalTemplate.findUniqueOrThrow({ where: { id: service.id } })).body).toBe(service.body);
+    }
     // proposta de treinamento usa a caixa de treinamentos; os termos chegam à tela com o texto, para a edição livre
     const training = (await api().post(`/commercial/proposals/${proposal.id}/document-preview`).set(h).send({ ...proposal.draft, kind: 'treinamento' }).expect(201)).body.html as string;
     expect(training).toContain('pelo e-mail treina@teste.local');
