@@ -501,7 +501,7 @@ export class ProposalService {
       },
       contactName: draft.contactName, sellerName: seller?.name ?? null, number, title: draft.title, description: draft.description,
       date, validUntil: draft.validUntil, workDays: draft.workDays, total, sections,
-      brand, images: draft.images, schedule: draft.schedule, seller: { name: seller?.name ?? null, email: seller?.email ?? null, phone: seller?.phone ?? null },
+      brand, images: draft.images, schedule: draft.schedule, kind: draft.kind, seller: { name: seller?.name ?? null, email: seller?.email ?? null, phone: seller?.phone ?? null },
       installments: draft.installments.map((inst, index) => ({ description: inst.description, value: values[index], dueRule: inst.dueRule, dueDate: inst.dueDate, dueDays: inst.dueDays })),
     };
   }
@@ -604,7 +604,7 @@ export class ProposalService {
       // versões da base para escolher à mão (a automática é a vigente na data prevista)
       costBases: actor.canSeeCosts ? (await this.commercial.listBases(actor.companyId, date)).filter((base) => !base.inactiveAt).map((base) => ({ id: base.id, name: base.name, effectiveFrom: base.effectiveFrom, current: base.current })) : [],
       templates: (await this.documents.listTemplates(actor.companyId)).map((t) => ({ id: t.id, name: t.name, kind: t.kind, isDefault: t.isDefault, body: t.body, itemsMode: t.itemsMode, termIds: t.termIds })),
-      terms: (await this.documents.listTerms(actor.companyId)).map((t) => ({ id: t.id, title: t.title, kind: t.kind })),
+      terms: (await this.documents.listTerms(actor.companyId)).map((t) => ({ id: t.id, title: t.title, kind: t.kind, body: t.body })),
       variables: VARIABLES,
       // a tela avisa quando a seção "por que nós" ainda está vazia
       brandReady: await this.documents.brand(actor.companyId).then((brand) => Boolean(brand.about || brand.differentials.length || brand.highlights.length)),

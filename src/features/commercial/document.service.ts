@@ -281,6 +281,7 @@ export class DocumentService {
       website: saved.website ?? company?.websiteUrl ?? '',
       address: saved.address ?? [company?.address, company?.addressNumber, company?.neighborhood].filter(Boolean).join(', '),
       registrations: saved.registrations ?? '', payment: saved.payment ?? '',
+      serviceEmail: saved.serviceEmail ?? '', trainingEmail: saved.trainingEmail ?? '',
     };
   }
 
@@ -289,7 +290,9 @@ export class DocumentService {
       (Array.isArray(raw) ? raw : []).slice(0, max).map((entry) => map((entry ?? {}) as Body)).filter((entry): entry is T => entry !== null);
     if (!blank(body.logoUrl) && !safeImageUrl(body.logoUrl)) throw new BadRequestException('A logo precisa ser um endereço https');
     if (!blank(body.color) && !/^#[0-9a-f]{6}$/i.test(String(body.color))) throw new BadRequestException('Cor inválida: use o formato #RRGGBB');
-    if (!blank(body.email) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(body.email))) throw new BadRequestException('E-mail de contato inválido');
+    for (const [key, label] of [['email', 'E-mail de contato'], ['serviceEmail', 'E-mail de serviços'], ['trainingEmail', 'E-mail de treinamentos']]) {
+      if (!blank(body[key]) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(body[key]))) throw new BadRequestException(`${label} inválido`);
+    }
     const brand = {
       logoUrl: blank(body.logoUrl) ? null : safeImageUrl(body.logoUrl), color: blank(body.color) ? null : validColor(body.color),
       tagline: text(body.tagline, 200), about: text(body.about, 2000),
@@ -298,6 +301,7 @@ export class DocumentService {
       testimonials: rows(body.testimonials, 3, (e) => (text(e.quote, 500) ? { quote: text(e.quote, 500), author: text(e.author, 80), company: text(e.company, 80) } : null)),
       phone: text(body.phone, 60), email: text(body.email, 255), website: text(body.website, 255), address: text(body.address, 255),
       registrations: text(body.registrations, 300), payment: text(body.payment, 1000),
+      serviceEmail: text(body.serviceEmail, 255), trainingEmail: text(body.trainingEmail, 255),
     };
     // campo vazio volta a valer o cadastro da empresa: guarda só o que foi preenchido
     const stored = Object.fromEntries(Object.entries(brand).filter(([key, value]) =>

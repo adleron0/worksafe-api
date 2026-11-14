@@ -436,7 +436,7 @@ describe('Comercial — documento, link público e aceite (e2e)', () => {
     const { h, company, proposal } = await cenario();
     await testDb().company.update({ where: { id: company.id }, data: { primary_color: '#00BFB3', address: 'Rodovia BR 101 Sul', addressNumber: '1781', zipCode: '54590000' } });
     const brand = (await api().put('/commercial/brand').set(h).send({
-      registrations: 'Inscrição Estadual: 0848343-40', payment: 'BANCO: TESTE\nAGÊNCIA: 0001 <b>', email: 'comercial@teste.local', phone: '(81) 99999-0000',
+      registrations: 'Inscrição Estadual: 0848343-40', payment: 'BANCO: TESTE\nAGÊNCIA: 0001 <b>', email: 'geral@teste.local', serviceEmail: 'comercial@teste.local', trainingEmail: 'treina@teste.local', phone: '(81) 99999-0000',
     }).expect(200)).body;
     expect(brand).toMatchObject({ registrations: 'Inscrição Estadual: 0848343-40', payment: 'BANCO: TESTE\nAGÊNCIA: 0001 <b>' });
 
@@ -449,7 +449,13 @@ describe('Comercial — documento, link público e aceite (e2e)', () => {
       'data-block="rodape"', 'comercial@teste.local']) {
       expect(html).toContain(piece);
     }
-    for (const gone of ['{{', 'data-block="capa"', 'Próximos passos', 'Investimento total']) expect(html).not.toContain(gone);
+    for (const gone of ['{{', 'data-block="capa"', 'Próximos passos', 'Investimento total', 'treina@teste.local', 'geral@teste.local']) expect(html).not.toContain(gone);
+    // proposta de treinamento usa a caixa de treinamentos; os termos chegam à tela com o texto, para a edição livre
+    const training = (await api().post(`/commercial/proposals/${proposal.id}/document-preview`).set(h).send({ ...proposal.draft, kind: 'treinamento' }).expect(201)).body.html as string;
+    expect(training).toContain('pelo e-mail treina@teste.local');
+    await api().put('/commercial/brand').set(h).send({ serviceEmail: 'sem-arroba' }).expect(400);
+    const terms = (await api().get('/commercial/proposals/options').set(h).expect(200)).body.terms;
+    expect(terms.find((t: any) => t.kind === 'obrigacoes').body).toContain('jornada administrativa');
     // cliente sem rua e com número 0 no cadastro: nenhuma linha solta de endereço
     await testDb().customer.updateMany({ where: { companyId: company.id }, data: { street: null, number: 0, complement: null } });
     const bare = (await api().post(`/commercial/proposals/${proposal.id}/document-preview`).set(h).send({}).expect(201)).body.html as string;

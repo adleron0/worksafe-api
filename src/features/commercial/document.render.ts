@@ -23,6 +23,7 @@ export interface DocumentData {
   brand?: Brand;
   images?: ProposalImage[];
   schedule?: Schedule;
+  kind?: 'servico' | 'treinamento' | 'misto';
   seller?: { name: string | null; email: string | null; phone: string | null };
 }
 
@@ -273,7 +274,7 @@ export function renderDocument(body: string, data: DocumentData, terms: TermText
       brand: data.brand, company: data.company, customer: data.customer, contactName: data.contactName,
       seller: data.seller ?? { name: data.sellerName, email: null, phone: null },
       number: data.number, title: data.title, date: data.date, validUntil: data.validUntil, workDays: data.workDays, total: data.total,
-      totalInWords: moneyInWords(data.total), installments: data.installments, images: data.images ?? [], schedule: data.schedule,
+      totalInWords: moneyInWords(data.total), installments: data.installments, images: data.images ?? [], schedule: data.schedule, kind: data.kind,
     };
     for (const [key, build] of Object.entries(BRAND_BLOCKS)) blocks[key] = build(blockData);
   } else {

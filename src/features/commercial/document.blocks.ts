@@ -21,6 +21,9 @@ export interface Brand {
   registrations?: string;
   /** dados para pagamento: banco, agência, conta, chave PIX */
   payment?: string;
+  /** e-mail de tratativas das propostas de serviço e das de treinamento (em branco, vale o e-mail geral) */
+  serviceEmail?: string;
+  trainingEmail?: string;
 }
 
 export type Annotation =
@@ -44,6 +47,8 @@ export interface BlockData {
   installments: Array<{ value: number }>;
   images: ProposalImage[];
   schedule?: Schedule;
+  /** tipo da proposta: define o e-mail de tratativas */
+  kind?: 'servico' | 'treinamento' | 'misto';
 }
 
 const esc = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
@@ -317,9 +322,11 @@ export function scheduleBlock(d: BlockData): string {
 }
 
 export function footerNoteBlock(d: BlockData): string {
+  // treinamento tem caixa própria; serviço e proposta mista usam a de serviços
+  const email = (d.kind === 'treinamento' ? d.brand.trainingEmail : d.brand.serviceEmail) || d.brand.email;
   const notes = [
     `Ao responder esta proposta por e-mail, mencione o número ${esc(d.number)} para nossa referência.`,
-    d.brand.email ? `Tratativas sobre esta proposta sempre pelo e-mail ${esc(d.brand.email)}.` : '',
+    email ? `Tratativas sobre esta proposta sempre pelo e-mail ${esc(email)}.` : '',
   ].filter(Boolean);
   return `<div data-block="rodape" style="border-top:1px solid #999;margin-top:22px;padding-top:10px;${SMALL}">${notes.join('<br>')}</div>`;
 }
