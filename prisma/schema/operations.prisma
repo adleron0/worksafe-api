@@ -81,3 +81,42 @@ model Flow_Event {
 
   @@index([entity, entityId])
 }
+
+// RDO — relatório diário de obra: um por dia e turno de cada ordem de serviço.
+model Service_DailyReport {
+  id        Int      @id @default(autoincrement())
+  companyId Int
+  orderId   Int
+  date      DateTime @db.Date
+  // integral | manha | tarde | noite
+  shift     String   @default("integral") @db.VarChar(12)
+  // bom | nublado | chuva | impraticavel
+  weather   String   @default("bom") @db.VarChar(16)
+  // rascunho | fechado
+  status    String   @default("rascunho") @db.VarChar(12)
+
+  // equipe do dia: [{ name, role, hours, overtime }]
+  crew        Json
+  // o que foi feito no dia
+  activities  String?
+  // avanço acumulado de cada etapa do cronograma: [{ step, title, percent }]
+  progress    Json
+  // [{ type, description, hoursLost }]
+  occurrences Json
+  equipment   String?
+  // [{ url, caption }]
+  photos      Json
+  notes       String?
+
+  createdByUserId Int?
+  closedAt        DateTime?
+  closedByUserId  Int?
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([orderId, date, shift])
+  @@index([companyId, orderId])
+  @@index([companyId, date])
+}

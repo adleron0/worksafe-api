@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Put, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
 import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { COSTS_PERMISSION, permissionsOf } from 'src/features/commercial/proposal.controller';
+import { DailyReportService } from './daily-report.service';
 import { OrderActor, ServiceOrderService } from './service-order.service';
 
 const actorOf = (req: Request): OrderActor => {
@@ -29,4 +30,40 @@ export class ServiceOrderController {
 
   @Permissions('update_ordens_de_servico') @Patch(':id/status')
   move(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.orders.move(actorOf(req), id, body ?? {}); }
+}
+
+/**
+ * RDO — relatório diário de obra. Quem vê as ordens de serviço vê os RDOs;
+ * quem as altera lança e fecha RDO.
+ */
+@Controller()
+export class DailyReportController {
+  constructor(private readonly reports: DailyReportService) {}
+
+  @Permissions('list_ordens_de_servico') @Get('service-reports')
+  recent(@Req() req: Request, @Query() query: Record<string, string>) { return this.reports.recent(actorOf(req), query ?? {}); }
+
+  @Permissions('list_ordens_de_servico') @Get('service-orders/:orderId/reports')
+  list(@Param('orderId', ParseIntPipe) orderId: number, @Req() req: Request) { return this.reports.list(actorOf(req), orderId); }
+
+  @Permissions('list_ordens_de_servico') @Get('service-orders/:orderId/reports/template')
+  template(@Param('orderId', ParseIntPipe) orderId: number, @Req() req: Request, @Query() query: Record<string, string>) { return this.reports.template(actorOf(req), orderId, query ?? {}); }
+
+  @Permissions('update_ordens_de_servico') @Post('service-orders/:orderId/reports')
+  create(@Param('orderId', ParseIntPipe) orderId: number, @Req() req: Request, @Body() body: Json) { return this.reports.create(actorOf(req), orderId, body ?? {}); }
+
+  @Permissions('list_ordens_de_servico') @Get('service-reports/:id')
+  get(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.reports.get(actorOf(req), id); }
+
+  @Permissions('update_ordens_de_servico') @Put('service-reports/:id')
+  update(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.reports.update(actorOf(req), id, body ?? {}); }
+
+  @Permissions('update_ordens_de_servico') @Patch('service-reports/:id/close')
+  close(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.reports.close(actorOf(req), id); }
+
+  @Permissions('update_ordens_de_servico') @Patch('service-reports/:id/reopen')
+  reopen(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.reports.reopen(actorOf(req), id, body ?? {}); }
+
+  @Permissions('update_ordens_de_servico') @Delete('service-reports/:id')
+  remove(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.reports.remove(actorOf(req), id); }
 }

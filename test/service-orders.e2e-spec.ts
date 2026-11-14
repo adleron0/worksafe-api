@@ -217,4 +217,137 @@ describe('Operação — ordem de serviço (e2e)', () => {
     // liberar sem pedido, para o cliente que não exige
     expect((await mover(h, id, { status: 'a_mobilizar', note: 'Cliente não emite pedido' }).expect(200)).body.status).toBe('a_mobilizar');
   });
+  // ------------------------------------------------------------------ RDO
+
+  /** OS em execução desde anteontem, com a equipe escalada. */
+  async function emExecucao() {
+    const base = await cenario();
+    const id = (await aceitar(base.h, base.proposal.id, { customerOrderNumber: '1' })).contract.serviceOrder.id as number;
+    await api().put(`/service-orders/${id}`).set(base.h).send({ team: [{ name: 'João', role: 'Alpinista N1' }, { name: 'Pedro', role: 'Alpinista N1' }] }).expect(200);
+    await mover(base.h, id, { status: 'agendada', plannedStart: day(-2) }).expect(200);
+    await mover(base.h, id, { status: 'em_execucao', date: day(-2) }).expect(200);
+    return { ...base, id };
+  }
+  const rdo = (h: Record<string, string>, orderId: number, body: Record<string, unknown>) => api().post(`/service-orders/${orderId}/reports`).set(h).send(body);
+
+  it('RDO: só com a obra em andamento; o modelo do dia já vem com a equipe; horas, avanço e custo saem do diário', async () => {
+    const { h, proposal, company } = await cenario();
+    const id = (await aceitar(h, proposal.id, { customerOrderNumber: '1' })).contract.serviceOrder.id as number;
+    await rdo(h, id, { date: TODAY }).expect(409); // a obra ainda não começou
+    await api().put(`/service-orders/${id}`).set(h).send({ team: [{ name: 'João', role: 'Alpinista N1' }, { name: 'Pedro', role: 'Alpinista N1' }] }).expect(200);
+    await mover(h, id, { status: 'agendada', plannedStart: day(-2) }).expect(200);
+    await mover(h, id, { status: 'em_execucao', date: day(-2) }).expect(200);
+
+    // o RDO em branco vem com a equipe escalada, as funções vendidas e as etapas do cronograma
+    const blankReport = (await api().get(`/service-orders/${id}/reports/template`).set(h).expect(200)).body;
+    expect(blankReport).toMatchObject({ date: TODAY, shift: 'integral', weather: 'bom', roles: ['Alpinista N1'], hoursPerDay: 8, order: { number: `OS-${YEAR}-0001` } });
+    expect(blankReport.crew).toEqual([{ name: 'João', role: 'Alpinista N1', hours: 8, overtime: 0 }, { name: 'Pedro', role: 'Alpinista N1', hours: 8, overtime: 0 }]);
+    expect(blankReport.progress).toEqual([{ step: 0, title: 'Mobilização', percent: 0 }, { step: 1, title: 'Execução', percent: 0 }]);
+
+    const first = (await rdo(h, id, {
+      date: day(-2), crew: blankReport.crew, activities: 'Montagem do andaime e isolamento da área',
+      progress: [{ step: 0, percent: 100 }, { step: 1, percent: 0 }], equipment: 'Andaime tubular', photos: [{ url: 'https://exemplo.local/foto.jpg', caption: 'Área isolada' }],
+    }).expect(201)).body;
+    expect(first).toMatchObject({ date: day(-2), status: 'rascunho', editable: true, activities: 'Montagem do andaime e isolamento da área' });
+    // mesmo dia e turno não repete; outro turno pode
+    await rdo(h, id, { date: day(-2) }).expect(409);
+    await rdo(h, id, { date: day(-2), shift: 'noite', crew: [{ name: 'João', role: 'Alpinista N1', hours: 2, overtime: 2 }] }).expect(201);
+    // datas: nem futuro, nem antes do início da obra
+    await rdo(h, id, { date: day(1) }).expect(400);
+    await rdo(h, id, { date: day(-5) }).expect(400);
+    // dia seguinte: avança a execução, com um ajudante que não estava no orçamento e uma parada
+    await rdo(h, id, {
+      date: day(-1), crew: [...blankReport.crew, { name: 'Zé', role: 'Ajudante', hours: 4, overtime: 0 }], activities: 'Jateamento do costado',
+      progress: [{ step: 0, percent: 100 }, { step: 1, percent: 10 }], occurrences: [{ type: 'paralisacao', description: 'Chuva forte à tarde', hoursLost: 3 }],
+    }).expect(201);
+    // o modelo de hoje parte do último RDO: mesma equipe, avanço como estava
+    const next = (await api().get(`/service-orders/${id}/reports/template`).set(h).expect(200)).body;
+    expect(next.crew.map((member: any) => member.name)).toEqual(['João', 'Pedro', 'Zé']);
+    expect(next.progress.map((item: any) => item.percent)).toEqual([100, 10]);
+
+    const diary = (await api().get(`/service-orders/${id}/reports`).set(h).expect(200)).body;
+    expect(diary).toMatchObject({ canWrite: true, order: { number: `OS-${YEAR}-0001`, status: 'em_execucao' } });
+    expect(diary.rows.map((row: any) => [row.date, row.shift, row.people, row.hours, row.overtime])).toEqual([
+      [day(-1), 'integral', 3, 20, 0], [day(-2), 'noite', 1, 2, 2], [day(-2), 'integral', 2, 16, 0],
+    ]);
+    const { summary } = diary;
+    expect(summary).toMatchObject({ reports: 3, days: 2, drafts: 3, lastDate: day(-1), stoppedDays: 1, hoursLost: 3 });
+    // 2 alpinistas × 22 dias × 8 h = 352 h orçadas; 34 h feitas pela função orçada, 4 h de quem não estava no orçamento
+    expect(summary.hours).toMatchObject({ total: 38, overtime: 2, budget: 352 });
+    expect(summary.hours.rows).toEqual([
+      { role: 'Alpinista N1', hours: 34, overtime: 2, budgetHours: 352, budgetOvertime: 0, matched: true },
+      { role: 'Ajudante', hours: 4, overtime: 0, budgetHours: 0, budgetOvertime: 0, matched: false },
+    ]);
+    // avanço pesado pela duração: (2 × 100% + 20 × 10%) ÷ 22
+    expect(summary.progress.done).toBe(18.18);
+    expect(summary.progress.planned).toBeGreaterThan(0);
+    expect(summary.progress.steps.map((step: any) => step.percent)).toEqual([100, 10]);
+    // custo: horas × custo hora da base da proposta; o ajudante fica sem custo e é avisado
+    expect(summary.labor.withoutCost).toEqual(['Ajudante']);
+    expect(summary.labor.cost).toBeGreaterThan(34 * 59);
+    expect(summary.labor.cost).toBeLessThan(34 * 59.1 + 2 * 60);
+    expect(summary.labor.budget).toBeGreaterThan(0);
+    // sem a permissão de custos: horas sim, custo não
+    const field = (await api().get(`/service-orders/${id}/reports`).set(auth(company.id, ORDERS)).expect(200)).body;
+    expect(field.summary.labor).toBeNull();
+    expect(field.summary.hours.total).toBe(38);
+  });
+
+  it('RDO: fechar trava a edição, reabrir pede o motivo, rascunho pode ser apagado', async () => {
+    const { h, id } = await emExecucao();
+    const empty = (await rdo(h, id, { date: day(-1) }).expect(201)).body;
+    // nada lançado: não fecha; dia parado fecha só com o clima
+    await api().patch(`/service-reports/${empty.id}/close`).set(h).expect(400);
+    expect((await api().put(`/service-reports/${empty.id}`).set(h).send({ weather: 'impraticavel', notes: 'Chuva o dia todo' }).expect(200)).body).toMatchObject({ weather: 'impraticavel', notes: 'Chuva o dia todo' });
+    expect((await api().patch(`/service-reports/${empty.id}/close`).set(h).expect(200)).body).toMatchObject({ status: 'fechado', editable: false, closedBy: 'Vendedor Teste' });
+
+    // fechado: não edita, não fecha de novo, não apaga; reabrir pede o motivo
+    await api().put(`/service-reports/${empty.id}`).set(h).send({ notes: 'x' }).expect(409);
+    await api().patch(`/service-reports/${empty.id}/close`).set(h).expect(409);
+    await api().delete(`/service-reports/${empty.id}`).set(h).expect(409);
+    await api().patch(`/service-reports/${empty.id}/reopen`).set(h).send({}).expect(400);
+    expect((await api().patch(`/service-reports/${empty.id}/reopen`).set(h).send({ note: 'Faltou a foto' }).expect(200)).body).toMatchObject({ status: 'rascunho', editable: true });
+    expect(await testDb().flow_Event.count({ where: { entity: 'service_report', entityId: empty.id, type: 'reaberto' } })).toBe(1);
+
+    // validações do que entra no RDO
+    const put = (body: Record<string, unknown>) => api().put(`/service-reports/${empty.id}`).set(h).send(body);
+    await put({ crew: [{ name: '', role: 'Alpinista N1', hours: 8 }] }).expect(400);
+    await put({ crew: [{ name: 'João', hours: 30 }] }).expect(400);
+    await put({ progress: [{ step: 1, percent: 140 }] }).expect(400);
+    await put({ occurrences: [{ type: 'paralisacao', description: '' }] }).expect(400);
+    await put({ photos: [{ url: 'javascript:alert(1)' }] }).expect(400);
+    await put({ shift: 'madrugada' }).expect(400);
+    await put({ weather: 'neve' }).expect(400);
+
+    // rascunho pode ser apagado; depois de concluir a obra ainda dá para lançar o que faltou, até o dia do término
+    await api().delete(`/service-reports/${empty.id}`).set(h).expect(200);
+    await mover(h, id, { status: 'concluida', date: day(-1) }).expect(200);
+    await rdo(h, id, { date: day(-1), activities: 'Desmobilização' }).expect(201);
+    await rdo(h, id, { date: TODAY }).expect(400);
+    await mover(h, id, { status: 'encerrada' }).expect(200);
+    await rdo(h, id, { date: day(-2) }).expect(409);
+  });
+
+  it('RDO: a tela do encarregado lista as obras em andamento; permissões e isolamento', async () => {
+    const { h, id, company } = await emExecucao();
+    const created = (await rdo(h, id, { date: TODAY, crew: [{ name: 'João', role: 'Alpinista N1', hours: 8 }] }).expect(201)).body;
+    const recent = (await api().get('/service-reports').set(h).expect(200)).body;
+    expect(recent.today).toBe(TODAY);
+    expect(recent.running).toHaveLength(1);
+    expect(recent.running[0]).toMatchObject({ number: `OS-${YEAR}-0001`, customer: 'Indústria Alfa', todayReports: [{ id: created.id, status: 'rascunho', shift: 'integral' }] });
+    expect(recent.rows[0]).toMatchObject({ id: created.id, date: TODAY, people: 1, hours: 8, order: { number: `OS-${YEAR}-0001` } });
+
+    const reader = auth(company.id, ['list_ordens_de_servico']);
+    expect((await api().get(`/service-reports/${created.id}`).set(reader).expect(200)).body.id).toBe(created.id);
+    await rdo(reader, id, { date: day(-1) }).expect(403);
+    await api().put(`/service-reports/${created.id}`).set(reader).send({ notes: 'x' }).expect(403);
+    await api().get('/service-reports').set(auth(company.id, COMMERCIAL)).expect(403);
+
+    const ho = auth((await makeCompany()).id);
+    expect((await api().get('/service-reports').set(ho).expect(200)).body).toMatchObject({ running: [], rows: [] });
+    await api().get(`/service-reports/${created.id}`).set(ho).expect(404);
+    await api().get(`/service-orders/${id}/reports`).set(ho).expect(404);
+    await rdo(ho, id, { date: TODAY }).expect(404);
+    await api().patch(`/service-reports/${created.id}/close`).set(ho).expect(404);
+  });
 });
