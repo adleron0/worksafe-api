@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CommercialDueRule, CommercialItemType, CommercialProposalKind, CommercialProposalStatus, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { ActivityService } from './activity.service';
 import { CommercialService, PricingSnapshot } from './commercial.service';
 import { ContractService } from './contract.service';
 import { installmentValues } from './installments';
@@ -100,7 +101,7 @@ function addressLines(street: Array<string | number | null | undefined>, neighbo
 @Injectable()
 export class ProposalService {
   constructor(private readonly prisma: PrismaService, private readonly commercial: CommercialService, private readonly documents: DocumentService,
-    private readonly contracts: ContractService) {}
+    private readonly contracts: ContractService, private readonly activities: ActivityService) {}
 
   // ------------------------------------------------------------------ leitura do corpo
 
@@ -661,10 +662,12 @@ export class ProposalService {
     const sellerIds = [...new Set(rows.map((r) => r.sellerId).filter((id): id is number => !!id))];
     const sellers = sellerIds.length ? await this.prisma.user.findMany({ where: { id: { in: sellerIds } }, select: { id: true, name: true } }) : [];
     const sellerName = new Map(sellers.map((s) => [s.id, s.name]));
+    // acompanhamento: próximo retorno marcado e último contato de cada proposta
+    const followUps = await this.activities.followUps(actor.companyId, rows.map((row) => row.id));
     return {
       total,
       rows: rows.map((row) => ({
-        ...row, total: Number(row.total), validUntil: iso(row.validUntil), seller: row.sellerId ? sellerName.get(row.sellerId) ?? null : null,
+        ...row, followUp: followUps.get(row.id) ?? { next: null, pending: 0, lastAt: null }, total: Number(row.total), validUntil: iso(row.validUntil), seller: row.sellerId ? sellerName.get(row.sellerId) ?? null : null,
         expired: SENT.includes(row.status) && !!row.validUntil && iso(row.validUntil)! < today(),
       })),
       summary: Object.fromEntries(groups.map((g) => [g.status, { count: g._count._all, total: Number(g._sum.total ?? 0) }])),

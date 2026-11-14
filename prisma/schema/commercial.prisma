@@ -590,3 +590,40 @@ model Commercial_SellerWalletEntry {
   @@index([walletId, occurredAt])
   @@index([contractId])
 }
+
+// ---------------------------------------------------------------- acompanhamento
+
+// Contato com o cliente: o que já aconteceu (ligação, mensagem, reunião) e o
+// que está marcado (retorno, visita, tarefa). Feita = doneAt preenchido;
+// pendente = dueDate sem doneAt; cancelada = inactiveAt.
+model Commercial_Activity {
+  id          Int     @id @default(autoincrement())
+  companyId   Int
+  customerId  Int
+  // a proposta de onde o contato saiu (opcional: pode ser só com o cliente)
+  proposalId  Int?
+  // ligacao | whatsapp | email | reuniao | visita | tarefa | nota
+  type        String  @db.VarChar(20)
+  subject     String  @db.VarChar(200)
+  notes       String?
+  contactName String? @db.VarChar(160)
+
+  // quando está marcada (dia e, se houver, hora "HH:MM", no horário de Brasília)
+  dueDate DateTime? @db.Date
+  dueTime String?   @db.VarChar(5)
+  // quando aconteceu e o que ficou combinado
+  doneAt  DateTime?
+  result  String?   @db.VarChar(2000)
+
+  // responsável
+  userId          Int?
+  createdByUserId Int?
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@index([companyId, proposalId])
+  @@index([companyId, customerId])
+  @@index([companyId, doneAt, dueDate])
+}
