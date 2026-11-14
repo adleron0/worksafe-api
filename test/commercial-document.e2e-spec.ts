@@ -164,7 +164,7 @@ describe('Comercial — documento, link público e aceite (e2e)', () => {
     expect(view).toMatchObject({ number: sentProposal.number, status: 'visualizada', canDecide: true, requiresCode: false, hash: sentProposal.documentHash, accepted: null });
     expect(view.html).toContain('20.589,11');
     const raw = JSON.stringify(view);
-    for (const hidden of ['10392', '10.392', 'cost', 'margem', 'profit', 'snapshot', 'salary', 'commission', 'maria@alfa.local', 'contactEmail', 'customerId']) expect(raw).not.toContain(hidden);
+    for (const hidden of ['10392', '10.392', 'cost', 'margem', 'profit', 'snapshot', 'salary', 'commission', 'contactEmail', 'customerId']) expect(raw).not.toContain(hidden);
 
     // primeira abertura registra a visualização, com IP e navegador; a segunda não repete
     await api().get(pub(sentProposal.publicKey)).expect(200);
@@ -321,6 +321,31 @@ describe('Comercial — documento, link público e aceite (e2e)', () => {
     expect(sent[0].html).toContain('Segue &lt;b&gt;nossa&lt;/b&gt; proposta.');
     expect((await api().get(`/commercial/proposals/${proposal.id}`).set(h)).body.events.map((e: any) => e.type)).toEqual(['enviada', 'email_enviado']);
     await api().post(`/commercial/proposals/${proposal.id}/send-email`).set(auth(proposal.id, ['list_comercial'])).send({ to: 'maria@alfa.local' }).expect(403);
+  });
+
+  it('enviar por e-mail: o link vai para o e-mail do contato desta proposta, e é ele que aparece no documento', async () => {
+    const { h, proposal } = await cenario();
+    // o documento mostra o contato da proposta, não o e-mail geral do cadastro do cliente
+    const html = (await api().post(`/commercial/proposals/${proposal.id}/document-preview`).set(h).send({}).expect(201)).body.html as string;
+    expect(html).toContain('maria@alfa.local');
+    expect(html).not.toContain('compras@alfa.local');
+    // sem e-mail configurado, o envio por e-mail é recusado e a proposta continua rascunho
+    const refused = await api().patch(`/commercial/proposals/status/${proposal.id}`).set(h).send({ status: 'enviada', notify: true }).expect(400);
+    expect(JSON.stringify(refused.body)).toContain('não está configurado');
+    withEmail();
+    // contato sem e-mail: também recusa, dizendo onde preencher
+    await api().put(`/commercial/proposals/${proposal.id}`).set(h).send({ ...proposal.draft, contactEmail: null }).expect(200);
+    await api().patch(`/commercial/proposals/status/${proposal.id}`).set(h).send({ status: 'enviada', notify: true }).expect(400);
+    expect((await api().get(`/commercial/proposals/${proposal.id}`).set(h)).body.status).toBe('rascunho');
+    // e-mail próprio desta proposta: é exatamente para ele que o link segue
+    await api().put(`/commercial/proposals/${proposal.id}`).set(h).send({ ...proposal.draft, contactEmail: 'joao.personalizado@alfa.local' }).expect(200);
+    const done = (await api().patch(`/commercial/proposals/status/${proposal.id}`).set(h).send({ status: 'enviada', notify: true }).expect(200)).body;
+    expect(done.status).toBe('enviada');
+    expect(done.emailError).toBeUndefined();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ to: 'joao.personalizado@alfa.local', subject: expect.stringContaining(done.number) });
+    expect(sent[0].html).toContain(done.publicUrl);
+    expect(done.events.map((e: any) => [e.type, e.email])).toEqual([['enviada', null], ['email_enviado', 'joao.personalizado@alfa.local']]);
   });
 
   it('identidade: capa com logo e cor da empresa, resumo, investimento, quem somos e próximos passos', async () => {

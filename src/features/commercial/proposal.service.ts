@@ -499,7 +499,7 @@ export class ProposalService {
         name: customer?.name ?? '', corporateName: customer?.corporateName ?? '', cnpj: customer?.cnpj ?? '', email: customer?.email ?? '', phone: customer?.phone ?? '',
         addressLines: addressLines([customer?.street, customer?.number, customer?.complement], customer?.neighborhood, customer?.city?.name, customer?.state?.uf, customer?.zipcode),
       },
-      contactName: draft.contactName, sellerName: seller?.name ?? null, number, title: draft.title, description: draft.description,
+      contactName: draft.contactName, contactEmail: draft.contactEmail, contactPhone: draft.contactPhone, sellerName: seller?.name ?? null, number, title: draft.title, description: draft.description,
       date, validUntil: draft.validUntil, workDays: draft.workDays, total, sections,
       brand, images: draft.images, schedule: draft.schedule, kind: draft.kind, seller: { name: seller?.name ?? null, email: seller?.email ?? null, phone: seller?.phone ?? null },
       installments: draft.installments.map((inst, index) => ({ description: inst.description, value: values[index], dueRule: inst.dueRule, dueDate: inst.dueDate, dueDays: inst.dueDays })),
@@ -805,6 +805,12 @@ export class ProposalService {
         throw new BadRequestException('As parcelas não somam o total da proposta');
       }
     }
+    // "Enviar por e-mail": o link segue para o e-mail do contato DESTA proposta, exatamente como está nela.
+    const notify = target === 'enviada' && (body.notify === true || body.notify === 'true');
+    if (notify) {
+      if (!this.documents.emailConfigured()) throw new BadRequestException('O envio de e-mail não está configurado. Gere o link e envie por outro canal.');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.contactEmail ?? '')) throw new BadRequestException('Informe o e-mail do contato do cliente (passo Proposta, em Mais opções) antes de enviar por e-mail');
+    }
     // Ao enviar, o documento é montado e congelado: é ele (e o hash dele) que o cliente lê e aceita.
     let frozen: { frozenHtml: string; frozenHash: string; publicKey: string; documentBody: string; termIds: number[]; itemsMode: string; templateId: number | null } | null = null;
     if (target === 'enviada') {
@@ -824,6 +830,14 @@ export class ProposalService {
       // aceite registrado à mão também vira contrato
       if (target === 'aceita') await this.contracts.createFromProposal(tx, id, { manual: true, userId: actor.userId || null, note, at: new Date().toISOString() });
     });
+    if (notify && frozen) {
+      // a proposta já está enviada e com link: se o e-mail falhar, avisa em vez de desfazer o envio
+      try {
+        await this.documents.sendLink({ id, companyId: actor.companyId, number: row.number, title: row.title, publicKey: frozen.publicKey }, { to: row.contactEmail }, actor.userId);
+      } catch (error) {
+        return { ...(await this.get(actor, id)), emailError: error instanceof Error ? error.message : 'Não foi possível enviar o e-mail' };
+      }
+    }
     return this.get(actor, id);
   }
 

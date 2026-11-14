@@ -15,6 +15,8 @@ export interface DocumentData {
   company: { name: string; corporateName: string; cnpj: string; addressLines?: string[] };
   customer: { name: string; corporateName: string; cnpj: string; email?: string; phone?: string; addressLines?: string[] };
   contactName: string | null; sellerName: string | null;
+  /** contato desta proposta: quando preenchido, é o e-mail e o telefone que aparecem no documento */
+  contactEmail?: string | null; contactPhone?: string | null;
   number: string; title: string; description: string | null;
   date: Date; validUntil: string | null; workDays: number; total: number;
   sections: Array<{ title: string; show: boolean; value: number; items: Array<{ description: string; unit: string | null; quantity: number; value: number; show: boolean; detail?: string }> }>;
@@ -271,7 +273,8 @@ export function renderDocument(body: string, data: DocumentData, terms: TermText
   };
   if (data.brand) {
     const blockData: BlockData = {
-      brand: data.brand, company: data.company, customer: data.customer, contactName: data.contactName,
+      brand: data.brand, company: data.company, contactName: data.contactName,
+      customer: { ...data.customer, email: data.contactEmail || data.customer.email, phone: data.contactPhone || data.customer.phone },
       seller: data.seller ?? { name: data.sellerName, email: null, phone: null },
       number: data.number, title: data.title, date: data.date, validUntil: data.validUntil, workDays: data.workDays, total: data.total,
       totalInWords: moneyInWords(data.total), installments: data.installments, images: data.images ?? [], schedule: data.schedule, kind: data.kind,
