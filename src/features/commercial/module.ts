@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { EmailModule } from 'src/features/email/email.module';
+import { OperationsModule } from 'src/features/operations/module';
 import { ActivityService } from './activity.service';
 import { CommercialService } from './commercial.service';
 import { ContractService } from './contract.service';
@@ -7,7 +8,7 @@ import { DocumentService } from './document.service';
 import { ProposalService } from './proposal.service';
 
 @Module({
-  imports: [EmailModule],
+  imports: [EmailModule, OperationsModule],
   providers: [ActivityService, CommercialService, ContractService, DocumentService, ProposalService],
   exports: [ActivityService, CommercialService, ContractService, DocumentService, ProposalService],
 })

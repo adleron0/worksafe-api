@@ -1,0 +1,83 @@
+// Operação: ordem de serviço (a obra que nasce de uma proposta de serviço aceita)
+// e o histórico de passagens entre etapas, comum às esteiras do sistema.
+
+enum ServiceOrderStatus {
+  a_liberar
+  a_mobilizar
+  agendada
+  em_execucao
+  concluida
+  encerrada
+  cancelada
+}
+
+model Service_Order {
+  id        Int    @id @default(autoincrement())
+  companyId Int
+  // OS-2026-0001
+  number    String @db.VarChar(30)
+  year      Int
+  sequence  Int
+
+  // a venda fechada (contrato) e a proposta de onde veio
+  contractId Int @unique
+  proposalId Int
+  customerId Int
+
+  title       String             @db.VarChar(200)
+  description String?
+  status      ServiceOrderStatus @default(a_liberar)
+
+  contactName  String? @db.VarChar(160)
+  contactPhone String? @db.VarChar(60)
+  contactEmail String? @db.VarChar(255)
+  location     String? @db.VarChar(300)
+
+  responsibleUserId Int?
+  // equipe escalada: [{ name, role }]
+  team Json?
+
+  plannedStart DateTime? @db.Date
+  plannedEnd   DateTime? @db.Date
+  startedAt    DateTime? @db.Date
+  finishedAt   DateTime? @db.Date
+
+  // o que foi vendido, sem preço: [{ title, kind, items: [{ type, description, unit, quantity, ... }] }]
+  scope     Json
+  // cronograma da proposta (o planejado)
+  schedule  Json?
+  // custo orçado por grupo e receita: só aparece para quem vê custos
+  budget    Json?
+  // conferência da mobilização: [{ id, title, done, doneAt, doneBy }]
+  checklist Json
+
+  notes           String?
+  conclusionNotes String?
+  statusNote      String? @db.VarChar(500)
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([companyId, number])
+  @@index([companyId, status])
+  @@index([companyId, customerId])
+}
+
+// Histórico de passagens de qualquer esteira (ordem de serviço, depois compras e pagar).
+model Flow_Event {
+  id        Int     @id @default(autoincrement())
+  companyId Int
+  // "service_order", ...
+  entity    String  @db.VarChar(40)
+  entityId  Int
+  type      String  @db.VarChar(40)
+  fromStage String? @db.VarChar(40)
+  toStage   String? @db.VarChar(40)
+  userId    Int?
+  note      String? @db.VarChar(1000)
+
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+}

@@ -85,6 +85,8 @@ import { bankAccountEntity, costCenterEntity } from 'src/features/financial/rule
 import { CommercialController } from 'src/features/commercial/commercial.controller';
 import { ProposalController } from 'src/features/commercial/proposal.controller';
 import { ActivityController } from 'src/features/commercial/activity.controller';
+import { ServiceOrderController } from 'src/features/operations/service-order.controller';
+import { OperationsModule } from 'src/features/operations/module';
 import { ContractController } from 'src/features/commercial/contract.controller';
 import { SellerWalletController } from 'src/features/commercial/wallet.controller';
 import { DocumentController, PublicProposalController } from 'src/features/commercial/document.controller';
@@ -241,6 +243,7 @@ export const crudExtraControllers = [
   CommercialController,
   ProposalController,
   ActivityController,
+  ServiceOrderController,
   ContractController,
   SellerWalletController,
   DocumentController,
@@ -254,4 +257,4 @@ export const crudExtraControllers = [
 ];
 
 /** Módulos que os controllers custom precisam (services de domínio, IA). */
-export const crudExtraImports = [PostModule, CommentModule, AIModule, UploadModule, ImageModule, CompanyModule, ReviewsModule, CourseModule, ExamesModule, ClassesModule, SubscriptionModule, TraineeCertificateModule, StudentModule, StudentCoursesModule, StudentCertificatesModule, FinancialrecordsModule, FinancialModule, CommercialModule];
+export const crudExtraImports = [PostModule, CommentModule, AIModule, UploadModule, ImageModule, CompanyModule, ReviewsModule, CourseModule, ExamesModule, ClassesModule, SubscriptionModule, TraineeCertificateModule, StudentModule, StudentCoursesModule, StudentCertificatesModule, FinancialrecordsModule, FinancialModule, CommercialModule, OperationsModule];

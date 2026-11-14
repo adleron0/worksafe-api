@@ -835,13 +835,12 @@ export class ProposalService {
       await this.documents.event(row, target, { userId: actor.userId || null, note, documentHash: frozen?.frozenHash ?? row.frozenHash }, tx);
       // aceite registrado à mão também vira contrato
       if (target === 'aceita') {
-        const contract = await this.contracts.createFromProposal(tx, id, { manual: true, userId: actor.userId || null, note, at: new Date().toISOString() });
         // o pedido de compra do cliente pode vir junto com o aceite (o arquivo sobe depois, pela venda)
         const order = this.contracts.customerOrderData({
           ...(body.customerOrderNumber !== undefined ? { number: body.customerOrderNumber } : {}),
           ...(body.customerOrderDate !== undefined ? { date: body.customerOrderDate } : {}),
         });
-        if (Object.keys(order).length) await tx.commercial_Contract.update({ where: { id: contract.id }, data: order });
+        await this.contracts.createFromProposal(tx, id, { manual: true, userId: actor.userId || null, note, at: new Date().toISOString() }, order);
       }
     });
     if (notify && frozen) {

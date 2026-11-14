@@ -5,6 +5,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { CacheService } from 'src/common/cache/cache.service';
 import { classificationDefaults } from 'src/features/financial/classification';
 import { installmentValues } from './installments';
+import { ServiceOrderService } from 'src/features/operations/service-order.service';
 
 type Body = Record<string, any>;
 type Tx = Prisma.TransactionClient;
@@ -47,7 +48,8 @@ type ContractRow = Prisma.Commercial_ContractGetPayload<{ include: typeof FULL }
 
 @Injectable()
 export class ContractService {
-  constructor(private readonly prisma: PrismaService, private readonly cache: CacheService, private readonly wallet: SellerWalletService) {}
+  constructor(private readonly prisma: PrismaService, private readonly cache: CacheService, private readonly wallet: SellerWalletService,
+    private readonly orders: ServiceOrderService) {}
 
   // ------------------------------------------------------------------ criação
 
@@ -56,7 +58,7 @@ export class ContractService {
    * parcelas previstas e os itens de treinamento. Chamar duas vezes devolve o
    * mesmo contrato.
    */
-  async createFromProposal(tx: Tx, proposalId: number, signer: Record<string, unknown>): Promise<{ id: number; number: string }> {
+  async createFromProposal(tx: Tx, proposalId: number, signer: Record<string, unknown>, customerOrder: Prisma.Commercial_ContractUncheckedUpdateInput = {}): Promise<{ id: number; number: string }> {
     const existing = await tx.commercial_Contract.findUnique({ where: { proposalId }, select: { id: true, number: true } });
     if (existing) return existing;
     const proposal = await tx.commercial_Proposal.findUniqueOrThrow({
@@ -86,11 +88,15 @@ export class ContractService {
       proposalId, customerId: proposal.customerId, kind: proposal.kind, title: proposal.title, value: total, acceptedAt,
       documentHtml: proposal.frozenHtml, documentHash: proposal.frozenHash, signer: signer as Prisma.InputJsonValue,
       sellerId: proposal.sellerId, classes: classes as unknown as Prisma.InputJsonValue,
+      // o pedido do cliente pode vir junto com o aceite
+      ...(customerOrder as Pick<Prisma.Commercial_ContractUncheckedCreateInput, 'customerOrderNumber' | 'customerOrderDate'>),
       installments: { create: proposal.installments.map((inst, index) => ({
         companyId: proposal.companyId, number: index + 1, total: proposal.installments.length, description: inst.description,
         value: values[index], dueRule: inst.dueRule, dueDate: inst.dueDate, dueDays: inst.dueDays,
       })) },
     } });
+    // venda de serviço abre a ordem de serviço da operação
+    await this.orders.createFromContract(tx, created.id, Number(signer.userId) || null);
     return { id: created.id, number: created.number };
   }
 
@@ -192,7 +198,7 @@ export class ContractService {
     return {
       id: row.id, number: row.number, kind: row.kind, status: row.status, title: row.title, value, acceptedAt: row.acceptedAt,
       startDate: iso(row.startDate), endDate: iso(row.endDate), notes: row.notes, statusNote: row.statusNote,
-      customerOrder: customerOrderOf(row),
+      customerOrder: customerOrderOf(row), serviceOrder: await this.orders.ofContract(row.id),
       customer: row.customer, proposal, documentHash: row.documentHash, hasDocument: Boolean(row.documentHtml), signer: row.signer,
       billed: round2(b?.billed ?? 0), received: round2(b?.received ?? 0), toBill: round2(value - (b?.billed ?? 0)),
       installments: row.installments.map((inst) => {
@@ -234,7 +240,7 @@ export class ContractService {
       where: { companyId, proposalId },
       select: { id: true, number: true, status: true, customerOrderNumber: true, customerOrderDate: true, customerOrderUrl: true, customerOrderFileName: true },
     });
-    return row ? { id: row.id, number: row.number, status: row.status, customerOrder: customerOrderOf(row) } : null;
+    return row ? { id: row.id, number: row.number, status: row.status, customerOrder: customerOrderOf(row), serviceOrder: await this.orders.ofContract(row.id) } : null;
   }
 
   // ------------------------------------------------------------------ pedido do cliente
@@ -246,6 +252,8 @@ export class ContractService {
   async setCustomerOrder(actor: ContractActor, id: number, body: Body, file?: { location?: string; originalname?: string }) {
     await this.byId(actor.companyId, id);
     await this.prisma.commercial_Contract.update({ where: { id }, data: this.customerOrderData(body, file) });
+    // com o pedido em mãos, a ordem de serviço que esperava por ele segue para a mobilização
+    await this.orders.onCustomerOrder(id, actor.userId);
     return this.get(actor, id);
   }
 
