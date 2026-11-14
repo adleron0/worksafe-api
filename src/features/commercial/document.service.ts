@@ -111,6 +111,9 @@ const brandedTrainingBody = [
   '<h2>Condições gerais</h2>', '<p>{{termos}}</p>', '<p>{{assinatura}}</p>', '<p>{{contato}}</p>',
 ].join('');
 
+/** Textos originais dos modelos anteriores ao modelo de orçamento (para reconhecer cópias sem edição). */
+export const STOCK_BODIES = [serviceBody, trainingBody, brandedServiceBody, brandedTrainingBody];
+
 const text = (value: unknown, max: number) => String(value ?? '').replace(/\r/g, '').trim().slice(0, max);
 const pct = (value: unknown) => Math.round(Math.min(100, Math.max(0, Number(value) || 0)) * 100) / 100;
 

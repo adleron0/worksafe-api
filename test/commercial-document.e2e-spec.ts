@@ -454,6 +454,25 @@ describe('Comercial — documento, link público e aceite (e2e)', () => {
     for (const hidden of ['10.392,60', '4.323,71', 'mprevisibilidade']) expect(html).not.toContain(hidden);
   });
 
+  it('escolher um modelo só aponta para ele; texto próprio só quando a proposta copia o texto', async () => {
+    const { h, proposal } = await cenario();
+    const templates = (await api().get('/commercial/templates').set(h).expect(200)).body;
+    const complete = templates.find((t: any) => t.name === 'Proposta de serviço — completa');
+    const put = (extra: Record<string, unknown>) => api().put(`/commercial/proposals/${proposal.id}`).set(h).send({ ...proposal.draft, ...extra });
+    const preview = async () => (await api().post(`/commercial/proposals/${proposal.id}/document-preview`).set(h).send({}).expect(201)).body.html as string;
+    // sem escolha: o padrão (modelo de orçamento)
+    expect(await preview()).toContain('data-block="cabecalho"');
+    // apontando para outro modelo, sem copiar o texto
+    const followed = (await put({ templateId: complete.id, documentBody: null, termIds: [] }).expect(200)).body;
+    expect(followed.draft).toMatchObject({ templateId: complete.id, documentBody: null });
+    expect(await preview()).toContain('data-block="capa"');
+    // texto próprio vale por cima do modelo; ao descartar, volta o padrão
+    await put({ templateId: complete.id, documentBody: '<p>Texto só desta proposta {{proposta.numero}}</p>' }).expect(200);
+    expect(await preview()).toContain('Texto só desta proposta PC-');
+    await put({ templateId: null, documentBody: null, termIds: [] }).expect(200);
+    expect(await preview()).toContain('data-block="cabecalho"');
+  });
+
   it('cronograma: etapas da proposta viram o gráfico de barras do documento', async () => {
     const { h, proposal } = await cenario();
     expect(proposal.draft.schedule).toEqual({ unit: 'dia', steps: [] });
