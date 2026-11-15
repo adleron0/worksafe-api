@@ -118,3 +118,23 @@ export async function teamOptions(prisma: Db, companyId: number, input: { from: 
     };
   });
 }
+
+export interface WorkedDay { employeeId: number; date: string; orderId: number; hours: number }
+
+/** Os dias em que cada funcionário trabalhou de fato, conforme os RDOs lançados na janela. */
+export async function workedDays(prisma: Db, companyId: number, from: string, to: string): Promise<WorkedDay[]> {
+  const reports = await prisma.service_DailyReport.findMany({
+    where: { companyId, inactiveAt: null, date: { gte: asDate(from), lte: asDate(to) } }, select: { orderId: true, date: true, crew: true }, take: 10000,
+  });
+  const byKey = new Map<string, WorkedDay>();
+  for (const report of reports) for (const member of ((report.crew as unknown as Array<{ employeeId?: number | null; hours?: number; overtime?: number }>) ?? [])) {
+    if (!member?.employeeId) continue;
+    const date = iso(report.date)!;
+    // dois turnos no mesmo dia e na mesma obra somam
+    const key = `${member.employeeId}|${date}|${report.orderId}`;
+    const row = byKey.get(key) ?? { employeeId: member.employeeId, date, orderId: report.orderId, hours: 0 };
+    row.hours = Math.round((row.hours + (Number(member.hours) || 0) + (Number(member.overtime) || 0)) * 100) / 100;
+    byKey.set(key, row);
+  }
+  return [...byKey.values()];
+}

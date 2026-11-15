@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Hr_Employee, Hr_EmployeeEvent, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { allocationToday, allocationWindow, workedDays } from './allocation';
 
 /**
  * Funcionários: quem trabalha para a empresa, as funções que exerce e o
@@ -193,6 +194,46 @@ export class EmployeeService {
       // usuário já ligado a um funcionário leva o id dele, para a tela não oferecer de novo
       users: users.map((user) => ({ id: user.id, name: user.name, employeeId: employeeOfUser.get(user.id) ?? null })),
       canSeePersonal: actor.seesPersonal, canSeeOccurrences: actor.seesOccurrences, canWriteOccurrences: actor.writesOccurrences,
+    };
+  }
+
+  // ------------------------------------------------------------------ alocação
+
+  /**
+   * O mapa de alocação: para cada funcionário, onde está escalado (equipe das OS),
+   * os dias em que trabalhou (RDOs) e quando está indisponível (férias, afastamento,
+   * suspensão). Nada disso é gravado: sai da OS, do RDO e do histórico.
+   */
+  async allocation(actor: EmployeeActor, query: Record<string, string>, employeeId?: number) {
+    const day = allocationToday();
+    const from = blank(query.from) ? day : dateOf(query.from, 'Início');
+    const to = blank(query.to) ? iso(new Date(asDate(from).getTime() + 27 * 86400000))! : dateOf(query.to, 'Fim');
+    if (to < from) throw new BadRequestException('O fim não pode ser antes do início');
+    if ((asDate(to).getTime() - asDate(from).getTime()) / 86400000 > 800) throw new BadRequestException('Período grande demais: até 800 dias');
+    const employees = await this.prisma.hr_Employee.findMany({
+      // quem saiu antes da janela não aparece; quem saiu no meio dela aparece até a data
+      where: { companyId: actor.companyId, inactiveAt: null, ...(employeeId ? { id: employeeId } : {}), OR: [{ terminationDate: null }, { terminationDate: { gte: asDate(from) } }] },
+      include: INCLUDE, orderBy: [{ name: 'asc' }, { id: 'asc' }], take: 2000,
+    });
+    if (employeeId && !employees.length) throw new NotFoundException('Funcionário não encontrado');
+    const ids = new Set(employees.map((employee) => employee.id));
+    const [window, worked] = await Promise.all([allocationWindow(this.prisma, actor.companyId, from, to, day), workedDays(this.prisma, actor.companyId, from, to)]);
+    const orderIds = [...new Set([...window.spans, ...window.undated].map((span) => span.orderId))];
+    const orders = orderIds.length ? await this.prisma.service_Order.findMany({ where: { id: { in: orderIds } }, select: { id: true, customerId: true, location: true } }) : [];
+    const customers = orders.length ? await this.prisma.customer.findMany({ where: { id: { in: orders.map((order) => order.customerId) } }, select: { id: true, name: true } }) : [];
+    const customerName = new Map(customers.map((customer) => [customer.id, customer.name]));
+    const orderInfo = new Map(orders.map((order) => [order.id, { customer: customerName.get(order.customerId) ?? null, location: order.location }]));
+    const present = (span: (typeof window.spans)[number]) => ({ ...span, customer: orderInfo.get(span.orderId)?.customer ?? null, location: orderInfo.get(span.orderId)?.location ?? null });
+    return {
+      today: day, from, to,
+      employees: employees.map((employee) => ({ ...this.brief(actor, employee, day), terminationDate: iso(employee.terminationDate) })),
+      spans: window.spans.filter((span) => ids.has(span.employeeId)).map(present),
+      undated: window.undated.filter((span) => ids.has(span.employeeId)).map(present),
+      // o tipo (afastamento, suspensão) só para quem pode ver o histórico; férias todos veem
+      unavailable: window.unavailable.filter((span) => ids.has(span.employeeId)).map((span) => ({
+        employeeId: span.employeeId, start: span.start, end: span.end, label: actor.seesOccurrences || span.type === 'ferias' ? span.label : STATUS_LABEL.indisponivel,
+      })),
+      worked: worked.filter((row) => ids.has(row.employeeId)),
     };
   }
 

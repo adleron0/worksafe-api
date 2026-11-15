@@ -141,6 +141,44 @@ describe('Equipe pelo cadastro de funcionários (e2e)', () => {
     await api().get(`/service-orders/${order.id}/team-options`).set(auth(company.id, RH)).expect(403);
   });
 
+  it('mapa de alocação: escalado, trabalhou, indisponível e sem data', async () => {
+    const { company, jose, ana, os } = await cenario();
+    const MAP = ['view_alocacao', 'list_funcionarios', 'view_funcionarios'];
+    const running = await os(1, { status: 'em_execucao', startedAt: date(-3), plannedStart: date(-3), plannedEnd: date(4) });
+    const future = await os(2, { plannedStart: date(10), plannedEnd: date(20) });
+    const undated = await os(3, { plannedStart: null, plannedEnd: null, status: 'a_mobilizar' });
+    await os(4, { status: 'cancelada', team: [{ name: 'José da Silva', role: 'Alpinista N2', employeeId: jose.id }] });
+    await equipe(company.id, running.id, [{ employeeId: jose.id }, { name: 'Diarista', role: 'Ajudante' }]).expect(200);
+    await equipe(company.id, future.id, [{ employeeId: jose.id, from: day(12), to: day(14) }, { employeeId: ana.id }]).expect(200);
+    await equipe(company.id, undated.id, [{ employeeId: ana.id }]).expect(200);
+    await api().post(`/service-orders/${running.id}/reports`).set(auth(company.id, OS)).send({ date: day(-1), crew: [{ name: 'José da Silva', role: 'Alpinista N2', hours: 8, overtime: 1, employeeId: jose.id }] }).expect(201);
+    await api().post(`/employees/${ana.id}/events`).set(auth(company.id)).send({ type: 'afastamento', startDate: day(1) }).expect(201);
+
+    const res = (await api().get(`/employees/allocation?from=${day(-5)}&to=${day(15)}`).set(auth(company.id, MAP)).expect(200)).body;
+    expect(res).toMatchObject({ today: day(0), from: day(-5), to: day(15) });
+    expect(res.employees.map((employee: any) => employee.name)).toEqual(['Ana Souza', 'José da Silva']);
+    const spans = (id: number) => res.spans.filter((span: any) => span.employeeId === id).map((span: any) => [span.number, span.start, span.end]);
+    // a obra em execução vai até o fim previsto; a futura, só o período da pessoa; a cancelada não entra
+    expect(spans(jose.id)).toEqual([['OS-2026-0001', day(-3), day(4)], ['OS-2026-0002', day(12), day(14)]]);
+    expect(spans(ana.id)).toEqual([['OS-2026-0002', day(10), day(20)]]);
+    expect(res.undated.map((span: any) => [span.employeeId, span.number])).toEqual([[ana.id, 'OS-2026-0003']]);
+    expect(res.worked).toEqual([{ employeeId: jose.id, date: day(-1), orderId: running.id, hours: 9 }]);
+    // sem a permissão do histórico, o afastamento aparece só como indisponível
+    expect(res.unavailable).toEqual([{ employeeId: ana.id, start: day(1), end: null, label: 'Indisponível' }]);
+    const full = (await api().get(`/employees/allocation?from=${day(-5)}&to=${day(15)}`).set(auth(company.id, [...MAP, 'view_ocorrencias_funcionarios'])).expect(200)).body;
+    expect(full.unavailable[0].label).toBe('Afastamento');
+    // janela que não toca nada
+    const empty = (await api().get(`/employees/allocation?from=${day(40)}&to=${day(50)}`).set(auth(company.id, MAP)).expect(200)).body;
+    expect(empty.spans).toEqual([]);
+    expect(empty.unavailable).toHaveLength(1); // afastamento em aberto continua
+    // a ficha: só a pessoa
+    const one = (await api().get(`/employees/${jose.id}/allocation?from=${day(-5)}&to=${day(15)}`).set(auth(company.id, MAP)).expect(200)).body;
+    expect(one.employees).toHaveLength(1);
+    expect(one.spans).toHaveLength(2);
+    await api().get('/employees/allocation').set(auth(company.id, ['list_funcionarios', 'view_funcionarios'])).expect(403);
+    await api().get(`/employees/allocation?from=${day(5)}&to=${day(1)}`).set(auth(company.id, MAP)).expect(400);
+  });
+
   it('RDO: a equipe do dia vem do cadastro e a Minha esteira avisa de documento pendente na equipe', async () => {
     const { company, jose, alpinista, os } = await cenario();
     const order = await os(1, { status: 'em_execucao', startedAt: date(-3), plannedStart: date(-3), plannedEnd: date(10) });

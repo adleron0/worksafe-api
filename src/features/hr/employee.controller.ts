@@ -36,6 +36,14 @@ export class EmployeeController {
   @Permissions('list_funcionarios') @Get('options')
   options(@Req() req: Request) { return this.employees.options(actorOf(req)); }
 
+  /** Mapa de alocação: quem está em qual obra, quem está livre e quem está indisponível numa janela de datas. */
+  @Permissions('view_alocacao') @Get('allocation')
+  allocation(@Req() req: Request, @Query() query: Record<string, string>) { return this.employees.allocation(actorOf(req), query ?? {}); }
+
+  /** A alocação de uma pessoa só (a aba Alocação da ficha). */
+  @Permissions('view_funcionarios') @Get(':id/allocation')
+  allocationOf(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Query() query: Record<string, string>) { return this.employees.allocation(actorOf(req), query ?? {}, id); }
+
   @Permissions('view_funcionarios') @Get(':id')
   get(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.employees.get(actorOf(req), id); }
 
