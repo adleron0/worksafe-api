@@ -60,6 +60,18 @@ export class CompanyFileController {
   @Permissions('update_arquivos') @Post('folders')
   createFolder(@Req() req: Request, @Body() body: Json) { return this.files.createFolder(actorOf(req), body ?? {}); }
 
+  /** Enviar uma pasta inteira: garante as pastas de dentro (usa as que existem, cria as que faltam). */
+  @Permissions('update_arquivos') @Post('folders/path')
+  ensurePath(@Req() req: Request, @Body() body: Json) { return this.files.ensurePath(actorOf(req), body ?? {}); }
+
+  /** A pasta inteira num ZIP (com limite de tamanho: é montado na memória). */
+  @Permissions('view_arquivos') @Get('folders/:id/zip')
+  async zip(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Res() res: Response) {
+    const { body, fileName } = await this.files.zip(actorOf(req), id);
+    res.set({ 'Content-Type': 'application/zip', 'Content-Length': String(body.length), 'Cache-Control': 'private, no-store', 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}` });
+    res.end(body);
+  }
+
   @Permissions('update_arquivos') @Put('folders/:id')
   updateFolder(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.files.updateFolder(actorOf(req), id, body ?? {}); }
 
@@ -71,6 +83,19 @@ export class CompanyFileController {
 
   @Permissions('manage_arquivos') @Delete('folders/:id/purge')
   purgeFolder(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.files.purgeFolder(actorOf(req), id); }
+
+  // Arquivo grande: o conteúdo vai direto do navegador ao armazenamento, em partes; a API abre, assina e fecha o envio.
+  @Permissions('update_arquivos') @Post('uploads')
+  startUpload(@Req() req: Request, @Body() body: Json) { return this.files.startUpload(actorOf(req), body ?? {}); }
+
+  @Permissions('update_arquivos') @Post('uploads/:id/parts')
+  uploadParts(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.files.uploadParts(actorOf(req), id, body ?? {}); }
+
+  @Permissions('update_arquivos') @Post('uploads/:id/complete')
+  finishUpload(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.files.finishUpload(actorOf(req), id, body ?? {}); }
+
+  @Permissions('update_arquivos') @Delete('uploads/:id')
+  cancelUpload(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.files.cancelUpload(actorOf(req), id); }
 
   @Permissions('update_arquivos') @Post('files')
   @UseInterceptors(FileInterceptor('file', UPLOAD))
@@ -99,7 +124,11 @@ export class CompanyFileController {
   @Permissions('manage_arquivos') @Get('files/:id/history')
   history(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.files.history(actorOf(req), id); }
 
-  /** O arquivo só sai por aqui: sem link direto, sem cache, e cada acesso fica registrado. */
+  /** Link temporário (5 minutos) para ver ou baixar direto do armazenamento: para arquivos grandes. */
+  @Permissions('view_arquivos') @Get('files/:id/link')
+  link(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Query('download') download?: string) { return this.files.link(actorOf(req), id, download === '1'); }
+
+  /** Pela API: sem link direto, sem cache, e cada acesso fica registrado. */
   @Permissions('view_arquivos') @Get('files/:id/file')
   async file(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Res() res: Response, @Query('download') download?: string) {
     const { body, fileName, mimeType, inline } = await this.files.file(actorOf(req), id, download === '1');

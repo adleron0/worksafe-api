@@ -2,6 +2,7 @@ import './setup/env'; // precisa ser o primeiro import
 
 import { JwtService } from '@nestjs/jwt';
 import * as request from 'supertest';
+import { inflateRawSync } from 'zlib';
 import { CompanyFileService } from 'src/features/files/file.service';
 import { cleanName, downloadName, fold, opensInline, uploadedName } from 'src/features/files/file.rules';
 import { encryptPayload } from 'src/utils/crypto';
@@ -14,6 +15,25 @@ import { makeCompany, makeSeller } from './setup/factories';
  * (memória, na suíte), acesso por pasta, busca, lixeira e exclusão definitiva,
  * tipos de documento, vencimento, versões e os blocos da Minha esteira.
  */
+/** Lê os arquivos de um ZIP (só o que o gerador da API produz: guardado ou deflate). */
+function unzip(zip: Buffer): Record<string, Buffer> {
+  const out: Record<string, Buffer> = {};
+  const end = zip.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  let at = zip.readUInt32LE(end + 16);
+  for (let i = 0; i < zip.readUInt16LE(end + 10); i++) {
+    const method = zip.readUInt16LE(at + 10);
+    const size = zip.readUInt32LE(at + 20);
+    const nameLength = zip.readUInt16LE(at + 28);
+    const local = zip.readUInt32LE(at + 42);
+    const name = zip.subarray(at + 46, at + 46 + nameLength).toString('utf8');
+    const start = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
+    const body = zip.subarray(start, start + size);
+    out[name] = method === 8 ? inflateRawSync(body) : Buffer.from(body);
+    at += 46 + nameLength + zip.readUInt16LE(at + 30) + zip.readUInt16LE(at + 32);
+  }
+  return out;
+}
+
 describe('Arquivos da empresa (e2e)', () => {
   const VIEW = ['view_arquivos'];
   const WRITE = [...VIEW, 'update_arquivos'];
@@ -434,5 +454,134 @@ describe('Arquivos da empresa (e2e)', () => {
     await api().delete(`/company-files/files/${v3.id}`).set(auth(company.id, WRITE)).expect(200);
     await api().delete(`/company-files/files/${v3.id}/purge`).set(auth(company.id)).expect(200);
     expect(await db.file_Item.count({ where: { companyId: company.id } })).toBe(0);
+  });
+
+  it('arquivo grande: envio direto em partes, que só aparece quando fecha, e download por link temporário', async () => {
+    const { company, folderId, db } = await cenario();
+    const storage = (files as any).storage;
+    const pasta = folderId('Fotos e vídeos');
+    const PART = 16 * 1024 * 1024;
+    const size = PART + 1000; // duas partes
+    const abrirEnvio = (body: Record<string, unknown>, permissions = WRITE) => api().post('/company-files/uploads').set(auth(company.id, permissions)).send(body);
+
+    await abrirEnvio({ folderId: pasta, fileName: 'obra.mp4', mimeType: 'video/mp4', size }, VIEW).expect(403);
+    await abrirEnvio({ folderId: pasta, fileName: 'obra.mp4', mimeType: 'video/mp4', size: 0 }).expect(400);
+    await abrirEnvio({ folderId: pasta, fileName: 'obra.mp4', mimeType: 'video/mp4', size: 3 * 1024 * 1024 * 1024 }).expect(400); // passa de 2 GB
+    await abrirEnvio({ folderId: 999999, fileName: 'obra.mp4', mimeType: 'video/mp4', size }).expect(404);
+    const started = (await abrirEnvio({ folderId: pasta, fileName: 'vídeo da obra.mp4', mimeType: 'video/mp4', size, notes: 'Cobertura' }).expect(201)).body;
+    expect(started).toMatchObject({ partBytes: PART, parts: 2 });
+
+    // enquanto o envio não fecha, o arquivo não existe para ninguém
+    expect((await abrir(company.id, pasta)).files).toEqual([]);
+    expect((await abrir(company.id, pasta)).folder.files).toBe(0);
+    await api().get(`/company-files/files/${started.id}/file`).set(auth(company.id)).expect(404);
+    expect((await api().get('/company-files/search?q=obra').set(auth(company.id)).expect(200)).body.files).toEqual([]);
+
+    const links = (await api().post(`/company-files/uploads/${started.id}/parts`).set(auth(company.id, WRITE)).send({ partNumbers: [1, 2] }).expect(201)).body.parts;
+    expect(links.map((part: any) => part.partNumber)).toEqual([1, 2]);
+    expect(links[0].url).toContain('partNumber=1');
+    await api().post(`/company-files/uploads/${started.id}/parts`).set(auth(company.id, WRITE)).send({ partNumbers: [3] }).expect(400); // só há duas partes
+    // outro usuário não mexe no envio de quem abriu
+    const outro = await makeSeller(company.id, { name: 'Outro' });
+    await api().post(`/company-files/uploads/${started.id}/parts`).set(auth(company.id, WRITE, outro.id)).send({ partNumbers: [1] }).expect(404);
+
+    const row = await db.file_Item.findUniqueOrThrow({ where: { id: started.id } });
+    const first = Buffer.alloc(PART, 1);
+    const last = Buffer.alloc(1000, 2);
+    const etag1 = storage.memoryPart(row.uploadId, 1, first);
+    await api().post(`/company-files/uploads/${started.id}/complete`).set(auth(company.id, WRITE)).send({ parts: [{ partNumber: 1, etag: etag1 }] }).expect(400); // falta a parte 2
+    const etag2 = storage.memoryPart(row.uploadId, 2, last);
+    const done = (await api().post(`/company-files/uploads/${started.id}/complete`).set(auth(company.id, WRITE)).send({ parts: [{ partNumber: 2, etag: etag2 }, { partNumber: 1, etag: etag1 }] }).expect(201)).body;
+    expect(done).toMatchObject({ id: started.id, name: 'vídeo da obra.mp4', mimeType: 'video/mp4', size, notes: 'Cobertura', inline: true });
+    expect((await abrir(company.id, pasta)).files.map((file: any) => file.name)).toEqual(['vídeo da obra.mp4']);
+    expect((await storage.get(row.fileKey)).length).toBe(size);
+    expect(await db.flow_Event.count({ where: { entity: 'company_file', entityId: started.id, type: 'envio' } })).toBe(1);
+    await api().post(`/company-files/uploads/${started.id}/complete`).set(auth(company.id, WRITE)).send({ parts: [] }).expect(404); // já fechou
+
+    // link temporário: só para quem vê a pasta, com o acesso registrado
+    const link = (await api().get(`/company-files/files/${started.id}/link?download=1`).set(auth(company.id, VIEW)).expect(200)).body;
+    expect(link).toMatchObject({ expiresIn: 300, fileName: 'vídeo da obra.mp4', inline: false });
+    expect(link.url).toContain(row.fileKey);
+    expect((await api().get(`/company-files/files/${started.id}/link`).set(auth(company.id, VIEW)).expect(200)).body.inline).toBe(true);
+    expect(await db.flow_Event.count({ where: { entity: 'company_file', entityId: started.id, type: 'download', note: 'link temporário' } })).toBe(1);
+    await api().get(`/company-files/files/${started.id}/link`).set(auth(company.id, [])).expect(403);
+    const other = await makeCompany();
+    await api().get(`/company-files/files/${started.id}/link`).set(auth(other.id)).expect(404);
+
+    // tamanho diferente do informado: o envio é desfeito
+    const bad = (await abrirEnvio({ folderId: pasta, fileName: 'curto.mp4', mimeType: 'video/mp4', size: 5000 }).expect(201)).body;
+    const badRow = await db.file_Item.findUniqueOrThrow({ where: { id: bad.id } });
+    const badTag = storage.memoryPart(badRow.uploadId, 1, Buffer.alloc(4000, 3));
+    await api().post(`/company-files/uploads/${bad.id}/complete`).set(auth(company.id, WRITE)).send({ parts: [{ partNumber: 1, etag: badTag }] }).expect(400);
+    expect(await db.file_Item.count({ where: { id: bad.id } })).toBe(0);
+    await expect(storage.get(badRow.fileKey)).rejects.toThrow();
+
+    // desistir, e o envio abandonado que some sozinho depois de um dia
+    const cancelled = (await abrirEnvio({ folderId: pasta, fileName: 'desisti.mp4', mimeType: 'video/mp4', size: 5000 }).expect(201)).body;
+    await api().delete(`/company-files/uploads/${cancelled.id}`).set(auth(company.id, WRITE)).expect(200);
+    expect(await db.file_Item.count({ where: { id: cancelled.id } })).toBe(0);
+    const stale = (await abrirEnvio({ folderId: pasta, fileName: 'abandonado.mp4', mimeType: 'video/mp4', size: 5000 }).expect(201)).body;
+    const fresh = (await abrirEnvio({ folderId: pasta, fileName: 'em andamento.mp4', mimeType: 'video/mp4', size: 5000 }).expect(201)).body;
+    await db.file_Item.update({ where: { id: stale.id }, data: { createdAt: new Date(Date.now() - 25 * 3600 * 1000) } });
+    await files.purgeExpired(company.id, true);
+    expect((await db.file_Item.findMany({ where: { id: { in: [stale.id, fresh.id] } } })).map((item) => item.id)).toEqual([fresh.id]);
+
+    // versão nova de um arquivo grande: o anterior só vira versão quando o envio fecha
+    const v2 = (await abrirEnvio({ replaceId: started.id, fileName: 'vídeo editado.mp4', mimeType: 'video/mp4', size: 2000 }).expect(201)).body;
+    expect((await abrir(company.id, pasta)).files.map((file: any) => file.id)).toEqual([started.id]);
+    const v2Row = await db.file_Item.findUniqueOrThrow({ where: { id: v2.id } });
+    const v2Tag = storage.memoryPart(v2Row.uploadId, 1, Buffer.alloc(2000, 4));
+    const replaced = (await api().post(`/company-files/uploads/${v2.id}/complete`).set(auth(company.id, WRITE)).send({ parts: [{ partNumber: 1, etag: v2Tag }] }).expect(201)).body;
+    expect(replaced).toMatchObject({ name: 'vídeo da obra.mp4', fileName: 'vídeo editado.mp4', notes: 'Cobertura', size: 2000 });
+    const listed = (await abrir(company.id, pasta)).files;
+    expect(listed.map((file: any) => file.id)).toEqual([v2.id]);
+    expect(listed[0].versions.map((version: any) => version.id)).toEqual([started.id]);
+  });
+
+  it('pasta inteira: cria as pastas de dentro que faltam e baixa a pasta em ZIP só com o que a pessoa vê', async () => {
+    const { company, folderId, db } = await cenario();
+    const contratos = folderId('Contratos');
+    const caminho = (parentId: number, path: string[], permissions = WRITE, sub?: number) => api().post('/company-files/folders/path').set(auth(company.id, permissions, sub)).send({ parentId, path });
+
+    const first = (await caminho(contratos, ['Clientes', 'Petro S/A', '2026']).expect(201)).body;
+    expect(first.created).toBe(3);
+    expect((await abrir(company.id, first.id)).path.map((item: any) => item.name)).toEqual(['Contratos', 'Clientes', 'Petro S A', '2026']);
+    // de novo: reaproveita as que existem (sem diferenciar maiúsculas) e cria só a que falta
+    const again = (await caminho(contratos, ['clientes', 'Petro S A', '2027']).expect(201)).body;
+    expect(again.created).toBe(1);
+    expect((await abrir(company.id, contratos)).folders.map((folder: any) => folder.name)).toEqual(['Clientes']);
+    expect((await caminho(contratos, ['Clientes', 'Petro S A', '2026']).expect(201)).body).toEqual({ id: first.id, created: 0 });
+    await caminho(contratos, []).expect(400);
+    await caminho(contratos, ['X'], VIEW).expect(403);
+    await caminho(999999, ['X']).expect(404);
+
+    const clientes = (await abrir(company.id, contratos)).folders[0].id;
+    await enviar(company.id, contratos, WRITE, { content: Buffer.from('raiz'), name: 'modelo.pdf', type: 'application/pdf' }).expect(201);
+    await enviar(company.id, first.id, WRITE, { content: Buffer.from('c1'), name: 'contrato.pdf', type: 'application/pdf' }).expect(201);
+    await enviar(company.id, first.id, WRITE, { content: Buffer.from('c2'), name: 'contrato.pdf', type: 'application/pdf' }).expect(201); // mesmo nome na mesma pasta
+    const segredo = (await enviar(company.id, again.id, WRITE, { content: Buffer.from('s'), name: 'aditivo.pdf', type: 'application/pdf' }).expect(201)).body;
+    const lixo = (await enviar(company.id, clientes, WRITE, { content: Buffer.from('x'), name: 'apagado.pdf', type: 'application/pdf' }).expect(201)).body;
+    await api().delete(`/company-files/files/${lixo.id}`).set(auth(company.id, WRITE)).expect(200);
+
+    const baixar = (id: number, permissions = VIEW, sub?: number) => api().get(`/company-files/folders/${id}/zip`).set(auth(company.id, permissions, sub)).buffer(true).parse(raw).expect(200);
+    const zip = await baixar(contratos);
+    expect(zip.headers['content-type']).toContain('application/zip');
+    expect(zip.headers['content-disposition']).toContain('Contratos.zip');
+    const inside = unzip(zip.body as Buffer);
+    expect(Object.keys(inside).sort()).toEqual(['Clientes/Petro S A/2026/contrato (2).pdf', 'Clientes/Petro S A/2026/contrato.pdf', 'Clientes/Petro S A/2027/aditivo.pdf', 'modelo.pdf']);
+    expect(inside['modelo.pdf'].toString()).toBe('raiz');
+    expect(await db.flow_Event.count({ where: { entity: 'company_folder', entityId: contratos, type: 'zip' } })).toBe(1);
+
+    // pasta de dentro restrita fica fora do ZIP de quem não tem acesso
+    const gestao = await db.profile.create({ data: { name: 'Gestão', companyId: company.id } });
+    const campo = await db.profile.create({ data: { name: 'Operação - campo', companyId: company.id } });
+    const operador = await makeSeller(company.id, { profileId: campo.id, name: 'Operador' });
+    await api().put(`/company-files/folders/${again.id}`).set(auth(company.id)).send({ restricted: true, profileIds: [gestao.id] }).expect(200);
+    const partial = unzip((await baixar(contratos, VIEW, operador.id)).body as Buffer);
+    expect(Object.keys(partial).sort()).toEqual(['Clientes/Petro S A/2026/contrato (2).pdf', 'Clientes/Petro S A/2026/contrato.pdf', 'modelo.pdf']);
+    expect(JSON.stringify(Object.keys(partial))).not.toContain(segredo.name);
+    await api().get(`/company-files/folders/${again.id}/zip`).set(auth(company.id, VIEW, operador.id)).expect(404);
+    await api().get(`/company-files/folders/${folderId('Seguros')}/zip`).set(auth(company.id)).expect(400); // pasta sem arquivos
+    await api().get(`/company-files/folders/${contratos}/zip`).set(auth(company.id, [])).expect(403);
   });
 });

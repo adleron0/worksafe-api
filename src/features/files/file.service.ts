@@ -5,7 +5,11 @@ import { DOCUMENT_STATUS_LABEL, DocumentStatus, FolderStatus, documentStatus, su
 import { recordFlowEvent } from 'src/common/flow/flow';
 import { PrivateStorageService } from 'src/common/storage/private-storage.service';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { DEFAULT_FILE_TYPES, DEFAULT_FOLDERS, FILE_MAX_BYTES, TRASH_DAYS, cleanName, downloadName, extensionOf, fold, opensInline, uploadedName } from './file.rules';
+import { buildZip, zipSafeName } from 'src/common/zip';
+import {
+  DEFAULT_FILE_TYPES, DEFAULT_FOLDERS, DIRECT_MAX_BYTES, FILE_MAX_BYTES, LINK_SECONDS, PART_BYTES, PART_LINK_SECONDS, PENDING_UPLOAD_HOURS, TRASH_DAYS, ZIP_MAX_BYTES, ZIP_MAX_FILES,
+  cleanName, downloadName, extensionOf, fold, opensInline, uploadedName,
+} from './file.rules';
 
 /**
  * Arquivos da empresa: pastas livres em árvore e os arquivos dentro delas.
@@ -47,8 +51,8 @@ function dateOf(value: unknown, label: string): string {
 
 type FileRow = File_Item & { type: File_DocumentType | null };
 const WITH_TYPE = { type: true } as const;
-/** Só a versão vigente de cada arquivo conta nas listas. */
-const CURRENT = { trashedAt: null, replacedAt: null } as const;
+/** Só a versão vigente de cada arquivo conta nas listas; envio direto ainda não concluído não aparece. */
+const CURRENT = { trashedAt: null, replacedAt: null, uploadId: null } as const;
 const warnOf = (file: { warnDays: number | null; type: { warnDays: number } | null }) => file.warnDays ?? file.type?.warnDays ?? DEFAULT_WARN_DAYS;
 const statusOf = (file: { expiryDate: Date | null; warnDays: number | null; type: { warnDays: number } | null }, day: string): DocumentStatus => documentStatus(iso(file.expiryDate), warnOf(file), day);
 
@@ -118,7 +122,7 @@ export class CompanyFileService {
   private async fileOf(actor: FileActor, tree: Tree, id: number, options: { trashed?: boolean; version?: boolean } = {}): Promise<FileRow> {
     const trashed = !!options.trashed;
     const file = await this.prisma.file_Item.findFirst({ where: { id, companyId: actor.companyId }, include: WITH_TYPE });
-    if (!file || !tree.allowed(file.folderId) || !!file.trashedAt !== trashed || (!trashed && !tree.live(file.folderId)) || (!!file.replacedAt && !options.version)) throw new NotFoundException('Arquivo não encontrado');
+    if (!file || file.uploadId || !tree.allowed(file.folderId) || !!file.trashedAt !== trashed || (!trashed && !tree.live(file.folderId)) || (!!file.replacedAt && !options.version)) throw new NotFoundException('Arquivo não encontrado');
     return file;
   }
 
@@ -212,7 +216,7 @@ export class CompanyFileService {
         ...this.presentFile(file, names, day),
         versions: old.filter((version) => version.versionGroup === file.versionGroup).map((version) => ({ ...this.presentFile(version, names, day), replacedAt: version.replacedAt })),
       })),
-      types: types.map((type) => this.presentType(type)), maxBytes: FILE_MAX_BYTES, trashDays: TRASH_DAYS,
+      types: types.map((type) => this.presentType(type)), maxBytes: FILE_MAX_BYTES, directMaxBytes: DIRECT_MAX_BYTES, trashDays: TRASH_DAYS,
     };
   }
 
@@ -419,12 +423,27 @@ export class CompanyFileService {
   private async store(actor: FileActor, file: UploadedFile | undefined) {
     if (!file?.buffer?.length) throw new BadRequestException('Envie o arquivo');
     if (file.size > FILE_MAX_BYTES) throw new BadRequestException('O arquivo passa de 25 MB');
-    const fileName = cleanName(uploadedName(file.originalname), 200) || 'arquivo';
+    const identity = this.identityOf(actor, uploadedName(file.originalname), file.mimetype);
+    return { ...identity, size: BigInt(file.size), put: () => this.storage.put(identity.fileKey, file.buffer, identity.mimeType) };
+  }
+
+  /** Nome, chave no armazenamento e tipo de um arquivo que está chegando. */
+  private identityOf(actor: FileActor, originalName: unknown, sentType: unknown) {
+    const fileName = cleanName(originalName, 200) || 'arquivo';
     // a chave não leva o nome do arquivo nem o da pasta: só a empresa e um identificador aleatório
     const fileKey = `files/${actor.companyId}/${randomUUID()}${extensionOf(fileName)}`;
-    const sent = String(file.mimetype ?? '').trim().toLowerCase().slice(0, 150);
+    const sent = String(sentType ?? '').trim().toLowerCase().slice(0, 150);
     const mimeType = /^[\w.+-]+\/[\w.+-]+$/.test(sent) ? sent : 'application/octet-stream';
-    return { fileName, fileKey, mimeType, size: BigInt(file.size), put: () => this.storage.put(fileKey, file.buffer, mimeType) };
+    return { fileName, fileKey, mimeType };
+  }
+
+  /** O que a versão nova herda do arquivo que substitui: pasta, nome mostrado, tipo, aviso e observação. A validade é a da nova. */
+  private async versionOf(actor: FileActor, current: FileRow, fileName: string, body: Body) {
+    // a validade do novo não herda a do antigo: vem do pedido ou da validade do tipo
+    const expiry = await this.expiryOf(actor.companyId, { issueDate: null, expiryDate: null, ...body, typeId: 'typeId' in body ? body.typeId : current.typeId }, null);
+    // mantém o nome mostrado quando o tipo de arquivo é o mesmo; se mudou (PDF por imagem), vale o nome do novo
+    const name = extensionOf(downloadName(current.name, current.fileName)) === extensionOf(fileName) ? current.name : fileName;
+    return { folderId: current.folderId, name, ...expiry, warnDays: 'warnDays' in body ? expiry.warnDays : current.warnDays, notes: 'notes' in body ? cleanName(body.notes, 500) || null : current.notes };
   }
 
   async upload(actor: FileActor, file: UploadedFile | undefined, body: Body) {
@@ -450,22 +469,159 @@ export class CompanyFileService {
     this.needWrite(actor);
     const current = await this.fileOf(actor, await this.tree(actor), id);
     const { put, ...stored } = await this.store(actor, file);
-    // a validade do novo não herda a do antigo: vem do pedido ou da validade do tipo
-    const expiry = await this.expiryOf(actor.companyId, { issueDate: null, expiryDate: null, ...body, typeId: 'typeId' in body ? body.typeId : current.typeId }, null);
+    const inherited = await this.versionOf(actor, current, stored.fileName, body);
     const group = current.versionGroup ?? randomUUID();
-    // mantém o nome mostrado quando o tipo de arquivo é o mesmo; se mudou (PDF por imagem), vale o nome do novo
-    const name = extensionOf(downloadName(current.name, current.fileName)) === extensionOf(stored.fileName) ? current.name : stored.fileName;
     await put();
     const created = await this.prisma.$transaction(async (tx) => {
       await tx.file_Item.update({ where: { id }, data: { replacedAt: new Date(), versionGroup: group } });
-      const row = await tx.file_Item.create({ data: {
-        companyId: actor.companyId, folderId: current.folderId, name, ...stored, ...expiry, warnDays: 'warnDays' in body ? expiry.warnDays : current.warnDays,
-        notes: 'notes' in body ? cleanName(body.notes, 500) || null : current.notes, versionGroup: group, uploadedByUserId: actor.userId || null,
-      }, include: WITH_TYPE });
+      const row = await tx.file_Item.create({ data: { companyId: actor.companyId, ...stored, ...inherited, versionGroup: group, uploadedByUserId: actor.userId || null }, include: WITH_TYPE });
       await recordFlowEvent(tx, FILE_ENTITY, { companyId: actor.companyId, entityId: row.id, type: 'substituido', userId: actor.userId, note: stored.fileName });
       return row;
     });
     return this.presentFile(created, await this.userNames([created.uploadedByUserId]));
+  }
+
+  // ------------------------------------------------------------------ arquivos grandes (envio direto, em partes)
+
+  /**
+   * Abre o envio de um arquivo grande: o navegador vai mandar o conteúdo direto
+   * ao armazenamento, em partes. A linha nasce marcada como envio em andamento
+   * e só aparece nas pastas quando o envio fecha. Com `replaceId`, o arquivo
+   * entra como versão nova de outro.
+   */
+  async startUpload(actor: FileActor, body: Body) {
+    this.needWrite(actor);
+    const tree = await this.tree(actor);
+    const size = Number(body.size);
+    if (!Number.isInteger(size) || size <= 0) throw new BadRequestException('Informe o tamanho do arquivo');
+    if (size > DIRECT_MAX_BYTES) throw new BadRequestException('O arquivo passa de 2 GB');
+    const identity = this.identityOf(actor, body.fileName, body.mimeType);
+    const replaced = Number(body.replaceId) > 0 ? await this.fileOf(actor, tree, Number(body.replaceId)) : null;
+    const placement = replaced
+      ? await this.versionOf(actor, replaced, identity.fileName, body)
+      : { folderId: this.folderOf(tree, Number(body.folderId)).id, name: identity.fileName, ...(await this.expiryOf(actor.companyId, body, null)), notes: cleanName(body.notes, 500) || null };
+    const uploadId = await this.storage.startUpload(identity.fileKey, identity.mimeType);
+    const row = await this.prisma.file_Item.create({ data: { companyId: actor.companyId, ...identity, ...placement, size: BigInt(size), uploadId, replacesId: replaced?.id ?? null, uploadedByUserId: actor.userId || null } });
+    return { id: row.id, partBytes: PART_BYTES, parts: Math.ceil(size / PART_BYTES) };
+  }
+
+  /** O envio em andamento, de quem o abriu. */
+  private async pendingUpload(actor: FileActor, id: number) {
+    const row = await this.prisma.file_Item.findFirst({ where: { id, companyId: actor.companyId, uploadId: { not: null }, uploadedByUserId: actor.userId || null } });
+    if (!row) throw new NotFoundException('Envio não encontrado');
+    return row;
+  }
+
+  /** Os endereços para o navegador enviar as partes pedidas (até 50 por vez). */
+  async uploadParts(actor: FileActor, id: number, body: Body) {
+    this.needWrite(actor);
+    const row = await this.pendingUpload(actor, id);
+    const total = Math.ceil(Number(row.size) / PART_BYTES);
+    const numbers = idsOf(body.partNumbers);
+    if (!numbers.length || numbers.length > 50 || numbers.some((number) => number > total)) throw new BadRequestException('Partes inválidas');
+    return { parts: await Promise.all(numbers.map(async (partNumber) => ({ partNumber, url: await this.storage.partLink(row.fileKey, row.uploadId!, partNumber, PART_LINK_SECONDS) }))) };
+  }
+
+  /** Fecha o envio: junta as partes, confere o tamanho e só então o arquivo passa a existir na pasta. */
+  async finishUpload(actor: FileActor, id: number, body: Body) {
+    this.needWrite(actor);
+    const row = await this.pendingUpload(actor, id);
+    const parts = (Array.isArray(body.parts) ? body.parts : []).map((part: Body) => ({ partNumber: Number(part?.partNumber), etag: String(part?.etag ?? '') }));
+    const total = Math.ceil(Number(row.size) / PART_BYTES);
+    if (parts.length !== total || parts.some((part) => !Number.isInteger(part.partNumber) || part.partNumber < 1 || part.partNumber > total || !part.etag) || new Set(parts.map((part) => part.partNumber)).size !== total) throw new BadRequestException('O envio está incompleto: faltam partes');
+    const size = await this.storage.finishUpload(row.fileKey, row.uploadId!, parts);
+    if (size !== Number(row.size)) {
+      await this.storage.delete(row.fileKey);
+      await this.prisma.file_Item.delete({ where: { id } });
+      throw new BadRequestException('O arquivo chegou com tamanho diferente do informado: envie de novo');
+    }
+    const finished = await this.prisma.$transaction(async (tx) => {
+      // versão nova: o arquivo substituído vira versão anterior agora (se ainda for o vigente)
+      const replaced = row.replacesId ? await tx.file_Item.findFirst({ where: { id: row.replacesId, companyId: actor.companyId, ...CURRENT } }) : null;
+      const group = replaced ? replaced.versionGroup ?? randomUUID() : null;
+      if (replaced) await tx.file_Item.update({ where: { id: replaced.id }, data: { replacedAt: new Date(), versionGroup: group } });
+      const done = await tx.file_Item.update({ where: { id }, data: { uploadId: null, replacesId: null, versionGroup: group, ...(replaced ? { folderId: replaced.folderId } : {}) }, include: WITH_TYPE });
+      await recordFlowEvent(tx, FILE_ENTITY, { companyId: actor.companyId, entityId: id, type: replaced ? 'substituido' : 'envio', userId: actor.userId, note: row.fileName });
+      return done;
+    });
+    return this.presentFile(finished, await this.userNames([finished.uploadedByUserId]));
+  }
+
+  /** Desiste de um envio em andamento: o que já chegou ao armazenamento é descartado. */
+  async cancelUpload(actor: FileActor, id: number) {
+    this.needWrite(actor);
+    const row = await this.pendingUpload(actor, id);
+    await this.storage.cancelUpload(row.fileKey, row.uploadId!);
+    await this.prisma.file_Item.delete({ where: { id } });
+    return { id };
+  }
+
+  /**
+   * Link temporário para ver ou baixar direto do armazenamento, sem passar pela
+   * API (arquivos grandes). Vale 5 minutos e quem tiver o link baixa sem login
+   * nesse prazo; por isso só sai depois da permissão conferida, e fica registrado.
+   */
+  async link(actor: FileActor, id: number, download: boolean) {
+    const file = await this.fileOf(actor, await this.tree(actor), id, { version: true });
+    const inline = !download && opensInline(file.mimeType);
+    const fileName = downloadName(file.name, file.fileName);
+    const url = await this.storage.linkTo(file.fileKey, { fileName, inline, seconds: LINK_SECONDS, contentType: opensInline(file.mimeType) ? file.mimeType : 'application/octet-stream' });
+    await recordFlowEvent(this.prisma, FILE_ENTITY, { companyId: actor.companyId, entityId: id, type: download ? 'download' : 'visualizado', userId: actor.userId, note: file.replacedAt ? 'link temporário · versão anterior' : 'link temporário' });
+    return { url, expiresIn: LINK_SECONDS, fileName, inline };
+  }
+
+  /**
+   * Garante um caminho de pastas dentro de uma pasta (para enviar uma pasta
+   * inteira mantendo as de dentro): usa as que já existem e cria as que faltam.
+   */
+  async ensurePath(actor: FileActor, body: Body) {
+    this.needWrite(actor);
+    const tree = await this.tree(actor);
+    let parentId = this.folderOf(tree, Number(body.parentId)).id;
+    const names = (Array.isArray(body.path) ? body.path : []).map((part: unknown) => cleanName(part, 120)).filter(Boolean);
+    if (!names.length || names.length > 20) throw new BadRequestException('Caminho de pastas inválido');
+    let created = 0;
+    for (const name of names) {
+      // só procura entre as que já existiam; depois de criar a primeira, as de dentro são todas novas
+      const existing = created ? undefined : tree.children(parentId).find((child) => !child.trashedAt && fold(child.name) === fold(name));
+      if (existing) { parentId = this.folderOf(tree, existing.id).id; continue; }
+      const above = parentId;
+      const folder = await this.prisma.$transaction(async (tx) => {
+        const row = await tx.file_Folder.create({ data: { companyId: actor.companyId, parentId: above, name, createdByUserId: actor.userId || null } });
+        await recordFlowEvent(tx, FOLDER_ENTITY, { companyId: actor.companyId, entityId: row.id, type: 'criada', userId: actor.userId, note: name });
+        return row;
+      });
+      parentId = folder.id;
+      created += 1;
+    }
+    return { id: parentId, created };
+  }
+
+  /** A pasta inteira num ZIP, com as de dentro que a pessoa vê. Montado na memória: por isso o limite de tamanho. */
+  async zip(actor: FileActor, id: number) {
+    const tree = await this.tree(actor);
+    const folder = this.folderOf(tree, id);
+    const inside = tree.descendants(id).filter((item) => tree.live(item) && tree.allowed(item));
+    const files = await this.prisma.file_Item.findMany({ where: { companyId: actor.companyId, folderId: { in: inside }, ...CURRENT }, orderBy: [{ name: 'asc' }, { id: 'asc' }] });
+    if (!files.length) throw new BadRequestException('A pasta não tem arquivos');
+    if (files.length > ZIP_MAX_FILES) throw new BadRequestException(`A pasta tem mais de ${ZIP_MAX_FILES} arquivos: baixe as pastas de dentro uma a uma`);
+    if (files.reduce((sum, file) => sum + Number(file.size), 0) > ZIP_MAX_BYTES) throw new BadRequestException('A pasta passa de 300 MB: baixe as pastas de dentro uma a uma, ou os arquivos grandes separadamente');
+    const depth = tree.chain(id).length;
+    const used = new Set<string>();
+    const entries: Array<{ name: string; data: Buffer; date: Date }> = [];
+    for (const file of files) {
+      // o caminho dentro do ZIP começa abaixo da pasta baixada
+      const dir = tree.chain(file.folderId).slice(depth).map((item) => zipSafeName(item.name, 'pasta')).join('/');
+      const full = zipSafeName(downloadName(file.name, file.fileName));
+      const extension = extensionOf(full);
+      const base = extension ? full.slice(0, -extension.length) : full;
+      let name = `${dir ? `${dir}/` : ''}${full}`;
+      for (let copy = 2; used.has(name.toLowerCase()); copy++) name = `${dir ? `${dir}/` : ''}${base} (${copy})${extension}`;
+      used.add(name.toLowerCase());
+      entries.push({ name, data: await this.storage.get(file.fileKey), date: file.createdAt });
+    }
+    await recordFlowEvent(this.prisma, FOLDER_ENTITY, { companyId: actor.companyId, entityId: id, type: 'zip', userId: actor.userId, note: `${files.length} arquivos` });
+    return { body: buildZip(entries), fileName: `${zipSafeName(folder.name, 'pasta')}.zip`, files: files.length };
   }
 
   /** Renomear, mover de pasta, corrigir a observação, o tipo ou as datas. O conteúdo só muda enviando outro arquivo. */
@@ -668,6 +824,8 @@ export class CompanyFileService {
   /** Apaga de verdade: primeiro o arquivo no armazenamento, depois a linha. Fica o registro de quem apagou. */
   private async destroyFiles(companyId: number, files: File_Item[], userId: number | null) {
     for (const file of files) {
+      // envio direto que não fechou: descarta as partes que já tinham chegado
+      if (file.uploadId) await this.storage.cancelUpload(file.fileKey, file.uploadId);
       await this.storage.delete(file.fileKey);
       await this.prisma.$transaction(async (tx) => {
         await tx.file_Item.delete({ where: { id: file.id } });
@@ -712,6 +870,12 @@ export class CompanyFileService {
     // pasta vencida dentro de outra vencida sai com a de cima
     const tops = folders.filter((folder) => !tree.chain(folder.id).some((above) => above.id !== folder.id && folders.includes(above)));
     for (const folder of tops) await this.destroyFolder(companyId, tree, folder, null);
+    // envio direto abandonado (aba fechada no meio) não fica para sempre
+    const stale = await this.prisma.file_Item.findMany({ where: { companyId, uploadId: { not: null }, createdAt: { lt: new Date(Date.now() - PENDING_UPLOAD_HOURS * 3600 * 1000) } } });
+    for (const upload of stale) {
+      await this.storage.cancelUpload(upload.fileKey, upload.uploadId!);
+      await this.prisma.file_Item.delete({ where: { id: upload.id } });
+    }
     const files = await this.prisma.file_Item.findMany({ where: { companyId, trashedAt: { lt: cutoff }, replacedAt: null } });
     for (const file of files) await this.destroyFiles(companyId, await this.prisma.file_Item.findMany({ where: this.groupWhere(file) }), null);
     return { files: files.length, folders: tops.length };

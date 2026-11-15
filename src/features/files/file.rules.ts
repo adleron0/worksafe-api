@@ -1,6 +1,20 @@
 /** Arquivos da empresa: regras sem banco (nomes, o que abre no navegador, pastas iniciais). Testável sozinho. */
 
+/** Até aqui o arquivo passa pela API; acima disso vai direto ao armazenamento, em partes. */
 export const FILE_MAX_BYTES = 25 * 1024 * 1024;
+/** O maior arquivo aceito no envio direto. */
+export const DIRECT_MAX_BYTES = 2 * 1024 * 1024 * 1024;
+/** Tamanho de cada parte do envio direto (o armazenamento pede no mínimo 5 MB, menos na última). */
+export const PART_BYTES = 16 * 1024 * 1024;
+/** Quanto tempo vale o link temporário de download. */
+export const LINK_SECONDS = 5 * 60;
+/** Quanto tempo vale o endereço de envio de cada parte. */
+export const PART_LINK_SECONDS = 60 * 60;
+/** Envio direto que não terminou em um dia é descartado. */
+export const PENDING_UPLOAD_HOURS = 24;
+/** Limites do ZIP de uma pasta, montado na memória da API. */
+export const ZIP_MAX_FILES = 400;
+export const ZIP_MAX_BYTES = 300 * 1024 * 1024;
 /** Quanto tempo um arquivo ou pasta fica na lixeira antes de sumir de verdade. */
 export const TRASH_DAYS = 30;
 

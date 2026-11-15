@@ -57,6 +57,12 @@ model File_Item {
   versionGroup String?   @db.VarChar(36)
   replacedAt   DateTime?
 
+  // envio direto em partes ainda não concluído: a linha existe, mas não aparece
+  // em lugar nenhum até o envio fechar. `replacesId` é o arquivo que ela vai
+  // substituir quando fechar (versão nova de um arquivo grande).
+  uploadId   String? @db.VarChar(300)
+  replacesId Int?
+
   uploadedByUserId Int?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @default(now()) @updatedAt
