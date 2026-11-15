@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Hr_DocumentType, Hr_EmployeeDocument, Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { recordFlowEvent } from 'src/common/flow/flow';
+import { buildZip, zipSafeName } from 'src/common/zip';
 import { PrismaService } from 'src/prisma/prisma.service';
 import {
   DEFAULT_DOCUMENT_TYPES, DOCUMENT_FOLDERS, DOCUMENT_STATUS_LABEL, DocumentStatus, FolderStatus, documentStatus, requiredFor, suggestedExpiry, worstStatus,
@@ -279,6 +280,86 @@ export class EmployeeDocumentService {
     const body = await this.storage.get(document.fileKey);
     await recordFlowEvent(this.prisma, 'hr_document', { companyId: document.companyId, entityId: id, type: 'download', userId: actor.userId });
     return { body, fileName: document.fileName, mimeType: document.mimeType };
+  }
+
+  // ------------------------------------------------------------------ documentos da equipe de uma obra
+
+  /**
+   * A tabela de documentos de uma equipe: uma linha por pessoa, uma coluna por
+   * tipo que entra na integração ou é obrigatório. `until` é o fim da obra: o
+   * que vence antes dele precisa ser renovado para a pessoa poder ficar até o fim.
+   */
+  async teamMatrix(companyId: number, employeeIds: number[], until: string | null) {
+    await this.ensureDefaults(companyId);
+    const day = today();
+    const [types, employees, documents] = await Promise.all([
+      this.prisma.hr_DocumentType.findMany({ where: { companyId, inactiveAt: null, OR: [{ inIntegration: true }, { required: true }] }, orderBy: { name: 'asc' } }),
+      this.prisma.hr_Employee.findMany({ where: { id: { in: employeeIds }, companyId }, orderBy: [{ name: 'asc' }, { id: 'asc' }], select: { id: true, name: true, roles: { select: { professionalId: true, isPrimary: true, professional: { select: { name: true } } } } } }),
+      this.prisma.hr_EmployeeDocument.findMany({ where: { companyId, employeeId: { in: employeeIds }, inactiveAt: null, replacedAt: null }, include: { type: true } }),
+    ]);
+    const order = (folder: string) => { const index = FOLDER_IDS.indexOf(folder); return index < 0 ? 99 : index; };
+    const columns = types.sort((a, b) => order(a.folder) - order(b.folder) || a.name.localeCompare(b.name, 'pt-BR'));
+    const rows = employees.map((employee) => {
+      const roleIds = employee.roles.map((role) => role.professionalId);
+      const cells = columns.map((type) => {
+        const document = documents.find((item) => item.employeeId === employee.id && item.typeId === type.id);
+        if (!document) return { typeId: type.id, documentId: null, expiryDate: null, status: requiredFor(type, roleIds) ? 'faltando' : 'nao_enviado' };
+        const expiry = iso(document.expiryDate);
+        const status = !expiry ? 'em_dia' : documentStatus(expiry, type.warnDays, day) === 'vencido' ? 'vencido' : until && expiry < until ? 'vence_antes' : documentStatus(expiry, type.warnDays, day) === 'a_vencer' ? 'a_vencer' : 'em_dia';
+        return { typeId: type.id, documentId: document.id, expiryDate: expiry, status };
+      });
+      return { id: employee.id, name: employee.name, role: employee.roles.find((role) => role.isPrimary)?.professional.name ?? employee.roles[0]?.professional.name ?? null, cells };
+    });
+    const count = (status: string) => rows.reduce((sum, row) => sum + row.cells.filter((cell) => cell.status === status).length, 0);
+    return {
+      until, types: columns.map((type) => ({ id: type.id, name: type.name, folderName: FOLDER_NAME.get(type.folder) ?? type.folder, inIntegration: type.inIntegration, required: type.required })), rows,
+      summary: { vencido: count('vencido'), faltando: count('faltando'), vence_antes: count('vence_antes'), a_vencer: count('a_vencer') },
+    };
+  }
+
+  /**
+   * O pacote para a integração de uma obra: um ZIP com uma pasta por pessoa e uma
+   * folha de rosto (planilha) com nome, função e a validade de cada documento.
+   * CPF e RG só entram na folha para quem pode ver dados pessoais.
+   */
+  async teamPackage(actor: DocumentActor, input: { title: string; employeeIds: number[]; typeIds: number[]; until: string | null; role: Map<number, string>; seesPersonal: boolean; entity: string; entityId: number }) {
+    if (!input.employeeIds.length) throw new BadRequestException('Ninguém da equipe está ligado ao cadastro de funcionários');
+    if (!input.typeIds.length) throw new BadRequestException('Escolha pelo menos um tipo de documento');
+    const [types, employees, documents] = await Promise.all([
+      this.prisma.hr_DocumentType.findMany({ where: { companyId: actor.companyId, id: { in: input.typeIds } }, orderBy: { name: 'asc' } }),
+      this.prisma.hr_Employee.findMany({ where: { id: { in: input.employeeIds }, companyId: actor.companyId }, orderBy: [{ name: 'asc' }, { id: 'asc' }], select: { id: true, name: true, cpf: true, rg: true } }),
+      this.prisma.hr_EmployeeDocument.findMany({ where: { companyId: actor.companyId, employeeId: { in: input.employeeIds }, typeId: { in: input.typeIds }, inactiveAt: null, replacedAt: null }, include: { type: true } }),
+    ]);
+    if (documents.length > 400) throw new BadRequestException('Pacote grande demais: gere por partes, com menos tipos de documento');
+    if (documents.reduce((sum, document) => sum + document.size, 0) > 300 * 1024 * 1024) throw new BadRequestException('Pacote passa de 300 MB: gere por partes, com menos tipos de documento');
+    const day = today();
+    const br = (value: string | null) => (value ? value.split('-').reverse().join('/') : '');
+    const cpfText = (value: string | null) => (value && value.length === 11 ? `${value.slice(0, 3)}.${value.slice(3, 6)}.${value.slice(6, 9)}-${value.slice(9)}` : value ?? '');
+    const cell = (value: string) => `"${value.replace(/"/g, '""')}"`;
+    const lines = [['Nome', ...(input.seesPersonal ? ['CPF', 'RG'] : []), 'Função', ...types.map((type) => type.name)].map(cell).join(';')];
+    const entries: Array<{ name: string; data: Buffer }> = [];
+    const used = new Set<string>();
+    for (const employee of employees) {
+      const folder = zipSafeName(employee.name, `funcionario-${employee.id}`);
+      const row = [employee.name, ...(input.seesPersonal ? [cpfText(employee.cpf), employee.rg ?? ''] : []), input.role.get(employee.id) ?? ''];
+      for (const type of types) {
+        const document = documents.find((item) => item.employeeId === employee.id && item.typeId === type.id);
+        if (!document) { row.push('não enviado'); continue; }
+        const expiry = iso(document.expiryDate);
+        const expired = !!expiry && expiry < day;
+        row.push(!expiry ? 'sem validade' : `${expired ? 'VENCIDO em' : 'válido até'} ${br(expiry)}${!expired && input.until && expiry < input.until ? ' (vence antes do fim da obra)' : ''}`);
+        const extension = (document.fileName.match(/\.[a-zA-Z0-9]{1,5}$/)?.[0] ?? '').toLowerCase();
+        let name = `${folder}/${zipSafeName(type.name)}${extension}`;
+        for (let copy = 2; used.has(name.toLowerCase()); copy++) name = `${folder}/${zipSafeName(type.name)} (${copy})${extension}`;
+        used.add(name.toLowerCase());
+        entries.push({ name, data: await this.storage.get(document.fileKey) });
+      }
+      lines.push(row.map(cell).join(';'));
+    }
+    // planilha que abre direto no Excel: separador ";" e marca de UTF-8
+    entries.unshift({ name: 'Folha de rosto.csv', data: Buffer.from(`\uFEFF${lines.join('\r\n')}\r\n`, 'utf8') });
+    await recordFlowEvent(this.prisma, input.entity, { companyId: actor.companyId, entityId: input.entityId, type: 'pacote_documentos', userId: actor.userId, note: `${employees.length} pessoas, ${documents.length} arquivos, ${types.length} tipos` });
+    return { body: buildZip(entries), fileName: `${zipSafeName(input.title, 'documentos')}.zip`, files: documents.length };
   }
 
   // ------------------------------------------------------------------ vencimentos

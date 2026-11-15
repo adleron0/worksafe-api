@@ -1,7 +1,9 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
-import { Request } from 'express';
+import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Put, Query, Req, Res } from '@nestjs/common';
+import { Request, Response } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { COSTS_PERMISSION, permissionsOf } from 'src/features/commercial/proposal.controller';
+import { DOCUMENTS_VIEW_PERMISSION, EmployeeDocumentService } from 'src/features/hr/document.service';
+import { PERSONAL_PERMISSION } from 'src/features/hr/employee.service';
 import { DailyReportService } from './daily-report.service';
 import { OrderResultService } from './order-result.service';
 import { ALL_ORDERS_PERMISSION, OrderActor, ServiceOrderService } from './service-order.service';
@@ -16,7 +18,7 @@ type Json = Record<string, unknown>;
 /** Ordens de serviço: a esteira da operação (mobilizar, agendar, executar, concluir). */
 @Controller('service-orders')
 export class ServiceOrderController {
-  constructor(private readonly orders: ServiceOrderService, private readonly resultService: OrderResultService) {}
+  constructor(private readonly orders: ServiceOrderService, private readonly resultService: OrderResultService, private readonly documents: EmployeeDocumentService) {}
 
   @Permissions('list_ordens_de_servico') @Get()
   list(@Req() req: Request, @Query() query: Record<string, string>) { return this.orders.list(actorOf(req), query ?? {}); }
@@ -26,6 +28,41 @@ export class ServiceOrderController {
   teamOptions(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Query() query: Record<string, string>) {
     const user = (req as Request & { user?: { permissions?: unknown } }).user;
     return this.orders.teamOptions(actorOf(req), id, query ?? {}, permissionsOf(user?.permissions).includes('view_ocorrencias_funcionarios'));
+  }
+
+  /** Documentos da equipe da obra (para a integração no cliente): pede ver a OS e ver documentos de funcionários. */
+  @Permissions('list_ordens_de_servico') @Get(':id/team-documents')
+  async teamDocuments(@Param('id', ParseIntPipe) id: number, @Req() req: Request) {
+    this.assertDocuments(req);
+    const team = await this.orders.linkedTeam(actorOf(req), id);
+    const matrix = await this.documents.teamMatrix(actorOf(req).companyId, team.employeeIds, team.until);
+    return { ...matrix, rows: matrix.rows.map((row) => ({ ...row, role: team.role.get(row.id) || row.role })), outside: team.outside };
+  }
+
+  /** O pacote de documentos da equipe, num ZIP com uma pasta por pessoa e a folha de rosto. */
+  @Permissions('list_ordens_de_servico') @Post(':id/team-documents/package') @HttpCode(200)
+  async teamPackage(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json, @Res() res: Response) {
+    const permissions = this.assertDocuments(req);
+    const actor = actorOf(req);
+    const team = await this.orders.linkedTeam(actor, id);
+    const typeIds = Array.isArray(body?.typeIds) ? [...new Set((body.typeIds as unknown[]).map(Number).filter((item) => item > 0))] : [];
+    const only = Array.isArray(body?.employeeIds) ? (body.employeeIds as unknown[]).map(Number) : null;
+    const result = await this.documents.teamPackage({ userId: actor.userId, companyId: actor.companyId }, {
+      title: `Documentos ${team.number}${team.customer ? ` - ${team.customer}` : ''}`, employeeIds: only ? team.employeeIds.filter((item) => only.includes(item)) : team.employeeIds, typeIds,
+      until: team.until, role: team.role, seesPersonal: permissions.includes(PERSONAL_PERMISSION), entity: 'hr_package', entityId: id,
+    });
+    res.set({
+      'Content-Type': 'application/zip', 'Content-Length': String(result.body.length), 'Cache-Control': 'private, no-store',
+      'Content-Disposition': `attachment; filename*=UTF-8\'\'${encodeURIComponent(result.fileName)}`, 'Access-Control-Expose-Headers': 'Content-Disposition',
+    });
+    res.end(result.body);
+  }
+
+  private assertDocuments(req: Request): string[] {
+    const user = (req as Request & { user?: { permissions?: unknown } }).user;
+    const permissions = permissionsOf(user?.permissions);
+    if (!permissions.includes(DOCUMENTS_VIEW_PERMISSION)) throw new ForbiddenException('Você não tem permissão para ver documentos de funcionários');
+    return permissions;
   }
 
   @Permissions('list_ordens_de_servico') @Get('options')

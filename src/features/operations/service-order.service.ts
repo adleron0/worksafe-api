@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma, ServiceOrderStatus, Service_Order } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { FlowDefinition, assertMove, listFlowEvents, recordFlowEvent } from 'src/common/flow/flow';
-import { teamOptions } from 'src/features/hr/allocation';
+import { orderPeriod, teamOptions } from 'src/features/hr/allocation';
 import { OrderResultService } from './order-result.service';
 
 /**
@@ -343,6 +343,18 @@ export class ServiceOrderService {
       if (found !== userIds.length) throw new BadRequestException('Pessoa da equipe ligada a um usuário que não existe');
     }
     return team;
+  }
+
+  /** Quem da equipe está ligado ao cadastro, a função de cada um nesta obra e até quando a obra vai: a base dos documentos da equipe. */
+  async linkedTeam(actor: OrderActor, id: number) {
+    const row = await this.byId(actor, id);
+    const team = ((row.team as unknown as TeamMember[]) ?? []).filter((member) => member?.employeeId);
+    const customer = await this.prisma.customer.findUnique({ where: { id: row.customerId }, select: { name: true } });
+    return {
+      id: row.id, number: row.number, title: row.title, customer: customer?.name ?? null, until: orderPeriod(row, today()).end,
+      employeeIds: team.map((member) => member.employeeId as number), role: new Map(team.map((member) => [member.employeeId as number, member.role])),
+      outside: ((row.team as unknown as TeamMember[]) ?? []).filter((member) => !member?.employeeId).map((member) => member.name),
+    };
   }
 
   /** Quem pode ser escalado nesta obra: livre, em outra obra, de férias, e pendências de documento até o fim dela. */
