@@ -201,5 +201,6 @@ model Financial_Payable {
   @@index([companyId, accrualDate])
   @@index([companyId, supplierId])
   @@index([companyId, serviceOrderId])
+  @@index([companyId, purchaseOrderId])
   @@index([groupKey])
 }

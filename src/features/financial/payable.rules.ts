@@ -24,6 +24,31 @@ const SUPPLIER_TEXT: Array<[string, number]> = [
   ['pixKey', 140], ['bankName', 120], ['agency', 20], ['account', 30], ['notes', 500],
 ];
 
+/** Regras do cadastro de fornecedor, comuns ao CRUD e ao cadastro rápido no pedido de compra. */
+export async function normalizeSupplier(
+  prisma: Pick<PrismaService, 'financial_Supplier'>, companyId: number, input: Record<string, any>, existing: Record<string, any> | null | undefined, fail: Fail,
+): Promise<Record<string, any>> {
+  const next: Record<string, any> = { ...input };
+  if ('name' in next || !existing) {
+    next.name = clean(next.name).slice(0, 160);
+    if (next.name.length < 2) fail('Informe o nome do fornecedor', 'name');
+  }
+  if ('document' in next) {
+    const document = digits(next.document);
+    if (document && document.length !== 11 && document.length !== 14) fail('CNPJ deve ter 14 dígitos e CPF, 11', 'document');
+    if (document) {
+      const dup = await prisma.financial_Supplier.findFirst({
+        where: { companyId, document, ...(existing ? { NOT: { id: Number(existing.id) } } : {}) }, select: { name: true },
+      });
+      if (dup) throw new CrudError('CONFLICT', `Já existe um fornecedor com esse documento: ${dup.name}`, 'document');
+    }
+    next.document = document || null;
+  }
+  for (const [field, max] of SUPPLIER_TEXT) if (field in next) next[field] = clean(next[field]).slice(0, max) || null;
+  if (next.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(next.email)) fail('E-mail inválido', 'email');
+  return next;
+}
+
 /** Fornecedores: cadastro simples; nome obrigatório, CNPJ/CPF único quando informado. */
 export const supplierEntity: EntityRules = {
   entity: 'financial-suppliers', model: 'Financial_Supplier',
@@ -44,25 +69,7 @@ export const supplierEntity: EntityRules = {
         return undefined;
       }
       if (op !== 'create' && op !== 'update') return undefined;
-      const next: Record<string, any> = { ...data };
-      if ('name' in next || op === 'create') {
-        next.name = clean(next.name).slice(0, 160);
-        if (next.name.length < 2) crudFail('Informe o nome do fornecedor', 'name');
-      }
-      if ('document' in next) {
-        const document = digits(next.document);
-        if (document && document.length !== 11 && document.length !== 14) crudFail('CNPJ deve ter 14 dígitos e CPF, 11', 'document');
-        if (document) {
-          const dup = await prisma.financial_Supplier.findFirst({
-            where: { companyId, document, ...(existing ? { NOT: { id: Number(existing.id) } } : {}) }, select: { name: true },
-          });
-          if (dup) throw new CrudError('CONFLICT', `Já existe um fornecedor com esse documento: ${dup.name}`, 'document');
-        }
-        next.document = document || null;
-      }
-      for (const [field, max] of SUPPLIER_TEXT) if (field in next) next[field] = clean(next[field]).slice(0, max) || null;
-      if (next.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(next.email)) crudFail('E-mail inválido', 'email');
-      return next;
+      return normalizeSupplier(prisma, companyId, { ...data }, op === 'update' ? existing : null, crudFail);
     },
   },
 };

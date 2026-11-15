@@ -122,3 +122,55 @@ model Service_DailyReport {
   @@index([companyId, orderId])
   @@index([companyId, date])
 }
+
+// Pedido de compra: compra, locação ou contratação de terceiros, para uma OS ou
+// para a empresa. Solicitado → Aprovado → Comprado → Recebido (ou recusado/cancelado).
+// Aprovado já conta como comprometido na OS; comprar gera as contas a pagar.
+model Purchase_Order {
+  id        Int    @id @default(autoincrement())
+  companyId Int
+  // PDC-2026-0001 (PC- já é o prefixo das propostas)
+  number    String @db.VarChar(30)
+  year      Int
+  sequence  Int
+
+  title  String @db.VarChar(200)
+  // material | locacao | terceiros | outros
+  group  String @db.VarChar(20)
+  // solicitado | aprovado | comprado | recebido | recusado | cancelado
+  status String @default("solicitado") @db.VarChar(20)
+
+  supplierId     Int?
+  serviceOrderId Int?
+
+  // [{ description, unit, quantity, unitPrice, total }]
+  items Json
+  total Decimal @db.Decimal(18, 2)
+
+  justification String?
+  // para quando precisa chegar e o prazo combinado com o fornecedor
+  neededBy     DateTime? @db.Date
+  deliveryDate DateTime? @db.Date
+  // condição de pagamento fechada na compra: { count, firstDueDate, method }
+  paymentTerms Json?
+  // [{ id, kind: cotacao | nota | outro, name, url }]
+  attachments  Json
+
+  invoiceNumber String? @db.VarChar(60)
+  statusNote    String? @db.VarChar(500)
+
+  requestedByUserId Int?
+  approvedByUserId  Int?
+  approvedAt        DateTime?
+  purchasedAt       DateTime? @db.Date
+  receivedAt        DateTime? @db.Date
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([companyId, number])
+  @@index([companyId, status])
+  @@index([companyId, serviceOrderId])
+  @@index([companyId, supplierId])
+}

@@ -89,6 +89,7 @@ import { ProposalController } from 'src/features/commercial/proposal.controller'
 import { ActivityController } from 'src/features/commercial/activity.controller';
 import { DailyReportController, ServiceOrderController } from 'src/features/operations/service-order.controller';
 import { OperationsModule } from 'src/features/operations/module';
+import { PurchaseOrderController } from 'src/features/operations/purchase-order.controller';
 import { ContractController } from 'src/features/commercial/contract.controller';
 import { SellerWalletController } from 'src/features/commercial/wallet.controller';
 import { DocumentController, PublicProposalController } from 'src/features/commercial/document.controller';
@@ -253,6 +254,7 @@ export const crudExtraControllers = [
   ActivityController,
   ServiceOrderController,
   DailyReportController,
+  PurchaseOrderController,
   ContractController,
   SellerWalletController,
   DocumentController,
