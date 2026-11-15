@@ -7,6 +7,7 @@ import * as cookieParser from 'cookie-parser';
 import * as express from 'express';
 import { defaultSecurityConfig } from './common/security/security.config';
 import { isTrustedServerRequest } from './common/security/trusted-server';
+import { mountMcp } from './features/ai/mcp/mcp.mount';
 
 const PORT = process.env.PORT || 3000;
 const ORIGIN_CORS = process.env.ORIGIN_CORS || '*';
@@ -87,6 +88,9 @@ async function bootstrap() {
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization'],
     });
+
+    // MCP (apps de IA) e o OAuth dele: fora dos guards do Nest, com token próprio
+    mountMcp(app);
 
     // Configura trust proxy de forma segura
     app

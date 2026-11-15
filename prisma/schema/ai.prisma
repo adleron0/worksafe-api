@@ -1,0 +1,285 @@
+// Bots de IA e MCP (plano em worksafe/ia-planejamento/01-bots-e-mcp.md).
+// O bot age sempre como a pessoa que pede: as ferramentas são filtradas pelas
+// permissões dela e toda chamada fica em Ai_ToolCall.
+
+// Configuração de cada bot por empresa. Nasce dos padrões do código na
+// primeira abertura da área de Bots; o super ajusta instruções e modelo.
+model Ai_Bot {
+  id           Int     @id @default(autoincrement())
+  companyId    Int
+  // comercial | operacao | treinamentos | marketing | financeiro | gestao
+  key          String  @db.VarChar(40)
+  name         String  @db.VarChar(80)
+  description  String  @db.VarChar(300)
+  // ícone do lucide (nome), só para a tela
+  icon         String  @default("bot") @db.VarChar(40)
+  instructions String  @db.Text
+  // nomes das ferramentas do catálogo que este bot pode usar
+  tools        Json
+  // gemini | anthropic | openai | openrouter | groq | deepseek | fake
+  provider     String  @db.VarChar(20)
+  model        String  @db.VarChar(80)
+  fallbackProvider String? @db.VarChar(20)
+  fallbackModel String? @db.VarChar(80)
+  // permissão exigida para conversar com o bot (usar_bot_<key>)
+  permissionKey String @db.VarChar(80)
+  // atalhos mostrados na conversa: [{ label, prompt }]
+  shortcuts    Json?
+  active       Boolean @default(true)
+  version      Int     @default(1)
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  versions      Ai_BotVersion[]
+  conversations Ai_Conversation[]
+
+  @@unique([companyId, key])
+}
+
+// Histórico das instruções: toda mudança gera uma versão e dá para voltar.
+model Ai_BotVersion {
+  id           Int      @id @default(autoincrement())
+  botId        Int
+  bot          Ai_Bot   @relation(fields: [botId], references: [id], onDelete: Cascade)
+  version      Int
+  instructions String   @db.Text
+  tools        Json
+  provider     String   @db.VarChar(20)
+  model        String   @db.VarChar(80)
+  userId       Int?
+  createdAt    DateTime @default(now())
+
+  @@index([botId, version])
+}
+
+model Ai_Conversation {
+  id         Int       @id @default(autoincrement())
+  companyId  Int
+  botId      Int
+  bot        Ai_Bot    @relation(fields: [botId], references: [id])
+  userId     Int
+  title      String    @default("Nova conversa") @db.VarChar(160)
+  // bots | schedule (relatório gerado por agendamento)
+  origin     String    @default("bots") @db.VarChar(20)
+  lastMessageAt DateTime @default(now())
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  archivedAt DateTime?
+
+  messages Ai_Message[]
+  runs     Ai_Run[]
+
+  @@index([companyId, userId, botId])
+}
+
+model Ai_Message {
+  id             Int             @id @default(autoincrement())
+  conversationId Int
+  conversation   Ai_Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  runId          Int?
+  // user | assistant | tool | notice (aviso do sistema: ação confirmada etc.)
+  role           String          @db.VarChar(12)
+  // { text?, toolCalls?: [{ id, name, input }], toolCallId?, name?, result?, attachments? }
+  content        Json
+  provider       String?         @db.VarChar(20)
+  model          String?         @db.VarChar(80)
+  inputTokens    Int             @default(0)
+  outputTokens   Int             @default(0)
+  cachedTokens   Int             @default(0)
+  costUsd        Decimal         @default(0) @db.Decimal(12, 6)
+  createdAt      DateTime        @default(now())
+
+  @@index([conversationId, id])
+}
+
+// Uma execução do agente (uma resposta a uma mensagem da pessoa).
+model Ai_Run {
+  id             Int             @id @default(autoincrement())
+  conversationId Int
+  conversation   Ai_Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         Int
+  // running | done | error | stopped
+  status         String          @default("running") @db.VarChar(12)
+  // passos para a tela: [{ at, kind: 'tool'|'thinking'|'notice', label, status }]
+  steps          Json            @default("[]")
+  error          String?         @db.VarChar(1000)
+  costUsd        Decimal         @default(0) @db.Decimal(12, 6)
+  startedAt      DateTime        @default(now())
+  endedAt        DateTime?
+
+  @@index([conversationId, id])
+  @@index([status])
+}
+
+// Auditoria: toda chamada de ferramenta, venha da área de Bots, do MCP ou de
+// um agendamento.
+model Ai_ToolCall {
+  id            Int      @id @default(autoincrement())
+  companyId     Int
+  userId        Int
+  // bots | mcp | schedule
+  origin        String   @db.VarChar(12)
+  botId         Int?
+  runId         Int?
+  mcpTokenId    Int?
+  tool          String   @db.VarChar(80)
+  input         Json
+  outputSummary String?  @db.VarChar(1000)
+  // ok | refused | denied | error | pending
+  status        String   @db.VarChar(12)
+  durationMs    Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  pendingActions Ai_PendingAction[]
+
+  @@index([companyId, createdAt])
+  @@index([companyId, userId, createdAt])
+}
+
+// Ação sensível esperando o clique da pessoa. O modelo não tem como confirmar.
+model Ai_PendingAction {
+  id             Int          @id @default(autoincrement())
+  companyId      Int
+  userId         Int
+  toolCallId     Int
+  toolCall       Ai_ToolCall  @relation(fields: [toolCallId], references: [id])
+  conversationId Int?
+  tool           String       @db.VarChar(80)
+  payload        Json
+  // texto do cartão: "Enviar a proposta PC-2026-0042 (R$ 48.300) para ..."
+  summary        String       @db.VarChar(1000)
+  // linhas extras do cartão: [{ label, value }]
+  details        Json?
+  expiresAt      DateTime
+  confirmedAt    DateTime?
+  cancelledAt    DateTime?
+  result         Json?
+  error          String?      @db.VarChar(1000)
+  createdAt      DateTime     @default(now())
+
+  @@index([companyId, userId, confirmedAt])
+  @@index([conversationId])
+}
+
+// Relatórios agendados: de dados (sem IA) ou pedidos a um bot.
+model Ai_Schedule {
+  id         Int       @id @default(autoincrement())
+  companyId  Int
+  name       String    @db.VarChar(120)
+  // data | ai
+  kind       String    @db.VarChar(8)
+  // relatório de dados: agenda_do_dia | comercial_semana | documentos_vencendo | resultado_obras
+  report     String?   @db.VarChar(40)
+  botId      Int?
+  prompt     String?   @db.Text
+  // daily | weekly | monthly
+  frequency  String    @db.VarChar(10)
+  // "07:00", horário de Brasília
+  time       String    @default("07:00") @db.VarChar(5)
+  // 1 = segunda ... 7 = domingo (semanal); 1..28 (mensal)
+  dayOfWeek  Int?
+  dayOfMonth Int?
+  // system | email | whatsapp
+  channels   Json
+  // ids de usuário que recebem
+  recipients Json
+  // quem pediu: é com as permissões dele que o relatório é montado
+  ownerUserId Int
+  active     Boolean   @default(true)
+  lastRunAt  DateTime?
+  nextRunAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  reports Ai_Report[]
+
+  @@index([active, nextRunAt])
+  @@index([companyId])
+}
+
+// O relatório gerado, visível no sistema e apontado pelo link do aviso.
+model Ai_Report {
+  id         Int          @id @default(autoincrement())
+  companyId  Int
+  scheduleId Int?
+  schedule   Ai_Schedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  title      String       @db.VarChar(200)
+  // markdown
+  body       String       @db.Text
+  // [{ channel, userId, status, error? }]
+  deliveries Json         @default("[]")
+  costUsd    Decimal      @default(0) @db.Decimal(12, 6)
+  createdAt  DateTime     @default(now())
+
+  @@index([companyId, createdAt])
+}
+
+// Gasto consolidado por mês, para o teto mensal.
+model Ai_Usage {
+  id           Int      @id @default(autoincrement())
+  companyId    Int
+  // "2026-11"
+  month        String   @db.VarChar(7)
+  provider     String   @db.VarChar(20)
+  model        String   @db.VarChar(80)
+  calls        Int      @default(0)
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  costUsd      Decimal  @default(0) @db.Decimal(12, 6)
+  updatedAt    DateTime @default(now()) @updatedAt
+
+  @@unique([companyId, month, provider, model])
+}
+
+// OAuth do MCP: cliente registrado (Claude, ChatGPT…), pedido de autorização,
+// código e tokens. Os tokens são guardados só como hash.
+model Mcp_Client {
+  id           Int      @id @default(autoincrement())
+  clientId     String   @unique @db.VarChar(80)
+  clientSecretHash String? @db.VarChar(128)
+  name         String?  @db.VarChar(200)
+  // a informação completa do registro (redirect_uris etc.)
+  metadata     Json
+  createdAt    DateTime @default(now())
+}
+
+model Mcp_AuthRequest {
+  id            Int       @id @default(autoincrement())
+  // identificador opaco mostrado na tela de autorização
+  key           String    @unique @db.VarChar(64)
+  clientId      String    @db.VarChar(80)
+  redirectUri   String    @db.VarChar(1000)
+  codeChallenge String    @db.VarChar(200)
+  state         String?   @db.VarChar(500)
+  scopes        Json?
+  resource      String?   @db.VarChar(500)
+  // preenchidos quando a pessoa aprova
+  userId        Int?
+  companyId     Int?
+  codeHash      String?   @unique @db.VarChar(128)
+  approvedAt    DateTime?
+  usedAt        DateTime?
+  expiresAt     DateTime
+  createdAt     DateTime  @default(now())
+}
+
+model Mcp_Token {
+  id               Int       @id @default(autoincrement())
+  companyId        Int
+  userId           Int
+  clientId         String    @db.VarChar(80)
+  clientName       String?   @db.VarChar(200)
+  accessTokenHash  String    @unique @db.VarChar(128)
+  refreshTokenHash String?   @unique @db.VarChar(128)
+  scopes           Json?
+  accessExpiresAt  DateTime
+  refreshExpiresAt DateTime?
+  lastUsedAt       DateTime?
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+
+  @@index([companyId, userId])
+}

@@ -5,6 +5,7 @@ import { AppModule } from '../../src/app.module';
 import { CacheService } from '../../src/common/cache/cache.service';
 import { legacyOrQuery } from '../../src/common/crud/legacy-query.middleware';
 import { closeDb } from './db';
+import { mountMcp } from '../../src/features/ai/mcp/mcp.mount';
 
 let app: INestApplication | null = null;
 
@@ -25,6 +26,7 @@ export async function bootTestApp(): Promise<INestApplication> {
   app = moduleRef.createNestApplication();
   app.use(cookieParser());
   app.use(legacyOrQuery); // como em main.ts
+  mountMcp(app); // como em main.ts
   await app.init();
   // Escuta uma vez, só em 127.0.0.1. Sem isto o supertest abre uma porta nova em
   // todos os endereços a cada requisição e conecta em 127.0.0.1: se outro programa

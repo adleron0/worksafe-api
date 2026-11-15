@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { GoogleGenAI } from '@google/genai';
 import {
   IAISupplier,
   GenerateArticleParams,
@@ -7,56 +8,28 @@ import {
 } from '../ai.interface';
 
 /**
- * Supplier para Google Gemini
- * Para usar, instale: npm install @google/generative-ai
- * E configure: AI_API_KEY com sua chave do Google AI Studio
+ * Supplier para Google Gemini, pelo SDK atual (@google/genai).
+ * Chave: AI_API_KEY (ou GEMINI_API_KEY). Modelo: AI_MODEL_FAST.
+ * Antes usava o pacote descontinuado @google/generative-ai por import
+ * dinâmico com eval(), que nem estava instalado.
  */
 @Injectable()
 export class GeminiSupplier implements IAISupplier {
-  private model: any = null;
-  private isConfigured = false;
-  private initPromise: Promise<void> | null = null;
+  private client: GoogleGenAI | null = null;
 
-  constructor() {
-    // Não inicializa automaticamente para evitar erro de import
-  }
-
-  private async initializeClient() {
-    if (this.initPromise) return this.initPromise;
-
-    this.initPromise = (async () => {
-      try {
-        // Dynamic import para não quebrar se o pacote não estiver instalado
-        const module = await (eval('import("@google/generative-ai")') as Promise<any>);
-        const { GoogleGenerativeAI } = module;
-        const genAI = new GoogleGenerativeAI(process.env.AI_API_KEY || '');
-        this.model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-        this.isConfigured = true;
-      } catch (error) {
-        console.warn(
-          'Gemini não configurado. Instale @google/generative-ai para usar.',
-        );
-        this.isConfigured = false;
-      }
-    })();
-
-    return this.initPromise;
-  }
-
-  private async ensureConfigured() {
-    await this.initializeClient();
-    if (!this.isConfigured) {
-      throw new Error(
-        'Gemini não está configurado. Instale @google/generative-ai e configure AI_API_KEY.',
-      );
-    }
+  private ensureConfigured(): GoogleGenAI {
+    const key = process.env.AI_API_KEY || process.env.GEMINI_API_KEY || '';
+    if (!key) throw new Error('Gemini não está configurado: defina AI_API_KEY ou GEMINI_API_KEY.');
+    if (!this.client) this.client = new GoogleGenAI({ apiKey: key });
+    return this.client;
   }
 
   async generateContent(prompt: string): Promise<string> {
-    await this.ensureConfigured();
-
-    const result = await this.model.generateContent(prompt);
-    return result.response.text();
+    const result = await this.ensureConfigured().models.generateContent({
+      model: process.env.AI_MODEL_FAST || 'gemini-3-flash-preview',
+      contents: prompt,
+    });
+    return result.text ?? '';
   }
 
   async generateArticle(params: GenerateArticleParams): Promise<string> {
