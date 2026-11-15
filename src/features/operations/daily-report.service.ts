@@ -23,7 +23,8 @@ export const OCCURRENCE_TYPES = ['paralisacao', 'pendencia_cliente', 'quase_acid
 const SHIFT_LABEL: Record<string, string> = { integral: 'Dia inteiro', manha: 'Manhã', tarde: 'Tarde', noite: 'Noite' };
 
 /** `in`/`out` só aparecem quando a pessoa entrou ou saiu em hora diferente da do dia; `leaveReason` explica a saída antecipada. */
-export interface CrewMember { name: string; role: string; hours: number; overtime: number; in?: string | null; out?: string | null; leaveReason?: string | null }
+/** `employeeId` e `professionalId` ligam a pessoa e a função ao cadastro; sem eles vale o texto, como antes. */
+export interface CrewMember { name: string; role: string; hours: number; overtime: number; in?: string | null; out?: string | null; leaveReason?: string | null; employeeId?: number | null; professionalId?: number | null }
 export const SITE_CONDITIONS = ['normal', 'restricao', 'impedido'] as const;
 export interface StepProgress { step: number; title: string; percent: number }
 export interface Occurrence { type: string; description: string; hoursLost: number }
@@ -94,6 +95,26 @@ export class DailyReportService {
     return [...new Set(roles)];
   }
 
+  /** As funções orçadas com o id do cadastro: a tela grava o id junto do nome para o custo casar pelo cadastro. */
+  private async roleOptionsOf(order: Service_Order): Promise<Array<{ name: string; professionalId: number | null }>> {
+    const labor = await this.laborOf(order);
+    return [...labor.byRole.values()].map((entry) => ({ name: entry.role, professionalId: entry.professionalId }));
+  }
+
+  /** A equipe do dia só aponta para funcionários e funções desta empresa. */
+  private async assertCrewLinks(companyId: number, body: Body): Promise<void> {
+    const crew = Array.isArray(body.crew) ? (body.crew as Body[]) : [];
+    const ids = (key: string) => [...new Set(crew.map((raw) => Number(raw?.[key])).filter((id) => id > 0))];
+    const employeeIds = ids('employeeId');
+    const professionalIds = ids('professionalId');
+    const [employees, professionals] = await Promise.all([
+      employeeIds.length ? this.prisma.hr_Employee.count({ where: { id: { in: employeeIds }, companyId } }) : 0,
+      professionalIds.length ? this.prisma.commercial_Professional.count({ where: { id: { in: professionalIds }, companyId } }) : 0,
+    ]);
+    if (employees !== employeeIds.length) throw new BadRequestException('Pessoa da equipe do dia não encontrada no cadastro de funcionários');
+    if (professionals !== professionalIds.length) throw new BadRequestException('Função da equipe do dia não encontrada no cadastro de profissionais');
+  }
+
   /**
    * Mão de obra orçada por função: horas e custo hora, recalculados da fotografia
    * da base de cálculo guardada na proposta (o mesmo número que formou o preço).
@@ -103,8 +124,10 @@ export class DailyReportService {
       where: { id: order.proposalId },
       select: { snapshot: true, workDays: true, items: { where: { type: 'mao_de_obra' }, select: { description: true, professionalId: true, quantity: true, workDays: true, hoursPerDay: true, overtimeHours: true } } },
     });
-    const byRole = new Map<string, { role: string; budgetHours: number; budgetOvertime: number; hourCost: number; overtimePerHour: number }>();
-    if (!proposal) return { byRole, hoursPerDay: 8 };
+    const byRole = new Map<string, { role: string; professionalId: number | null; budgetHours: number; budgetOvertime: number; hourCost: number; overtimePerHour: number }>();
+    // a mesma função, achada pelo cadastro: é por aqui que o custo casa quando a pessoa vem do cadastro de funcionários
+    const byProfessional = new Map<number, string>();
+    if (!proposal) return { byRole, byProfessional, hoursPerDay: 8 };
     const snapshot = proposal.snapshot as unknown as PricingSnapshot;
     let base: ReturnType<typeof computeBase> | null = null;
     try { base = computeBase(snapshot.params, snapshot.items, snapshot.date); } catch { base = null; }
@@ -115,12 +138,13 @@ export class DailyReportService {
       const salary = snapshot?.salaries?.[String(item.professionalId)]?.salary;
       const cost = base && salary ? professionalCost(salary, snapshot.params, base) : null;
       const key = norm(item.description);
-      const entry = byRole.get(key) ?? { role: item.description, budgetHours: 0, budgetOvertime: 0, hourCost: cost?.hourCost ?? 0, overtimePerHour: cost?.overtimePerHour ?? 0 };
+      const entry = byRole.get(key) ?? { role: item.description, professionalId: item.professionalId ?? null, budgetHours: 0, budgetOvertime: 0, hourCost: cost?.hourCost ?? 0, overtimePerHour: cost?.overtimePerHour ?? 0 };
+      if (item.professionalId && !byProfessional.has(item.professionalId)) byProfessional.set(item.professionalId, key);
       entry.budgetHours = round2(entry.budgetHours + hours);
       entry.budgetOvertime = round2(entry.budgetOvertime + Number(item.overtimeHours) * quantity);
       byRole.set(key, entry);
     }
-    return { byRole, hoursPerDay };
+    return { byRole, byProfessional, hoursPerDay };
   }
 
   // ------------------------------------------------------------------ o que o diário diz da obra
@@ -137,7 +161,8 @@ export class DailyReportService {
     let cost = 0;
     const withoutCost = new Set<string>();
     for (const report of reports) for (const member of (report.crew as unknown as CrewMember[]) ?? []) {
-      const key = norm(member.role || 'Sem função');
+      // casa primeiro pela função do cadastro; sem ela (registro antigo ou pessoa avulsa), pelo nome, como sempre foi
+      const key = (member.professionalId ? labor.byProfessional.get(member.professionalId) : undefined) ?? norm(member.role || 'Sem função');
       const row = hours.get(key) ?? { role: member.role || 'Sem função', hours: 0, overtime: 0, budgetHours: 0, budgetOvertime: 0, matched: false };
       row.hours = round2(row.hours + member.hours);
       row.overtime = round2(row.overtime + member.overtime);
@@ -261,7 +286,7 @@ export class DailyReportService {
       progress: steps.map((step) => ({ step: step.step, title: step.title, percent: saved.get(step.step) ?? 0 })),
       occurrences: (row.occurrences as unknown as Occurrence[]) ?? [], equipment: row.equipment, photos: (row.photos as unknown as Photo[]) ?? [], notes: row.notes,
       createdBy: row.createdByUserId ? names.get(row.createdByUserId) ?? null : null, closedAt: row.closedAt, closedBy: row.closedByUserId ? names.get(row.closedByUserId) ?? null : null,
-      order: await this.orderBrief(order), roles: this.rolesOf(order), hoursPerDay: (await this.laborOf(order)).hoursPerDay,
+      order: await this.orderBrief(order), roles: this.rolesOf(order), roleOptions: await this.roleOptionsOf(order), hoursPerDay: (await this.laborOf(order)).hoursPerDay,
     };
   }
 
@@ -281,16 +306,17 @@ export class DailyReportService {
     const last = new Map(((previous?.progress as unknown as StepProgress[]) ?? []).map((item) => [item.step, item.percent]));
     // a equipe de ontem é o melhor palpite para hoje; sem RDO anterior, a equipe escalada na OS
     const yesterday = (previous?.crew as unknown as CrewMember[]) ?? [];
-    const team = ((order.team as unknown as Array<{ name: string; role: string }>) ?? []).map((member) => ({ name: member.name, role: member.role, hours: labor.hoursPerDay, overtime: 0 }));
+    const link = (member: { employeeId?: number | null; professionalId?: number | null }) => (member.employeeId ? { employeeId: member.employeeId, professionalId: member.professionalId ?? null } : {});
+    const team = ((order.team as unknown as Array<{ name: string; role: string; employeeId?: number | null; professionalId?: number | null }>) ?? []).map((member) => ({ name: member.name, role: member.role, hours: labor.hoursPerDay, overtime: 0, ...link(member) }));
     return {
       id: null, date, shift: 'integral', weather: 'bom', status: 'rascunho', editable: true,
       // a hora de entrada costuma se repetir: parte da do último RDO; a saída é preenchida no fim do dia
       startTime: previous?.startTime ?? null, endTime: null, breakMinutes: previous?.breakMinutes ?? 60, weatherEnd: null,
       startCondition: null, endCondition: null, startNote: null, endNote: null,
-      crew: yesterday.length ? yesterday.map((member) => ({ name: member.name, role: member.role, hours: member.hours, overtime: 0, in: null, out: null, leaveReason: null })) : team.map((member) => ({ ...member, in: null, out: null, leaveReason: null })), activities: null,
+      crew: yesterday.length ? yesterday.map((member) => ({ name: member.name, role: member.role, hours: member.hours, overtime: 0, in: null, out: null, leaveReason: null, ...link(member) })) : team.map((member) => ({ ...member, in: null, out: null, leaveReason: null })), activities: null,
       progress: this.stepsOf(order).map((step) => ({ step: step.step, title: step.title, percent: last.get(step.step) ?? 0 })),
       occurrences: [], equipment: previous?.equipment ?? null, photos: [], notes: null,
-      createdBy: null, closedAt: null, closedBy: null, order: await this.orderBrief(order), roles: this.rolesOf(order), hoursPerDay: labor.hoursPerDay,
+      createdBy: null, closedAt: null, closedBy: null, order: await this.orderBrief(order), roles: this.rolesOf(order), roleOptions: await this.roleOptionsOf(order), hoursPerDay: labor.hoursPerDay,
     };
   }
 
@@ -366,9 +392,10 @@ export class DailyReportService {
         presences += 1; hours += member.hours; overtime += member.overtime;
         order.presences += 1; order.hours += member.hours; order.overtime += member.overtime;
         day.people += 1; day.hours += member.hours; day.overtime += member.overtime;
-        const person = people.get(norm(member.name)) ?? { name: member.name, role: member.role, days: new Set<string>(), hours: 0, overtime: 0, earlyLeaves: 0 };
+        const personKey = member.employeeId ? `e${member.employeeId}` : norm(member.name);
+        const person = people.get(personKey) ?? { name: member.name, role: member.role, days: new Set<string>(), hours: 0, overtime: 0, earlyLeaves: 0 };
         person.days.add(date); person.hours += member.hours; person.overtime += member.overtime; if (member.role) person.role = member.role;
-        people.set(norm(member.name), person);
+        people.set(personKey, person);
         const roleKey = norm(member.role || 'Sem função');
         const role = roles.get(roleKey) ?? { role: member.role || 'Sem função', presences: 0, hours: 0, overtime: 0 };
         role.presences += 1; role.hours += member.hours; role.overtime += member.overtime;
@@ -455,6 +482,7 @@ export class DailyReportService {
           name, role: clean(raw?.role, 80), hours: hoursOf(raw?.hours, 'Horas'), overtime: hoursOf(raw?.overtime, 'Horas extras', 16),
           in: memberIn && memberIn !== startTime ? memberIn : null, out: memberOut && memberOut !== endTime ? memberOut : null,
           leaveReason: clean(raw?.leaveReason, 200) || null,
+          ...(Number(raw?.employeeId) > 0 ? { employeeId: Number(raw.employeeId), professionalId: Number(raw?.professionalId) > 0 ? Number(raw.professionalId) : null } : {}),
         };
       })
       .filter((member: CrewMember) => member.name || member.role);
@@ -515,6 +543,7 @@ export class DailyReportService {
     }
     const date = dateOf(body.date, 'Data');
     this.assertDate(order, date);
+    await this.assertCrewLinks(actor.companyId, body);
     const created = await this.prisma.service_DailyReport
       .create({ data: { companyId: actor.companyId, orderId, date: asDate(date), createdByUserId: actor.userId || null, ...this.dataOf(body, order) } })
       .catch((error) => this.duplicate(error));
@@ -527,6 +556,7 @@ export class DailyReportService {
     const order = await this.orderOf(actor, row.orderId);
     const date = blank(body.date) ? iso(row.date)! : dateOf(body.date, 'Data');
     this.assertDate(order, date);
+    await this.assertCrewLinks(actor.companyId, body);
     const saved = await this.prisma.service_DailyReport.update({ where: { id }, data: { date: asDate(date), ...this.dataOf(body, order) } }).catch((error) => this.duplicate(error));
     return this.present(saved, order);
   }

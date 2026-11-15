@@ -21,6 +21,13 @@ export class ServiceOrderController {
   @Permissions('list_ordens_de_servico') @Get()
   list(@Req() req: Request, @Query() query: Record<string, string>) { return this.orders.list(actorOf(req), query ?? {}); }
 
+  /** Funcionários para escalar na obra. Só nomes, funções e disponibilidade: quem vê a OS pode montar a equipe sem permissão de RH. */
+  @Permissions('list_ordens_de_servico') @Get(':id/team-options')
+  teamOptions(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Query() query: Record<string, string>) {
+    const user = (req as Request & { user?: { permissions?: unknown } }).user;
+    return this.orders.teamOptions(actorOf(req), id, query ?? {}, permissionsOf(user?.permissions).includes('view_ocorrencias_funcionarios'));
+  }
+
   @Permissions('list_ordens_de_servico') @Get('options')
   options(@Req() req: Request) { return this.orders.options(actorOf(req)); }
 

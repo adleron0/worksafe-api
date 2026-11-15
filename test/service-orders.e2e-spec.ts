@@ -287,6 +287,15 @@ describe('Operação — ordem de serviço (e2e)', () => {
     expect(summary.labor.cost).toBeGreaterThan(34 * 59);
     expect(summary.labor.cost).toBeLessThan(34 * 59.1 + 2 * 60);
     expect(summary.labor.budget).toBeGreaterThan(0);
+    // pelo cadastro: a função casa pelo id do profissional mesmo com outro texto, e o custo sai
+    const alpinista = await testDb().commercial_Professional.findFirstOrThrow({ where: { name: 'Alpinista N1' } });
+    const carlos = await testDb().hr_Employee.create({ data: { companyId: alpinista.companyId, name: 'Carlos Lima' } });
+    const extra = (await rdo(h, id, { date: day(-1), shift: 'noite', crew: [{ name: 'Carlos Lima', role: 'Escalador', hours: 2, overtime: 0, employeeId: carlos.id, professionalId: alpinista.id }] }).expect(201)).body;
+    const linked = (await api().get(`/service-orders/${id}/reports`).set(h).expect(200)).body.summary;
+    expect(linked.hours.rows[0]).toMatchObject({ role: 'Alpinista N1', hours: 36, matched: true });
+    expect(linked.labor.withoutCost).toEqual(['Ajudante']);
+    expect(linked.labor.cost).toBeGreaterThan(summary.labor.cost + 2 * 59);
+    await testDb().service_DailyReport.delete({ where: { id: extra.id } }); // o resto do teste segue com os três RDOs de antes
     // sem a permissão de custos: horas sim, custo não
     const field = (await api().get(`/service-orders/${id}/reports`).set(auth(company.id, ORDERS)).expect(200)).body;
     expect(field.summary.labor).toBeNull();

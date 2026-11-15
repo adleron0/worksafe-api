@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ordersVisibleTo } from 'src/features/operations/service-order.service';
+import { TeamEntry, orderPeriod } from 'src/features/hr/allocation';
+import { documentIssues } from 'src/features/hr/document.queries';
 import { DOCUMENTS_VIEW_PERMISSION, EmployeeDocumentService } from 'src/features/hr/document.service';
 import { ContractService } from './contract.service';
 
@@ -32,6 +34,7 @@ export class PipelineService {
     const blocks: Array<Promise<PipelineBlock[]>> = [];
     if (can('list_comercial')) blocks.push(this.followUps(actor, now));
     if (can('list_ordens_de_servico')) blocks.push(this.orders(actor, now, can('update_ordens_de_servico'), can('update_rdo')));
+    if (can('list_ordens_de_servico')) blocks.push(this.teamDocuments(actor, now));
     if (can('list_pedidos_de_compra')) blocks.push(this.purchases(actor, can('approve_pedidos_de_compra'), can('update_pedidos_de_compra')));
     if (can('list_financeiro')) blocks.push(this.billing(actor), this.payables(actor, now));
     // RH: documentos de funcionários vencidos, a vencer e obrigatórios faltando
@@ -101,6 +104,38 @@ export class PipelineService {
       items: noReport.slice(0, TOP).map((order) => item(order, `começou em ${br(iso(order.startedAt))}`)),
     });
     return out;
+  }
+
+  /**
+   * Operação: gente escalada em obra que ainda vai acontecer (ou está acontecendo) com
+   * documento vencido, obrigatório faltando ou que vence antes do fim da obra.
+   * Mostra só o nome e o tipo do documento; o arquivo continua atrás da permissão de RH.
+   */
+  private async teamDocuments(actor: PipelineActor, now: string): Promise<PipelineBlock[]> {
+    const visible = await ordersVisibleTo(this.prisma, { userId: actor.userId, companyId: actor.companyId, seesAll: actor.permissions.includes('all_ordens_de_servico') });
+    const orders = await this.prisma.service_Order.findMany({
+      where: { companyId: actor.companyId, inactiveAt: null, status: { in: ['a_mobilizar', 'agendada', 'em_execucao'] }, AND: [visible] },
+      orderBy: [{ plannedStart: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }], take: 300,
+    });
+    const items: PipelineItem[] = [];
+    for (const order of orders) {
+      const team = ((order.team as unknown as TeamEntry[]) ?? []).filter((member) => member?.employeeId);
+      if (!team.length) continue;
+      const until = orderPeriod(order, now).end;
+      const issues = await documentIssues(this.prisma, actor.companyId, team.map((member) => member.employeeId as number), now, until);
+      for (const member of team) {
+        const serious = (issues.get(member.employeeId as number) ?? []).filter((issue) => issue.kind !== 'a_vencer');
+        if (!serious.length) continue;
+        const text = serious.slice(0, 3).map((issue) => `${issue.typeName} ${issue.kind === 'vencido' ? 'vencido' : issue.kind === 'faltando' ? 'faltando' : `vence em ${br(issue.expiryDate)}`}`).join(', ');
+        items.push({ id: order.id * 100000 + (member.employeeId as number), title: member.name, subtitle: `${order.number} · ${text}${serious.length > 3 ? ` e mais ${serious.length - 3}` : ''}`, link: `/servicos/ordens-de-servico/${order.id}`, value: null, late: serious.some((issue) => issue.kind === 'vencido') });
+      }
+    }
+    // só aparece quando há o que resolver
+    if (!items.length) return [];
+    return [{
+      key: 'equipe_documentos', area: 'Operação', title: 'Equipe escalada com documento pendente', hint: 'Vencido, faltando ou que vence antes do fim da obra', count: items.length, total: null, link: '/servicos/ordens-de-servico',
+      items: items.slice(0, TOP),
+    }];
   }
 
   /** Suprimentos: o que espera aprovação (para quem aprova), o que já pode ser comprado e o que falta receber. */

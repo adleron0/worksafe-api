@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma, ServiceOrderStatus, Service_Order } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { FlowDefinition, assertMove, listFlowEvents, recordFlowEvent } from 'src/common/flow/flow';
+import { teamOptions } from 'src/features/hr/allocation';
 import { OrderResultService } from './order-result.service';
 
 /**
@@ -23,10 +24,15 @@ export const ALL_ORDERS_PERMISSION = 'all_ordens_de_servico';
  */
 export async function ordersVisibleTo(prisma: PrismaService, actor: Pick<OrderActor, 'userId' | 'companyId' | 'seesAll'>): Promise<Prisma.Service_OrderWhereInput> {
   if (actor.seesAll) return {};
-  const sold = await prisma.commercial_Contract.findMany({ where: { companyId: actor.companyId, sellerId: actor.userId }, select: { id: true }, take: 2000 });
+  const [sold, employee] = await Promise.all([
+    prisma.commercial_Contract.findMany({ where: { companyId: actor.companyId, sellerId: actor.userId }, select: { id: true }, take: 2000 }),
+    // o funcionário ligado a este usuário: quem foi escalado pelo cadastro vê a OS mesmo que o login tenha sido ligado depois
+    actor.userId ? prisma.hr_Employee.findFirst({ where: { companyId: actor.companyId, userId: actor.userId }, select: { id: true } }) : null,
+  ]);
   return { OR: [
     { responsibleUserId: actor.userId },
     { team: { array_contains: [{ userId: actor.userId }] } },
+    ...(employee ? [{ team: { array_contains: [{ employeeId: employee.id }] } }] : []),
     ...(sold.length ? [{ contractId: { in: sold.map((contract) => contract.id) } }] : []),
   ] };
 }
@@ -55,7 +61,8 @@ const DEFAULT_CHECKLIST = [
 const GROUP_LABEL: Record<string, string> = { mao_de_obra: 'Mão de obra', locacao: 'Locações', material: 'Materiais', avulso: 'Outros' };
 
 export interface ChecklistItem { id: string; title: string; done: boolean; doneAt: string | null; doneBy: string | null }
-export interface TeamMember { name: string; role: string; userId?: number | null }
+/** `employeeId` liga a pessoa ao cadastro de funcionários; sem ele é pessoa avulsa (nome digitado). `from`/`to`: período dela dentro da obra. */
+export interface TeamMember { name: string; role: string; userId?: number | null; employeeId?: number | null; professionalId?: number | null; from?: string | null; to?: string | null }
 
 const clean = (value: unknown, max = 255) => String(value ?? '').trim().replace(/\s+/g, ' ').slice(0, max);
 const text = (value: unknown, max = 10000) => String(value ?? '').trim().slice(0, max);
@@ -288,19 +295,66 @@ export class ServiceOrderService {
     });
   }
 
-  /** Equipe escalada; quem tem usuário no sistema pode ser ligado a ele (é o que faz a OS aparecer para a pessoa). */
+  /**
+   * Equipe escalada. A pessoa vem do cadastro de funcionários (`employeeId`) ou é
+   * avulsa (só o nome). O nome e a função ficam gravados como texto: são a
+   * fotografia da escala, mesmo que o cadastro mude depois.
+   */
   private async teamOf(companyId: number, value: unknown): Promise<TeamMember[]> {
     if (!Array.isArray(value)) throw new BadRequestException('Equipe inválida');
     if (value.length > 60) throw new BadRequestException('Pessoas demais na equipe');
-    const team = value
-      .map((raw) => ({ name: clean((raw as Body)?.name, 120), role: clean((raw as Body)?.role, 80), userId: Number((raw as Body)?.userId) > 0 ? Number((raw as Body)?.userId) : null }))
-      .filter((member) => member.name);
-    const ids = [...new Set(team.map((member) => member.userId).filter((id): id is number => !!id))];
-    if (ids.length) {
-      const found = await this.prisma.user.count({ where: { id: { in: ids }, companyId } });
-      if (found !== ids.length) throw new BadRequestException('Pessoa da equipe ligada a um usuário que não existe');
+    const id = (raw: unknown) => (Number(raw) > 0 ? Number(raw) : null);
+    const employeeIds = [...new Set(value.map((raw) => id((raw as Body)?.employeeId)).filter((item): item is number => !!item))];
+    const professionalIds = [...new Set(value.map((raw) => id((raw as Body)?.professionalId)).filter((item): item is number => !!item))];
+    const employees = await this.prisma.hr_Employee.findMany({
+      where: { id: { in: employeeIds }, companyId },
+      select: { id: true, name: true, userId: true, roles: { where: { isPrimary: true }, select: { professional: { select: { id: true, name: true } } } } },
+    });
+    const professionals = await this.prisma.commercial_Professional.findMany({ where: { id: { in: professionalIds }, companyId }, select: { id: true, name: true } });
+    if (employees.length !== employeeIds.length) throw new BadRequestException('Pessoa da equipe não encontrada no cadastro de funcionários');
+    if (professionals.length !== professionalIds.length) throw new BadRequestException('Função da equipe não encontrada no cadastro de profissionais');
+    const employeeOf = new Map(employees.map((employee) => [employee.id, employee]));
+    const professionalOf = new Map(professionals.map((professional) => [professional.id, professional]));
+    const seen = new Set<number>();
+    const team: TeamMember[] = [];
+    for (const raw of value as Body[]) {
+      const employee = id(raw?.employeeId) ? employeeOf.get(id(raw?.employeeId)!) : null;
+      if (employee) {
+        if (seen.has(employee.id)) throw new BadRequestException(`${employee.name} está duas vezes na equipe`);
+        seen.add(employee.id);
+      }
+      const primary = employee?.roles[0]?.professional ?? null;
+      const professional = id(raw?.professionalId) ? professionalOf.get(id(raw?.professionalId)!) : null;
+      const name = clean(raw?.name, 120) || employee?.name || '';
+      if (!name) continue;
+      const from = blank(raw?.from) ? null : dateOf(raw.from, `Período de ${name}`);
+      const to = blank(raw?.to) ? null : dateOf(raw.to, `Período de ${name}`);
+      if (from && to && to < from) throw new BadRequestException(`Período de ${name}: o fim não pode ser antes do início`);
+      team.push({
+        name, role: clean(raw?.role, 80) || professional?.name || primary?.name || '',
+        // pelo cadastro, o usuário é o do funcionário; pessoa avulsa pode ser ligada direto a um usuário, como antes
+        userId: employee ? employee.userId ?? null : id(raw?.userId),
+        ...(employee ? { employeeId: employee.id, professionalId: professional?.id ?? primary?.id ?? null, from, to } : {}),
+      });
+    }
+    const userIds = [...new Set(team.filter((member) => !member.employeeId).map((member) => member.userId).filter((item): item is number => !!item))];
+    if (userIds.length) {
+      const found = await this.prisma.user.count({ where: { id: { in: userIds }, companyId } });
+      if (found !== userIds.length) throw new BadRequestException('Pessoa da equipe ligada a um usuário que não existe');
     }
     return team;
+  }
+
+  /** Quem pode ser escalado nesta obra: livre, em outra obra, de férias, e pendências de documento até o fim dela. */
+  async teamOptions(actor: OrderActor, id: number, query: Record<string, string>, seesReason = false) {
+    const row = await this.byId(actor, id);
+    const from = blank(query.from) ? iso(row.startedAt) ?? iso(row.plannedStart) : dateOf(query.from, 'Início');
+    const to = blank(query.to) ? iso(row.finishedAt) ?? iso(row.plannedEnd) ?? from : dateOf(query.to, 'Fim');
+    const [employees, professionals] = await Promise.all([
+      teamOptions(this.prisma, actor.companyId, { from, to, exceptOrderId: id, seesReason }),
+      this.prisma.commercial_Professional.findMany({ where: { companyId: actor.companyId, inactiveAt: null }, orderBy: { name: 'asc' }, select: { id: true, name: true } }),
+    ]);
+    return { from, to, employees, professionals };
   }
 
   async update(actor: OrderActor, id: number, body: Body) {
