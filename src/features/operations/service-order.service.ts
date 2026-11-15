@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma, ServiceOrderStatus, Service_Order } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { FlowDefinition, assertMove, listFlowEvents, recordFlowEvent } from 'src/common/flow/flow';
-import { orderPeriod, teamOptions } from 'src/features/hr/allocation';
+import { SHIFTS, orderPeriod, teamOptions } from 'src/features/hr/allocation';
 import { OrderResultService } from './order-result.service';
 
 /**
@@ -62,7 +62,7 @@ const GROUP_LABEL: Record<string, string> = { mao_de_obra: 'Mão de obra', locac
 
 export interface ChecklistItem { id: string; title: string; done: boolean; doneAt: string | null; doneBy: string | null }
 /** `employeeId` liga a pessoa ao cadastro de funcionários; sem ele é pessoa avulsa (nome digitado). `from`/`to`: período dela dentro da obra. */
-export interface TeamMember { name: string; role: string; userId?: number | null; employeeId?: number | null; professionalId?: number | null; from?: string | null; to?: string | null }
+export interface TeamMember { name: string; role: string; userId?: number | null; employeeId?: number | null; professionalId?: number | null; from?: string | null; to?: string | null; shift?: string | null }
 
 const clean = (value: unknown, max = 255) => String(value ?? '').trim().replace(/\s+/g, ' ').slice(0, max);
 const text = (value: unknown, max = 10000) => String(value ?? '').trim().slice(0, max);
@@ -335,6 +335,8 @@ export class ServiceOrderService {
         // pelo cadastro, o usuário é o do funcionário; pessoa avulsa pode ser ligada direto a um usuário, como antes
         userId: employee ? employee.userId ?? null : id(raw?.userId),
         ...(employee ? { employeeId: employee.id, professionalId: professional?.id ?? primary?.id ?? null, from, to } : {}),
+        // parte do dia em que a pessoa fica nesta obra; sem ela, o dia inteiro
+        ...(employee && !blank(raw?.shift) && raw.shift !== 'integral' ? { shift: this.shiftOrFail(raw.shift, name) } : {}),
       });
     }
     const userIds = [...new Set(team.filter((member) => !member.employeeId).map((member) => member.userId).filter((item): item is number => !!item))];
@@ -343,6 +345,11 @@ export class ServiceOrderService {
       if (found !== userIds.length) throw new BadRequestException('Pessoa da equipe ligada a um usuário que não existe');
     }
     return team;
+  }
+
+  private shiftOrFail(value: unknown, name: string): string {
+    if (!SHIFTS.some((shift) => shift.id === value)) throw new BadRequestException(`Parte do dia de ${name}: escolha dia inteiro, manhã, tarde ou noite`);
+    return String(value);
   }
 
   /** Quem da equipe está ligado ao cadastro, a função de cada um nesta obra e até quando a obra vai: a base dos documentos da equipe. */

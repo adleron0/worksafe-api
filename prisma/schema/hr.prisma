@@ -35,7 +35,8 @@ model Hr_Employee {
 
   roles     Hr_EmployeeRole[]
   events    Hr_EmployeeEvent[]
-  documents Hr_EmployeeDocument[]
+  documents  Hr_EmployeeDocument[]
+  activities Hr_ActivityEmployee[]
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
@@ -140,4 +141,59 @@ model Hr_EmployeeDocument {
 
   @@index([companyId, expiryDate])
   @@index([employeeId, typeId])
+}
+
+// Tipos de atividade fora de OS (aula, treinamento, atividade no CT, deslocamento...).
+// `occupies`: se a pessoa conta como ocupada para escala enquanto está nela.
+model Hr_ActivityType {
+  id        Int     @id @default(autoincrement())
+  companyId Int
+  name      String  @db.VarChar(80)
+  // cor da barra na linha do tempo (hexadecimal)
+  color     String  @default("#0f766e") @db.VarChar(9)
+  occupies  Boolean @default(true)
+
+  activities Hr_Activity[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([companyId, name])
+}
+
+// Atividade fora de OS, de uma ou várias pessoas, num período e numa parte do dia.
+// Junto com a equipe das OS, é de onde sai o mapa de alocação.
+model Hr_Activity {
+  id        Int             @id @default(autoincrement())
+  companyId Int
+  typeId    Int
+  type      Hr_ActivityType @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  // onde acontece (texto, até existir o cadastro de locais)
+  location  String?         @db.VarChar(200)
+  startDate DateTime        @db.Date
+  endDate   DateTime        @db.Date
+  // integral | manha | tarde | noite
+  shift     String          @default("integral") @db.VarChar(12)
+  notes     String?         @db.VarChar(500)
+
+  employees Hr_ActivityEmployee[]
+
+  createdByUserId Int?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
+  inactiveAt      DateTime?
+
+  @@index([companyId, startDate, endDate])
+}
+
+model Hr_ActivityEmployee {
+  id         Int         @id @default(autoincrement())
+  activityId Int
+  activity   Hr_Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  employeeId Int
+  employee   Hr_Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([activityId, employeeId])
+  @@index([employeeId])
 }

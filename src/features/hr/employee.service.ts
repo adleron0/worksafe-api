@@ -228,6 +228,8 @@ export class EmployeeService {
       today: day, from, to,
       employees: employees.map((employee) => ({ ...this.brief(actor, employee, day), terminationDate: iso(employee.terminationDate) })),
       spans: window.spans.filter((span) => ids.has(span.employeeId)).map(present),
+      // atividades fora de OS (aula, treinamento, atividade no CT...)
+      activities: window.activities.filter((span) => ids.has(span.employeeId)),
       undated: window.undated.filter((span) => ids.has(span.employeeId)).map(present),
       // o tipo (afastamento, suspensão) só para quem pode ver o histórico; férias todos veem
       unavailable: window.unavailable.filter((span) => ids.has(span.employeeId)).map((span) => ({

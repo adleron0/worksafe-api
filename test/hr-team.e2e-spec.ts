@@ -2,7 +2,7 @@ import './setup/env'; // precisa ser o primeiro import
 
 import { JwtService } from '@nestjs/jwt';
 import * as request from 'supertest';
-import { orderPeriod, overlaps, spansOf } from 'src/features/hr/allocation';
+import { orderPeriod, overlaps, shiftsClash, spansOf } from 'src/features/hr/allocation';
 import { encryptPayload } from 'src/utils/crypto';
 import { bootTestApp, httpServer, shutdownTestApp, flushCache } from './setup/app';
 import { resetDb, testDb } from './setup/db';
@@ -177,6 +177,87 @@ describe('Equipe pelo cadastro de funcionários (e2e)', () => {
     expect(one.spans).toHaveLength(2);
     await api().get('/employees/allocation').set(auth(company.id, ['list_funcionarios', 'view_funcionarios'])).expect(403);
     await api().get(`/employees/allocation?from=${day(5)}&to=${day(1)}`).set(auth(company.id, MAP)).expect(400);
+  });
+
+  it('parte do dia: manhã numa obra e tarde em outra não se cruzam, e o RDO do turno traz quem está nele', async () => {
+    const { company, jose, ana, os } = await cenario();
+    expect(shiftsClash('manha', 'tarde')).toBe(false);
+    expect(shiftsClash('manha', 'manha')).toBe(true);
+    expect(shiftsClash('integral', 'noite')).toBe(true);
+    const a = await os(1, { status: 'em_execucao', startedAt: date(-2), plannedStart: date(-2), plannedEnd: date(6) });
+    const b = await os(2, { plannedStart: date(0), plannedEnd: date(6) });
+    const saved = (await equipe(company.id, a.id, [{ employeeId: jose.id, shift: 'manha' }, { employeeId: ana.id }]).expect(200)).body;
+    expect(saved.team[0].shift).toBe('manha');
+    expect(saved.team[1]).not.toHaveProperty('shift'); // dia inteiro não grava nada
+    await equipe(company.id, a.id, [{ employeeId: jose.id, shift: 'madrugada' }]).expect(400);
+    await equipe(company.id, a.id, [{ employeeId: jose.id, shift: 'manha' }, { employeeId: ana.id }]).expect(200);
+    await equipe(company.id, b.id, [{ employeeId: jose.id, shift: 'tarde' }]).expect(200);
+
+    // quem escala a obra B vê que o José está na obra A, e em que parte do dia
+    const options = (await api().get(`/service-orders/${b.id}/team-options`).set(auth(company.id, OS)).expect(200)).body;
+    const jo = options.employees.find((employee: any) => employee.name === 'José da Silva');
+    expect(jo.busy).toEqual([expect.objectContaining({ number: 'OS-2026-0001', shift: 'manha' })]);
+
+    const map = (await api().get(`/employees/allocation?from=${day(-3)}&to=${day(7)}`).set(auth(company.id, ['view_alocacao'])).expect(200)).body;
+    expect(map.spans.filter((span: any) => span.employeeId === jose.id).map((span: any) => [span.number, span.shift])).toEqual([['OS-2026-0001', 'manha'], ['OS-2026-0002', 'tarde']]);
+
+    // RDO da tarde na obra A: o José (só de manhã) não vem; a Ana (dia inteiro) vem
+    const tarde = (await api().get(`/service-orders/${a.id}/reports/template?shift=tarde`).set(auth(company.id, OS)).expect(200)).body;
+    expect(tarde.shift).toBe('tarde');
+    expect(tarde.crew.map((member: any) => member.name)).toEqual(['Ana Souza']);
+    const dia = (await api().get(`/service-orders/${a.id}/reports/template`).set(auth(company.id, OS)).expect(200)).body;
+    expect(dia.crew.map((member: any) => member.name)).toEqual(['José da Silva', 'Ana Souza']);
+  });
+
+  it('atividades fora de OS: lançar, alterar, cancelar, e aparecer no mapa e para quem escala', async () => {
+    const { company, jose, ana, os } = await cenario();
+    const VIEW = ['view_alocacao'];
+    const WRITE = ['view_alocacao', 'update_alocacao'];
+    const types = (await api().get('/hr-activities/types').set(auth(company.id, VIEW)).expect(200)).body;
+    expect(types.rows.map((type: any) => type.name)).toEqual(expect.arrayContaining(['Aula como instrutor', 'Atividade no CT', 'Sobreaviso']));
+    const typeId = (name: string) => types.rows.find((type: any) => type.name === name).id;
+    expect(types.rows.find((type: any) => type.name === 'Sobreaviso').occupies).toBe(false);
+
+    const novo = (body: Record<string, any>, permissions = WRITE) => api().post('/hr-activities').set(auth(company.id, permissions)).send(body);
+    const aula = (await novo({ typeId: typeId('Aula como instrutor'), employeeIds: [jose.id, ana.id], startDate: day(2), endDate: day(3), shift: 'manha', location: 'CT Recife', notes: 'NR-35 turma 12' }).expect(201)).body;
+    expect(aula).toMatchObject({ typeName: 'Aula como instrutor', startDate: day(2), endDate: day(3), shift: 'manha', location: 'CT Recife', occupies: true });
+    expect(aula.employees.map((employee: any) => employee.name)).toEqual(['José da Silva', 'Ana Souza']);
+    await novo({ typeId: typeId('Sobreaviso'), employeeIds: [ana.id], startDate: day(2) }).expect(201); // um dia só, dia inteiro
+    await novo({ typeId: typeId('Atividade no CT'), employeeIds: [], startDate: day(2) }).expect(400);
+    await novo({ typeId: 999999, employeeIds: [jose.id], startDate: day(2) }).expect(400);
+    await novo({ typeId: typeId('Atividade no CT'), employeeIds: [jose.id], startDate: day(5), endDate: day(2) }).expect(400);
+    await novo({ typeId: typeId('Atividade no CT'), employeeIds: [jose.id], startDate: day(2), shift: 'x' }).expect(400);
+    await novo({ typeId: typeId('Atividade no CT'), employeeIds: [999999], startDate: day(2) }).expect(400);
+    await novo({ typeId: typeId('Atividade no CT'), employeeIds: [jose.id], startDate: day(2) }, VIEW).expect(403);
+    const other = await makeCompany();
+    await api().get(`/hr-activities/${aula.id}`).set(auth(other.id, WRITE)).expect(404);
+
+    const map = (await api().get(`/employees/allocation?from=${day(0)}&to=${day(7)}`).set(auth(company.id, VIEW)).expect(200)).body;
+    expect(map.activities.map((span: any) => [span.employeeId, span.typeName, span.start, span.end, span.shift, span.occupies]).sort()).toEqual([
+      [ana.id, 'Aula como instrutor', day(2), day(3), 'manha', true], [ana.id, 'Sobreaviso', day(2), day(2), 'integral', false], [jose.id, 'Aula como instrutor', day(2), day(3), 'manha', true],
+    ].sort());
+    // para quem escala: a aula ocupa; o sobreaviso não
+    const order = await os(1, { plannedStart: date(1), plannedEnd: date(4) });
+    const options = (await api().get(`/service-orders/${order.id}/team-options`).set(auth(company.id, OS)).expect(200)).body;
+    const an = options.employees.find((employee: any) => employee.name === 'Ana Souza');
+    expect(an.free).toBe(false);
+    expect(an.activities).toEqual([expect.objectContaining({ typeName: 'Aula como instrutor', shift: 'manha' })]);
+
+    // tirar a Ana e mudar para a tarde
+    const edited = (await api().put(`/hr-activities/${aula.id}`).set(auth(company.id, WRITE)).send({ employeeIds: [jose.id], shift: 'tarde' }).expect(200)).body;
+    expect(edited).toMatchObject({ shift: 'tarde', startDate: day(2), endDate: day(3) });
+    expect(edited.employees).toHaveLength(1);
+    await api().delete(`/hr-activities/${aula.id}`).set(auth(company.id, VIEW)).expect(403);
+    await api().delete(`/hr-activities/${aula.id}`).set(auth(company.id, WRITE)).expect(200);
+    const after = (await api().get(`/hr-activities?from=${day(0)}&to=${day(7)}`).set(auth(company.id, VIEW)).expect(200)).body;
+    expect(after.rows.map((row: any) => row.typeName)).toEqual(['Sobreaviso']);
+
+    // tipos: criar, não repetir nome, inativar
+    const type = (await api().post('/hr-activities/types').set(auth(company.id, WRITE)).send({ name: 'Manutenção de equipamentos', color: '#123abc', occupies: true }).expect(201)).body;
+    await api().post('/hr-activities/types').set(auth(company.id, WRITE)).send({ name: 'sobreaviso' }).expect(409);
+    await api().post('/hr-activities/types').set(auth(company.id, WRITE)).send({ name: 'Cor errada', color: 'azul' }).expect(400);
+    await api().patch(`/hr-activities/types/${type.id}/inactive`).set(auth(company.id, WRITE)).expect(200);
+    await novo({ typeId: type.id, employeeIds: [jose.id], startDate: day(2) }).expect(400); // tipo inativo
   });
 
   it('RDO: a equipe do dia vem do cadastro e a Minha esteira avisa de documento pendente na equipe', async () => {

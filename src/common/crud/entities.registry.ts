@@ -96,6 +96,7 @@ import { FilesModule } from 'src/features/files/module';
 import { CompanyFileController } from 'src/features/files/file.controller';
 import { EmployeeController } from 'src/features/hr/employee.controller';
 import { EmployeeDocumentController } from 'src/features/hr/document.controller';
+import { EmployeeActivityController } from 'src/features/hr/activity.controller';
 import { ContractController } from 'src/features/commercial/contract.controller';
 import { SellerWalletController } from 'src/features/commercial/wallet.controller';
 import { DocumentController, PublicProposalController } from 'src/features/commercial/document.controller';
@@ -265,6 +266,7 @@ export const crudExtraControllers = [
   EmployeeController,
   EmployeeDocumentController,
   CompanyFileController,
+  EmployeeActivityController,
   ContractController,
   SellerWalletController,
   DocumentController,

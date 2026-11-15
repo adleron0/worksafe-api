@@ -307,9 +307,12 @@ export class DailyReportService {
     // a equipe de ontem é o melhor palpite para hoje; sem RDO anterior, a equipe escalada na OS
     const yesterday = (previous?.crew as unknown as CrewMember[]) ?? [];
     const link = (member: { employeeId?: number | null; professionalId?: number | null }) => (member.employeeId ? { employeeId: member.employeeId, professionalId: member.professionalId ?? null } : {});
-    const team = ((order.team as unknown as Array<{ name: string; role: string; employeeId?: number | null; professionalId?: number | null }>) ?? []).map((member) => ({ name: member.name, role: member.role, hours: labor.hoursPerDay, overtime: 0, ...link(member) }));
+    // RDO de um turno: da equipe escalada, só quem está na obra naquela parte do dia (ou o dia inteiro)
+    const wanted = (REPORT_SHIFTS as readonly string[]).includes(String(query.shift)) ? String(query.shift) : 'integral';
+    const team = ((order.team as unknown as Array<{ name: string; role: string; employeeId?: number | null; professionalId?: number | null; shift?: string | null }>) ?? [])
+      .filter((member) => wanted === 'integral' || !member.shift || member.shift === 'integral' || member.shift === wanted).map((member) => ({ name: member.name, role: member.role, hours: labor.hoursPerDay, overtime: 0, ...link(member) }));
     return {
-      id: null, date, shift: 'integral', weather: 'bom', status: 'rascunho', editable: true,
+      id: null, date, shift: wanted, weather: 'bom', status: 'rascunho', editable: true,
       // a hora de entrada costuma se repetir: parte da do último RDO; a saída é preenchida no fim do dia
       startTime: previous?.startTime ?? null, endTime: null, breakMinutes: previous?.breakMinutes ?? 60, weatherEnd: null,
       startCondition: null, endCondition: null, startNote: null, endNote: null,

@@ -11,11 +11,23 @@ import { STATUS_LABEL } from './employee.service';
  * histórico do funcionário (férias, afastamento, suspensão).
  */
 type Db = PrismaService | Prisma.TransactionClient;
-export interface TeamEntry { name: string; role: string; userId?: number | null; employeeId?: number | null; professionalId?: number | null; from?: string | null; to?: string | null }
+/** A parte do dia: a mesma divisão do RDO. */
+export type Shift = 'integral' | 'manha' | 'tarde' | 'noite';
+export const SHIFTS: Array<{ id: Shift; name: string }> = [{ id: 'integral', name: 'Dia inteiro' }, { id: 'manha', name: 'Manhã' }, { id: 'tarde', name: 'Tarde' }, { id: 'noite', name: 'Noite' }];
+export const shiftOf = (value: unknown): Shift => (SHIFTS.some((shift) => shift.id === value) ? (value as Shift) : 'integral');
+/** Duas partes do dia se cruzam: dia inteiro cruza com qualquer uma; manhã só com manhã, e assim por diante. */
+export const shiftsClash = (a: Shift, b: Shift) => a === 'integral' || b === 'integral' || a === b;
+
+export interface TeamEntry { name: string; role: string; userId?: number | null; employeeId?: number | null; professionalId?: number | null; from?: string | null; to?: string | null; shift?: string | null }
 export interface AllocationSpan {
   employeeId: number; orderId: number; number: string; title: string; status: ServiceOrderStatus; role: string;
   /** null = a obra ainda não tem data marcada */
-  start: string | null; end: string | null;
+  start: string | null; end: string | null; shift: Shift;
+}
+/** Atividade fora de OS (aula, treinamento, atividade no CT...) de uma pessoa. */
+export interface ActivitySpan {
+  employeeId: number; activityId: number; typeId: number; typeName: string; color: string; occupies: boolean; location: string | null; notes: string | null;
+  start: string; end: string; shift: Shift;
 }
 export interface UnavailableSpan { employeeId: number; type: string; label: string; start: string; end: string | null }
 
@@ -52,7 +64,7 @@ export function spansOf(orders: OrderRow[], today: string): AllocationSpan[] {
       // período da pessoa dentro da obra, quando informado; senão a obra inteira
       const start = member.from ?? period.start;
       const end = member.to ?? period.end ?? start;
-      out.push({ employeeId: member.employeeId, orderId: order.id, number: order.number, title: order.title, status: order.status, role: member.role, start: start ?? null, end: start ? end ?? start : null });
+      out.push({ employeeId: member.employeeId, orderId: order.id, number: order.number, title: order.title, status: order.status, role: member.role, start: start ?? null, end: start ? end ?? start : null, shift: shiftOf(member.shift) });
     }
   }
   return out;
@@ -62,7 +74,7 @@ const ACTIVE_ORDER: Prisma.Service_OrderWhereInput = { inactiveAt: null, status:
 
 /** Alocações e indisponibilidades que tocam uma janela de datas. */
 export async function allocationWindow(prisma: Db, companyId: number, from: string, to: string, today = allocationToday()) {
-  const [orders, events] = await Promise.all([
+  const [orders, events, activities] = await Promise.all([
     prisma.service_Order.findMany({
       where: { companyId, ...ACTIVE_ORDER, OR: [{ plannedStart: null, startedAt: null }, { plannedStart: { lte: asDate(to) } }, { startedAt: { lte: asDate(to) } }] },
       select: { id: true, number: true, title: true, status: true, team: true, plannedStart: true, plannedEnd: true, startedAt: true, finishedAt: true }, take: 3000,
@@ -71,11 +83,19 @@ export async function allocationWindow(prisma: Db, companyId: number, from: stri
       where: { companyId, inactiveAt: null, type: { in: UNAVAILABLE_TYPES }, startDate: { lte: asDate(to) }, OR: [{ endDate: null }, { endDate: { gte: asDate(from) } }] },
       select: { employeeId: true, type: true, startDate: true, endDate: true },
     }),
+    prisma.hr_Activity.findMany({
+      where: { companyId, inactiveAt: null, startDate: { lte: asDate(to) }, endDate: { gte: asDate(from) } },
+      include: { type: true, employees: { select: { employeeId: true } } }, orderBy: [{ startDate: 'asc' }, { id: 'asc' }], take: 5000,
+    }),
   ]);
   const all = spansOf(orders, today);
   return {
     spans: all.filter((span) => span.start && overlaps(span.start, span.end, from, to)),
     undated: all.filter((span) => !span.start),
+    activities: activities.flatMap((activity) => activity.employees.map((member): ActivitySpan => ({
+      employeeId: member.employeeId, activityId: activity.id, typeId: activity.typeId, typeName: activity.type.name, color: activity.type.color, occupies: activity.type.occupies,
+      location: activity.location, notes: activity.notes, start: iso(activity.startDate)!, end: iso(activity.endDate)!, shift: shiftOf(activity.shift),
+    }))),
     unavailable: events.map((event): UnavailableSpan => ({ employeeId: event.employeeId, type: event.type, label: UNAVAILABLE_LABEL[event.type] ?? STATUS_LABEL.indisponivel, start: iso(event.startDate)!, end: iso(event.endDate) })),
   };
 }
@@ -83,7 +103,9 @@ export async function allocationWindow(prisma: Db, companyId: number, from: stri
 export interface TeamOption {
   id: number; name: string; userId: number | null; roles: Array<{ id: number; name: string; isPrimary: boolean }>;
   /** Outras obras em que a pessoa está escalada no período. */
-  busy: Array<{ orderId: number; number: string; title: string; start: string | null; end: string | null }>;
+  busy: Array<{ orderId: number; number: string; title: string; start: string | null; end: string | null; shift: Shift }>;
+  /** Atividades fora de OS que ocupam a pessoa no período. */
+  activities: Array<{ activityId: number; typeName: string; start: string; end: string; shift: Shift }>;
   /** Férias, afastamento ou suspensão no período (sem o motivo). */
   unavailable: Array<{ label: string; start: string; end: string | null }>;
   documents: DocumentIssue[];
@@ -107,14 +129,16 @@ export async function teamOptions(prisma: Db, companyId: number, input: { from: 
   const ids = employees.map((employee) => employee.id);
   const [window, issues] = await Promise.all([allocationWindow(prisma, companyId, from, to, today), documentIssues(prisma, companyId, ids, today, to)]);
   return employees.map((employee) => {
-    const busy = window.spans.filter((span) => span.employeeId === employee.id && span.orderId !== input.exceptOrderId).map(({ orderId, number, title, start, end }) => ({ orderId, number, title, start, end }));
+    const busy = window.spans.filter((span) => span.employeeId === employee.id && span.orderId !== input.exceptOrderId).map(({ orderId, number, title, start, end, shift }) => ({ orderId, number, title, start, end, shift }));
+    const activities = window.activities.filter((span) => span.employeeId === employee.id && span.occupies).map(({ activityId, typeName, start, end, shift }) => ({ activityId, typeName, start, end, shift }));
     const unavailable = window.unavailable.filter((span) => span.employeeId === employee.id && overlaps(span.start, span.end, from, to))
       // o tipo (suspensão, afastamento) só aparece para quem pode ver o histórico; férias todos veem
       .map((span) => ({ label: input.seesReason || span.type === 'ferias' ? span.label : STATUS_LABEL.indisponivel, start: span.start, end: span.end }));
     return {
       id: employee.id, name: employee.name, userId: employee.userId,
       roles: employee.roles.map((role) => ({ id: role.professional.id, name: role.professional.name, isPrimary: role.isPrimary })),
-      busy, unavailable, documents: issues.get(employee.id) ?? [], free: !busy.length && !unavailable.length,
+      // livre = nada no período, em nenhuma parte do dia; a tela afina pela parte do dia de cada pessoa
+      busy, activities, unavailable, documents: issues.get(employee.id) ?? [], free: !busy.length && !activities.length && !unavailable.length,
     };
   });
 }
