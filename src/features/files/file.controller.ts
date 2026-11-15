@@ -1,0 +1,86 @@
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, Req, Res, UploadedFile as Uploaded, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Request, Response } from 'express';
+import * as multer from 'multer';
+import { Permissions } from 'src/auth/decorators/permissions.decorator';
+import { permissionsOf } from 'src/features/commercial/proposal.controller';
+import { FILE_MAX_BYTES } from './file.rules';
+import { CompanyFileService, FILES_MANAGE_PERMISSION, FILES_WRITE_PERMISSION, FileActor, UploadedFile } from './file.service';
+
+const actorOf = (req: Request): FileActor => {
+  const user = (req as Request & { user?: { sub?: number; companyId?: number; permissions?: unknown } }).user;
+  const permissions = permissionsOf(user?.permissions);
+  return { userId: Number(user?.sub ?? 0), companyId: Number(user?.companyId ?? 0), canWrite: permissions.includes(FILES_WRITE_PERMISSION), canManage: permissions.includes(FILES_MANAGE_PERMISSION) };
+};
+type Json = Record<string, unknown>;
+/** O arquivo passa pela memória da API até o armazenamento privado: nunca vai para o bucket público. */
+const UPLOAD = { storage: multer.memoryStorage(), limits: { fileSize: FILE_MAX_BYTES } };
+
+/**
+ * Arquivos da empresa: pastas, arquivos e lixeira. Entrar pede `view_arquivos`;
+ * o que cada um pode ver (acesso por pasta) e mudar é conferido no serviço.
+ */
+@Controller('company-files')
+export class CompanyFileController {
+  constructor(private readonly files: CompanyFileService) {}
+
+  @Permissions('view_arquivos') @Get('browse')
+  browse(@Req() req: Request, @Query('folderId') folderId?: string) { return this.files.browse(actorOf(req), Number(folderId) > 0 ? Number(folderId) : null); }
+
+  @Permissions('view_arquivos') @Get('folders')
+  folders(@Req() req: Request) { return this.files.folders(actorOf(req)); }
+
+  @Permissions('view_arquivos') @Get('search')
+  search(@Req() req: Request, @Query() query: Record<string, string>) { return this.files.search(actorOf(req), query ?? {}); }
+
+  @Permissions('manage_arquivos') @Get('profiles')
+  profiles(@Req() req: Request) { return this.files.profiles(actorOf(req)); }
+
+  @Permissions('update_arquivos') @Get('trash')
+  trash(@Req() req: Request) { return this.files.trash(actorOf(req)); }
+
+  @Permissions('update_arquivos') @Post('folders')
+  createFolder(@Req() req: Request, @Body() body: Json) { return this.files.createFolder(actorOf(req), body ?? {}); }
+
+  @Permissions('update_arquivos') @Put('folders/:id')
+  updateFolder(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.files.updateFolder(actorOf(req), id, body ?? {}); }
+
+  @Permissions('update_arquivos') @Delete('folders/:id')
+  trashFolder(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.files.trashFolder(actorOf(req), id); }
+
+  @Permissions('update_arquivos') @Post('folders/:id/restore')
+  restoreFolder(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.files.restoreFolder(actorOf(req), id); }
+
+  @Permissions('manage_arquivos') @Delete('folders/:id/purge')
+  purgeFolder(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.files.purgeFolder(actorOf(req), id); }
+
+  @Permissions('update_arquivos') @Post('files')
+  @UseInterceptors(FileInterceptor('file', UPLOAD))
+  upload(@Req() req: Request, @Body() body: Json, @Uploaded() file?: UploadedFile) { return this.files.upload(actorOf(req), file, body ?? {}); }
+
+  @Permissions('update_arquivos') @Put('files/:id')
+  updateFile(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.files.updateFile(actorOf(req), id, body ?? {}); }
+
+  @Permissions('update_arquivos') @Delete('files/:id')
+  trashFile(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.files.trashFile(actorOf(req), id); }
+
+  @Permissions('update_arquivos') @Post('files/:id/restore')
+  restoreFile(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.files.restoreFile(actorOf(req), id); }
+
+  @Permissions('manage_arquivos') @Delete('files/:id/purge')
+  purgeFile(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.files.purgeFile(actorOf(req), id); }
+
+  @Permissions('manage_arquivos') @Get('files/:id/history')
+  history(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.files.history(actorOf(req), id); }
+
+  /** O arquivo só sai por aqui: sem link direto, sem cache, e cada acesso fica registrado. */
+  @Permissions('view_arquivos') @Get('files/:id/file')
+  async file(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Res() res: Response, @Query('download') download?: string) {
+    const { body, fileName, mimeType, inline } = await this.files.file(actorOf(req), id, download === '1');
+    res.set({
+      'Content-Type': mimeType, 'Content-Length': String(body.length), 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff',
+      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+    });
+    res.end(body);
+  }
+}

@@ -1,0 +1,55 @@
+// Arquivos da empresa: pastas livres em árvore e os arquivos dentro delas.
+// O arquivo fica no armazenamento privado: aqui só o caminho (`fileKey`), nunca
+// uma URL. Apagar manda para a lixeira (`trashedAt`); só depois de 30 dias, ou
+// por ação de quem administra, a linha e o arquivo somem de verdade.
+
+model File_Folder {
+  id        Int    @id @default(autoincrement())
+  companyId Int
+  // pasta de cima; vazio = primeiro nível
+  parentId  Int?
+  parent    File_Folder?  @relation("File_FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  File_Folder[] @relation("File_FolderTree")
+
+  name String @db.VarChar(120)
+
+  // falso = todos que usam o módulo; verdadeiro = só os perfis de `profileIds`.
+  // As pastas de dentro seguem a de cima (podem fechar mais, nunca abrir).
+  restricted Boolean @default(false)
+  profileIds Json?
+
+  files File_Item[]
+
+  createdByUserId Int?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
+  trashedAt       DateTime?
+  trashedByUserId Int?
+
+  @@index([companyId, parentId])
+}
+
+model File_Item {
+  id        Int         @id @default(autoincrement())
+  companyId Int
+  folderId  Int
+  folder    File_Folder @relation(fields: [folderId], references: [id], onDelete: Cascade)
+
+  // o nome mostrado (pode ser trocado) e o nome original do arquivo enviado
+  name     String @db.VarChar(200)
+  fileName String @db.VarChar(200)
+  // files/<empresa>/<uuid>.<ext>: sem nome de arquivo nem de pasta
+  fileKey  String @db.VarChar(300)
+  mimeType String @db.VarChar(150)
+  size     BigInt
+  notes    String? @db.VarChar(500)
+
+  uploadedByUserId Int?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @default(now()) @updatedAt
+  trashedAt        DateTime?
+  trashedByUserId  Int?
+
+  @@index([companyId, folderId])
+  @@index([companyId, trashedAt])
+}
