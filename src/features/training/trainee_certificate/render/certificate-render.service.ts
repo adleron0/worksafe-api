@@ -270,7 +270,10 @@ export class CertificateRenderService {
       canvas.setZoom(scale);
       if (!canvas.backgroundImage) canvas.backgroundColor = '#ffffff';
       for (const obj of canvas.getObjects() as any[]) {
-        if (isTextboxType(obj.type) && obj.width > 0) obj.initDimensions();
+        if (isTextboxType(obj.type) && obj.width > 0) {
+          obj.initDimensions();
+          fitTextToMaxHeight(obj);
+        }
       }
       const tLoad = Date.now();
       canvas.renderAll();
@@ -639,6 +642,22 @@ function sealBox(
     y: (height - size * SEAL_HEIGHT_RATIO - marginBottom) * scale,
     size: size * scale,
   };
+}
+
+/**
+ * Texto com `maxHeight` (definido no modelo): reduz a fonte até o texto
+ * quebrado caber nessa altura — nomes, empresas e currículos longos não
+ * invadem o que vem embaixo. Nunca abaixo de 55% do tamanho original.
+ */
+function fitTextToMaxHeight(obj: any) {
+  const max = Number(obj.maxHeight);
+  if (!max || !(obj.height > max)) return;
+  const original = obj.fontSize;
+  const floor = original * 0.55;
+  while (obj.height > max && obj.fontSize > floor) {
+    obj.set('fontSize', Math.max(floor, obj.fontSize - 0.5));
+    obj.initDimensions();
+  }
 }
 
 export type { CertificateVariables };
