@@ -18,6 +18,12 @@ model TraineeCourseCertificate {
   pdfUrl               String?     @db.VarChar(255)
   key                  String      @default(uuid()) // Definindo o campo 'key' como UUID auto gerado
 
+  // Destaque (ver courseClass.highlightTheme). Aluno destaque: marca e,
+  // opcionalmente, troca o tema e o texto da faixa ("Aluno Destaque").
+  highlightStudent     Boolean                    @default(false)
+  highlightTheme       CertificateHighlightTheme?
+  highlightLabel       String?                    @db.VarChar(60)
+
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
@@ -29,4 +35,12 @@ model TraineeCourseCertificate {
   @@index([companyId])                    // Certificados da empresa
   @@index([expirationDate])               // Certificados vencendo
   @@index([key])                          // Busca por chave única
+}
+
+/// Temas de destaque do certificado: na tela, brilho animado; no PNG/PDF e no
+/// impresso, selo metálico simulado.
+enum CertificateHighlightTheme {
+  ouro
+  prata
+  holografico
 }

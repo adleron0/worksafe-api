@@ -64,6 +64,16 @@ export class ClassesCustomController {
     return this.Service.validateStudent(cpf, classCode, classId);
   }
 
+  // Candidatos a aluno destaque da turma, com a nota da prova (sugestão)
+  @UserPermission(`list_${entity.permission}`)
+  @Get(':id/highlight-candidates')
+  async highlightCandidates(@Param('id') id: string, @Req() request: Request) {
+    return this.Service.highlightCandidates(
+      Number(id),
+      Number(request.user.companyId),
+    );
+  }
+
   // ROTA PARA GERAR CERTIFICADOS PARA TODOS OS ALUNOS DE UMA TURMA
   @UserPermission(`create_${entity.permission}`) // Requer permissão de criar
   @CacheEvictAll('training-classes:*', 'cache:*/classes*')

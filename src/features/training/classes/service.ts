@@ -15,8 +15,7 @@ export class ClassesService {
     protected prisma: PrismaService,
     protected uploadService: UploadService,
     protected traineeCertificateService: TraineeCertificateService,
-  ) {
-  }
+  ) {}
 
   /**
    * Valida o aluno pelo CPF e código da turma
@@ -192,7 +191,9 @@ export class ClassesService {
     subscriptionIds: number[],
   ) {
     if (!subscriptionIds || subscriptionIds.length === 0) {
-      throw new BadRequestException('Deve informar pelo menos um subscriptionId');
+      throw new BadRequestException(
+        'Deve informar pelo menos um subscriptionId',
+      );
     }
     // Escopo da empresa: turma de outra empresa é 404, não processamento.
     const classData = await this.prisma.selectFirst('courseClass', {
@@ -210,10 +211,89 @@ export class ClassesService {
         true, // skipExame
       );
     } catch (error) {
-      if (error instanceof BadRequestException || error instanceof NotFoundException) throw error;
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException
+      )
+        throw error;
       console.error('[classes] generateCertificatesSelective:', error);
       throw new BadRequestException('Erro ao gerar certificados seletivos');
     }
   }
-}
 
+  /**
+   * Candidatos a aluno destaque: certificados emitidos da turma com a nota da
+   * prova (acertos ÷ questões × 10, calculada do exame corrigido que já fica
+   * gravado). Ordena pela nota; `suggested` marca quem tem a maior nota
+   * (empates entram todos). A decisão continua manual.
+   */
+  async highlightCandidates(classId: number, companyId: number) {
+    const turma = await this.prisma.courseClass.findFirst({
+      where: { id: classId, companyId, inactiveAt: null },
+      select: {
+        id: true,
+        name: true,
+        highlightTheme: true,
+        highlightLabel: true,
+      },
+    });
+    if (!turma) throw new NotFoundException('Turma não encontrada');
+
+    const [certificates, exams] = await Promise.all([
+      this.prisma.traineeCourseCertificate.findMany({
+        where: { classId, companyId, inactiveAt: null },
+        select: {
+          id: true,
+          key: true,
+          traineeId: true,
+          highlightStudent: true,
+          highlightTheme: true,
+          highlightLabel: true,
+          trainee: { select: { id: true, name: true, imageUrl: true } },
+        },
+      }),
+      this.prisma.courseClassExam.findMany({
+        where: { classId, inactiveAt: null },
+        select: { traineeId: true, examResponses: true, result: true },
+      }),
+    ]);
+
+    const scoreOf = (responses: unknown): number | null => {
+      const questions = Array.isArray(responses) ? responses : null;
+      if (!questions || questions.length === 0) return null;
+      const correct = questions.filter(
+        (q: { options?: { isUserCorrect?: boolean }[] }) =>
+          Array.isArray(q?.options) &&
+          q.options.some((o) => o?.isUserCorrect === true),
+      ).length;
+      return Math.round((correct / questions.length) * 100) / 10;
+    };
+    const examByTrainee = new Map(
+      exams.map((e) => [
+        e.traineeId,
+        { score: scoreOf(e.examResponses), passed: e.result },
+      ]),
+    );
+
+    const rows = certificates
+      .map((c) => ({
+        ...c,
+        examScore: examByTrainee.get(c.traineeId)?.score ?? null,
+        examPassed: examByTrainee.get(c.traineeId)?.passed ?? null,
+      }))
+      .sort(
+        (a, b) =>
+          (b.examScore ?? -1) - (a.examScore ?? -1) ||
+          (a.trainee?.name ?? '').localeCompare(b.trainee?.name ?? '', 'pt-BR'),
+      );
+    const best = rows.reduce((max, r) => Math.max(max, r.examScore ?? -1), -1);
+
+    return {
+      class: turma,
+      rows: rows.map((r) => ({
+        ...r,
+        suggested: best > 0 && r.examScore === best,
+      })),
+    };
+  }
+}

@@ -9,6 +9,9 @@ model CourseClass {
   course            Course            @relation(fields: [courseId], references: [id])
   certificateId     Int?
   certificate       CouseCertificate? @relation(fields: [certificateId], references: [id])
+  // Turma especial: todos os certificados da turma saem com este destaque
+  highlightTheme    CertificateHighlightTheme?
+  highlightLabel    String?           @db.VarChar(60)
   categoryId        Int?
   classCode         String?           @db.VarChar(50)
   price             Decimal?          @db.Decimal(18, 2)
