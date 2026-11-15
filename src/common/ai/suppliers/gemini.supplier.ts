@@ -20,7 +20,7 @@ export class GeminiSupplier implements IAISupplier {
   private ensureConfigured(): GoogleGenAI {
     const key = process.env.AI_API_KEY || process.env.GEMINI_API_KEY || '';
     if (!key) throw new Error('Gemini não está configurado: defina AI_API_KEY ou GEMINI_API_KEY.');
-    if (!this.client) this.client = new GoogleGenAI({ apiKey: key });
+    if (!this.client) this.client = new GoogleGenAI({ apiKey: key, httpOptions: { apiVersion: process.env.AI_GEMINI_API_VERSION || 'v1beta' } });
     return this.client;
   }
 

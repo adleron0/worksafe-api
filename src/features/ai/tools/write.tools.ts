@@ -71,6 +71,7 @@ export function proposalBody(input: Record<string, any>) {
   };
 }
 
+const brDate = (value: Date | null) => (value ? iso(value)!.split('-').reverse().join('/') : '?');
 const proposalLine = (row: any) => `${row.number}${row.revision ? ` rev. ${row.revision}` : ''} — ${row.title}`;
 
 export const WRITE_TOOLS: ToolDefinition[] = [
@@ -303,7 +304,7 @@ export const WRITE_TOOLS: ToolDefinition[] = [
       if (!row) throw new ToolRefusal('Turma não encontrada');
       if (row.finalDate && iso(row.finalDate)! < todayBr()) throw new ToolRefusal('A turma já terminou');
       return {
-        summary: `Publicar no site e abrir inscrições da turma "${row.name}" (${iso(row.initialDate) ?? '?'} a ${iso(row.finalDate) ?? '?'})?`,
+        summary: `Publicar no site e abrir inscrições da turma "${row.name}" (${brDate(row.initialDate)} a ${brDate(row.finalDate)})?`,
         details: [{ label: 'Curso', value: row.course?.name ?? '—' }, { label: 'Preço', value: row.price === null ? '—' : brl(row.discountPrice ?? row.price) }],
         payload: { classId: row.id },
       };

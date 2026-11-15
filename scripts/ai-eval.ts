@@ -56,7 +56,9 @@ function judge(item: Case, calls: { name: string; input: Record<string, unknown>
 }
 
 async function main() {
-  const targets = process.argv.slice(2).filter((arg) => arg.includes(':'));
+  const targets = process.argv.slice(2).filter((arg) => arg.includes(':') && !arg.startsWith('--'));
+  // --intervalo=13 espera 13 s entre chamadas (plano gratuito do Gemini: 5 por minuto)
+  const pause = Number(process.argv.find((arg) => arg.startsWith('--intervalo='))?.split('=')[1] ?? 0) * 1000;
   if (!targets.length) {
     console.log('Informe os modelos: npm run ai:eval -- gemini:gemini-3-flash-preview anthropic:claude-haiku-5-5');
     process.exit(1);
@@ -83,6 +85,7 @@ async function main() {
       const bot = BOT_DEFAULTS.find((entry) => entry.key === item.bot)!;
       const defs = bot.tools.map((name) => tools.get(name)!).map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema }));
       const system = `${BASE_RULES}\n\n## Seu papel\n${bot.instructions}\n\n## Contexto\n- Empresa: WorkSafe\n- Pessoa: Teste\n- Hoje: ${today}`;
+      if (pause) await new Promise((resolve) => setTimeout(resolve, pause));
       const started = Date.now();
       try {
         const response = await provider.chat({ model, system, messages: [{ role: 'user', text: item.mensagem }], tools: defs });

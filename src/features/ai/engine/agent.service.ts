@@ -235,7 +235,10 @@ export class AgentService {
       await this.prisma.ai_Run.updateMany({ where: { id: ctx.runId, status: 'running' }, data: { status: 'done', endedAt: new Date(), costUsd: cost, steps: steps as unknown as Prisma.InputJsonValue } });
     } catch (error) {
       console.error('[ai] falha na execução', error);
-      const message = this.friendly(error);
+      const done = steps.filter((step) => step.status === 'ok' || step.status === 'pending').length;
+      const message = done
+        ? `Fiz os passos acima, mas não consegui escrever a resposta final: ${this.friendly(error).charAt(0).toLowerCase()}${this.friendly(error).slice(1)}`
+        : this.friendly(error);
       await this.notice(ctx, message).catch(() => undefined);
       await this.prisma.ai_Run.update({ where: { id: ctx.runId }, data: { status: 'error', error: message.slice(0, 1000), endedAt: new Date(), costUsd: cost, steps: steps as unknown as Prisma.InputJsonValue } });
     } finally {
@@ -248,7 +251,7 @@ export class AgentService {
     const primary = this.providers.get(bot.provider);
     try {
       if (!primary?.available()) throw new Error(`Fornecedor ${bot.provider} sem chave`);
-      return { response: await primary.chat({ ...request, model: bot.model }), provider: bot.provider, model: bot.model };
+      return { response: await this.withRetry(() => primary.chat({ ...request, model: bot.model })), provider: bot.provider, model: bot.model };
     } catch (error) {
       const fallback = bot.fallbackProvider ? this.providers.get(bot.fallbackProvider) : undefined;
       if (!fallback?.available() || !bot.fallbackModel) throw error;
@@ -257,8 +260,34 @@ export class AgentService {
     }
   }
 
+  /**
+   * Limite de uso por minuto (429): espera o tempo que o fornecedor pede (até
+   * 30 s) e tenta de novo, no máximo duas vezes. Acima disso, desiste e avisa.
+   */
+  private async withRetry<T>(work: () => Promise<T>): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await work();
+      } catch (error) {
+        const status = (error as { status?: number })?.status;
+        if (status !== 429 || attempt >= 2) throw error;
+        const text = String((error as Error)?.message ?? '');
+        // limite zero (modelo fora do plano) não adianta esperar
+        if (/limit: 0\b/.test(text)) throw error;
+        // "retryDelay":"42033s" (Gemini) ou retry-after em segundos
+        const hint = Number(/"retryDelay"\s*:\s*"(\d+)s"/.exec(text)?.[1] ?? NaN);
+        if (Number.isFinite(hint) && hint > 30) throw error;
+        const wait = Number.isFinite(hint) ? Math.max(2, hint + 1) : 10 * (attempt + 1);
+        await new Promise((resolve) => setTimeout(resolve, wait * 1000));
+      }
+    }
+  }
+
   private friendly(error: unknown): string {
     const status = (error as { status?: number })?.status;
+    const text = String((error as Error)?.message ?? '');
+    if (status === 429 && /free_tier/i.test(text) && /limit: 0\b/.test(text)) return 'A chave de IA está no plano gratuito, que não inclui o modelo deste bot. Ative o faturamento da chave no Google AI Studio ou troque o modelo do bot em Configurar bots.';
+    if (status === 429 && /free_tier/i.test(text)) return 'A chave de IA está no plano gratuito e passou do limite de uso. Ative o faturamento da chave no Google AI Studio ou tente de novo mais tarde.';
     if (status === 429) return 'O fornecedor de IA está com limite de uso no momento. Tente de novo em alguns minutos.';
     if (status === 401 || status === 403) return 'A chave do fornecedor de IA foi recusada. Avise o administrador.';
     if (status && status >= 500) return 'O fornecedor de IA está fora do ar no momento. Tente de novo em alguns minutos.';

@@ -23,7 +23,8 @@ export class GeminiProvider implements ChatProvider {
 
   private sdk(): GoogleGenAI {
     if (!this.available()) throw new ProviderUnavailableError(this.id);
-    if (!this.client) this.client = new GoogleGenAI({ apiKey: this.key(), ...(process.env.AI_GEMINI_BASE_URL ? { httpOptions: { baseUrl: process.env.AI_GEMINI_BASE_URL } } : {}) });
+    // v1beta: os modelos preview (gemini-3-*-preview) só existem nela; o SDK usa v1 por padrão
+    if (!this.client) this.client = new GoogleGenAI({ apiKey: this.key(), httpOptions: { apiVersion: process.env.AI_GEMINI_API_VERSION || 'v1beta', ...(process.env.AI_GEMINI_BASE_URL ? { baseUrl: process.env.AI_GEMINI_BASE_URL } : {}) } });
     return this.client;
   }
 
