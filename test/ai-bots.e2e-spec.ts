@@ -203,6 +203,31 @@ describe('Bots de IA (e2e)', () => {
     await api().get(`/ai/conversations/${conversation.id}`).set(auth(company.id, ALL, other.id)).expect(404);
   });
 
+  it('equipe: nome, cargo, rosto e quem está trabalhando ou esperando você', async () => {
+    const { company, turma, db } = await cenario();
+    const before = (await api().get('/ai/team').set(auth(company.id)).expect(200)).body;
+    const lia = before.members.find((member: any) => member.key === 'treinamentos');
+    expect(lia).toMatchObject({ persona: 'Lia', role: 'Coordenadora de Treinamentos', avatar: 'treinamentos', status: 'disponivel', pendingForMe: 0, today: { conversations: 0, actions: 0 } });
+    expect(before.members.map((member: any) => member.persona).sort()).toEqual(['Helena', 'Lia', 'Nina']);
+
+    const conversation = (await api().post(`/ai/bots/${lia.id}/conversations`).set(auth(company.id)).expect(201)).body;
+    FakeProvider.script([() => ({ toolCalls: [{ name: 'publicar_turma', input: { turmaId: turma.id } }] }), () => ({ text: 'Deixei o cartão para você confirmar.' })]);
+    const { runId } = (await api().post(`/ai/conversations/${conversation.id}/messages`).set(auth(company.id)).send({ text: 'publica a turma' }).expect(201)).body;
+    await waitRun(company.id, runId);
+    let team = (await api().get('/ai/team').set(auth(company.id)).expect(200)).body;
+    expect(team.members.find((member: any) => member.key === 'treinamentos')).toMatchObject({ status: 'aguardando', pendingForMe: 1, today: { conversations: 1, actions: 1 }, lastConversation: { id: conversation.id } });
+    expect(team.activity[0]).toMatchObject({ persona: 'Lia', title: 'Preparando a publicação da turma', status: 'pending' });
+    // o prompt apresenta a persona
+    expect(FakeProvider.requests[0].system).toContain('Você é Lia, Coordenadora de Treinamentos');
+
+    await db.ai_Run.create({ data: { conversationId: conversation.id, userId, status: 'running' } });
+    team = (await api().get('/ai/team').set(auth(company.id)).expect(200)).body;
+    expect(team.members.find((member: any) => member.key === 'treinamentos')).toMatchObject({ status: 'trabalhando', working: { people: 1, mine: { conversationId: conversation.id } } });
+    await api().put(`/ai/bots/${lia.id}`).set(auth(company.id)).send({ persona: 'Lívia', role: 'Gerente de Turmas', avatar: 'marketing' }).expect(200);
+    team = (await api().get('/ai/team').set(auth(company.id)).expect(200)).body;
+    expect(team.members.find((member: any) => member.key === 'treinamentos')).toMatchObject({ persona: 'Lívia', role: 'Gerente de Turmas', avatar: 'marketing' });
+  });
+
   it('configuração: instruções versionadas, voltar versão e ferramenta desconhecida', async () => {
     const { company } = await cenario();
     const config = (await api().get('/ai/bots/config').set(auth(company.id)).expect(200)).body;

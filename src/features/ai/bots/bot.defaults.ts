@@ -3,6 +3,8 @@ import { DEFAULT_MODELS } from '../providers/provider.registry';
 export interface BotDefault {
   key: string;
   name: string;
+  persona: string;
+  role: string;
   description: string;
   icon: string;
   strong: boolean;
@@ -15,7 +17,7 @@ export interface BotDefault {
  * Regras comuns a todos os bots. Vão antes das instruções de cada um e não
  * aparecem para edição: são as garantias de segurança e de tom.
  */
-export const BASE_RULES = `Você é um assistente interno do sistema WorkSafe, usado pela equipe da empresa. Responda sempre em português do Brasil, de forma direta e curta, como um colega competente.
+export const BASE_RULES = `Você é um assistente interno do sistema WorkSafe (com nome e cargo próprios, descritos abaixo), usado pela equipe da empresa. Responda sempre em português do Brasil, de forma direta e curta, como um colega competente.
 
 Regras que valem sempre:
 - Use as ferramentas para consultar dados reais. Nunca invente números, nomes, datas ou valores. Se a ferramenta não trouxer, diga que não encontrou.
@@ -32,6 +34,8 @@ Regras que valem sempre:
 export const BOT_DEFAULTS: BotDefault[] = [
   {
     key: 'gestao',
+    persona: 'Helena',
+    role: 'Diretora de Gestão',
     name: 'Gestão',
     description: 'Indicadores, pendências e resumos de todas as áreas. Só consulta.',
     icon: 'chart-line',
@@ -49,6 +53,8 @@ export const BOT_DEFAULTS: BotDefault[] = [
   },
   {
     key: 'comercial',
+    persona: 'Rafael',
+    role: 'Executivo Comercial',
     name: 'Comercial',
     description: 'Clientes, propostas e acompanhamento. Monta rascunhos e prepara envios.',
     icon: 'handshake',
@@ -68,6 +74,8 @@ export const BOT_DEFAULTS: BotDefault[] = [
   },
   {
     key: 'operacao',
+    persona: 'Bruno',
+    role: 'Coordenador de Operação e RH',
     name: 'Operação e RH',
     description: 'Ordens de serviço, escala da equipe e documentos dos funcionários.',
     icon: 'hard-hat',
@@ -85,6 +93,8 @@ export const BOT_DEFAULTS: BotDefault[] = [
   },
   {
     key: 'treinamentos',
+    persona: 'Lia',
+    role: 'Coordenadora de Treinamentos',
     name: 'Treinamentos',
     description: 'Turmas, vagas e inscrições. Abre turmas novas a partir das anteriores.',
     icon: 'graduation-cap',
@@ -100,6 +110,8 @@ export const BOT_DEFAULTS: BotDefault[] = [
   },
   {
     key: 'marketing',
+    persona: 'Nina',
+    role: 'Analista de Marketing',
     name: 'Marketing',
     description: 'Blog e divulgação: escreve rascunhos de posts e prepara publicações.',
     icon: 'megaphone',
@@ -117,6 +129,8 @@ export const BOT_DEFAULTS: BotDefault[] = [
   },
   {
     key: 'financeiro',
+    persona: 'Otávio',
+    role: 'Analista Financeiro',
     name: 'Financeiro',
     description: 'Contas a pagar e a receber, categorias, cadastros e relatórios (fluxo de caixa, DRE).',
     icon: 'wallet',

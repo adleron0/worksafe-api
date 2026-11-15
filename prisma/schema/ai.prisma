@@ -13,6 +13,10 @@ model Ai_Bot {
   description  String  @db.VarChar(300)
   // ícone do lucide (nome), só para a tela
   icon         String  @default("bot") @db.VarChar(40)
+  // o bot como "funcionário": nome, cargo e rosto (chave do visual no front)
+  persona      String? @db.VarChar(40)
+  role         String? @db.VarChar(80)
+  avatar       String? @db.VarChar(40)
   instructions String  @db.Text
   // nomes das ferramentas do catálogo que este bot pode usar
   tools        Json

@@ -50,6 +50,9 @@ export class AiController {
   @Permissions('usar_bots') @Get('bots')
   list(@Req() req: Request) { return this.bots.listFor(actorOf(req)); }
 
+  @Permissions('usar_bots') @Get('team')
+  team(@Req() req: Request) { return this.agent.team(actorOf(req)); }
+
   @Permissions('update_bots') @Get('bots/config')
   config(@Req() req: Request) { return this.bots.listAll(actorOf(req)); }
 

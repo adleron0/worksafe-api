@@ -43,6 +43,61 @@ export class AgentService {
     private readonly storage: PrivateStorageService,
   ) {}
 
+  // ---------------------------------------------------------------- equipe
+
+  /**
+   * A equipe de bots como funcionários: quem está trabalhando agora (na
+   * empresa toda), quem espera a sua confirmação, o que fez hoje e o que você
+   * conversou por último. A atividade recente mostra só o que é seu, salvo
+   * para quem pode ver a auditoria.
+   */
+  async team(actor: BotActor) {
+    const bots = await this.bots.listFor(actor);
+    const ids = bots.map((bot) => bot.id);
+    const dayStart = new Date(`${nowBr().toISOString().slice(0, 10)}T03:00:00.000Z`);
+    const seesAll = actor.permissions.includes('view_auditoria_bots');
+    const [running, mineRunning, pending, todayRuns, todayCalls, lastCalls, lastMine, activity, users] = await Promise.all([
+      this.prisma.ai_Run.findMany({ where: { status: 'running', conversation: { companyId: actor.companyId, botId: { in: ids } } }, select: { userId: true, conversation: { select: { botId: true } } } }),
+      this.prisma.ai_Run.findMany({ where: { status: 'running', userId: actor.userId, conversation: { companyId: actor.companyId, botId: { in: ids } } }, select: { conversation: { select: { id: true, botId: true, title: true } } } }),
+      this.prisma.ai_PendingAction.findMany({ where: { companyId: actor.companyId, userId: actor.userId, confirmedAt: null, cancelledAt: null, expiresAt: { gt: new Date() } }, select: { toolCall: { select: { botId: true } } } }),
+      this.prisma.ai_Run.findMany({ where: { startedAt: { gte: dayStart }, conversation: { companyId: actor.companyId, botId: { in: ids } } }, select: { conversation: { select: { botId: true } } } }),
+      this.prisma.ai_ToolCall.groupBy({ by: ['botId'], where: { companyId: actor.companyId, botId: { in: ids }, createdAt: { gte: dayStart }, status: { in: ['ok', 'pending'] } }, _count: { _all: true } }),
+      this.prisma.ai_ToolCall.groupBy({ by: ['botId'], where: { companyId: actor.companyId, botId: { in: ids } }, _max: { createdAt: true } }),
+      this.prisma.ai_Conversation.findMany({ where: { companyId: actor.companyId, userId: actor.userId, botId: { in: ids }, archivedAt: null, origin: 'bots' }, orderBy: { lastMessageAt: 'desc' }, take: 50, select: { id: true, botId: true, title: true, lastMessageAt: true } }),
+      this.prisma.ai_ToolCall.findMany({ where: { companyId: actor.companyId, botId: { in: ids }, ...(seesAll ? {} : { userId: actor.userId }) }, orderBy: { id: 'desc' }, take: 20, select: { id: true, botId: true, userId: true, tool: true, status: true, createdAt: true, origin: true } }),
+      seesAll ? this.prisma.user.findMany({ where: { companyId: actor.companyId }, select: { id: true, name: true } }) : Promise.resolve([] as { id: number; name: string }[]),
+    ]);
+    const count = <T,>(rows: T[], pick: (row: T) => number | null | undefined) => rows.reduce((map, row) => map.set(pick(row) ?? 0, (map.get(pick(row) ?? 0) ?? 0) + 1), new Map<number, number>());
+    const runningBy = count(running, (row) => row.conversation.botId);
+    const pendingBy = count(pending, (row) => row.toolCall.botId);
+    const runsBy = count(todayRuns, (row) => row.conversation.botId);
+    const callsBy = new Map(todayCalls.map((row) => [row.botId ?? 0, row._count._all]));
+    const lastBy = new Map(lastCalls.map((row) => [row.botId ?? 0, row._max.createdAt]));
+    const userName = new Map(users.map((user) => [user.id, user.name]));
+    const botName = new Map(bots.map((bot) => [bot.id, bot]));
+    return {
+      members: bots.map((bot) => {
+        const mine = mineRunning.find((row) => row.conversation.botId === bot.id)?.conversation;
+        const people = new Set(running.filter((row) => row.conversation.botId === bot.id).map((row) => row.userId)).size;
+        const status = !bot.providerReady ? 'sem_chave' : (runningBy.get(bot.id) ?? 0) > 0 ? 'trabalhando' : (pendingBy.get(bot.id) ?? 0) > 0 ? 'aguardando' : 'disponivel';
+        const recent = lastMine.find((row) => row.botId === bot.id);
+        return {
+          ...bot, status,
+          working: { people, mine: mine ? { conversationId: mine.id, title: mine.title } : null },
+          pendingForMe: pendingBy.get(bot.id) ?? 0,
+          today: { conversations: runsBy.get(bot.id) ?? 0, actions: callsBy.get(bot.id) ?? 0 },
+          lastActivityAt: lastBy.get(bot.id) ?? null,
+          lastConversation: recent ? { id: recent.id, title: recent.title, at: recent.lastMessageAt } : null,
+        };
+      }),
+      activity: activity.map((row) => ({
+        id: row.id, botId: row.botId, persona: botName.get(row.botId ?? 0)?.persona ?? null, avatar: botName.get(row.botId ?? 0)?.avatar ?? null,
+        title: this.catalog.get(row.tool)?.title ?? row.tool, status: row.status, at: row.createdAt, origin: row.origin,
+        user: seesAll ? userName.get(row.userId) ?? null : null,
+      })),
+    };
+  }
+
   // ---------------------------------------------------------------- conversas
 
   async conversations(actor: BotActor, botId: number) {
@@ -307,6 +362,7 @@ export class AgentService {
     const weekday = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'][now.getUTCDay()];
     return [
       BASE_RULES,
+      `\n## Quem você é\nVocê é ${bot.persona ?? bot.name}, ${bot.role ?? `assistente de ${bot.name}`} da equipe de assistentes da empresa. Na primeira resposta de uma conversa nova, pode se apresentar em uma frase curta; depois, vá direto ao ponto.`,
       `\n## Seu papel\n${bot.instructions}`,
       `\n## O que você consegue fazer para esta pessoa\n${capabilities.length ? capabilities.map((item) => `- ${item}`).join('\n') : '- Nenhuma ferramenta liberada para esta pessoa: só converse e oriente.'}`,
       `\n## Contexto\n- Empresa: ${company?.comercial_name ?? '—'}\n- Pessoa: ${user?.name ?? '—'}\n- Hoje: ${weekday}, ${now.toISOString().slice(0, 10)}, ${now.toISOString().slice(11, 16)} (horário de Brasília)`,

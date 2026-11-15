@@ -27,7 +27,7 @@ export class BotService {
       const { provider, model } = defaultModelFor(bot);
       await this.prisma.ai_Bot.create({
         data: {
-          companyId, key: bot.key, name: bot.name, description: bot.description, icon: bot.icon, instructions: bot.instructions,
+          companyId, key: bot.key, name: bot.name, persona: bot.persona, role: bot.role, avatar: bot.key, description: bot.description, icon: bot.icon, instructions: bot.instructions,
           tools: bot.tools, provider, model, permissionKey: `usar_bot_${bot.key}`, shortcuts: bot.shortcuts,
           versions: { create: { version: 1, instructions: bot.instructions, tools: bot.tools, provider, model } },
         },
@@ -69,7 +69,7 @@ export class BotService {
     const names = (bot.tools as string[]) ?? [];
     const visible = this.catalog.visible(names, permissions);
     const base = {
-      id: bot.id, key: bot.key, name: bot.name, description: bot.description, icon: bot.icon, active: bot.active,
+      id: bot.id, key: bot.key, name: bot.name, persona: bot.persona ?? bot.name, role: bot.role ?? bot.name, avatar: bot.avatar ?? bot.key, description: bot.description, icon: bot.icon, active: bot.active,
       shortcuts: (bot.shortcuts as { label: string; prompt: string }[] | null) ?? [],
       provider: bot.provider, providerLabel: PROVIDER_LABELS[bot.provider] ?? bot.provider, model: bot.model,
       providerReady: !!this.providers.get(bot.provider)?.available(),
@@ -94,6 +94,9 @@ export class BotService {
       data.name = name;
     }
     if ('description' in body) data.description = clean(body.description, 300);
+    if ('persona' in body) data.persona = clean(body.persona, 40) || null;
+    if ('role' in body) data.role = clean(body.role, 80) || null;
+    if ('avatar' in body) data.avatar = /^[a-z0-9_-]{2,40}$/.test(String(body.avatar)) ? String(body.avatar) : null;
     if ('active' in body) data.active = body.active === true || body.active === 'true';
     if ('shortcuts' in body) {
       if (!Array.isArray(body.shortcuts)) throw new BadRequestException('Atalhos inválidos');
