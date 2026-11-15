@@ -1,7 +1,10 @@
 import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { AIService } from 'src/common/ai';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { DEFAULT_CAPTIONS, DEFAULT_SETTINGS, MarketingSettings } from './defaults';
+import {
+  DEFAULT_CAPTIONS, DEFAULT_IA_CONTEXT, DEFAULT_LABELS, DEFAULT_SETTINGS, MarketingImage, MarketingSettings,
+  MarketingTheme, TEXT_FONTS, TITLE_FONTS,
+} from './defaults';
 
 const str = (value: unknown, max = 500) => String(value ?? '').trim().slice(0, max);
 
@@ -25,7 +28,58 @@ function sanitize(input: Record<string, any>): MarketingSettings {
     );
   }
   if ('ultimasVagasLimite' in input) out.ultimasVagasLimite = Math.max(0, Math.min(100, Number(input.ultimasVagasLimite) || 0));
+
+  // ---- identidade visual (white label) ----
+  if ('marca' in input && input.marca && typeof input.marca === 'object') {
+    const m = input.marca;
+    out.marca = {
+      tipo: ['padrao', 'logo', 'texto'].includes(m.tipo) ? m.tipo : 'texto',
+      texto: str(m.texto, 40),
+      logoClaroUrl: url(m.logoClaroUrl),
+      logoEscuroUrl: url(m.logoEscuroUrl),
+    };
+  }
+  if ('rotulos' in input && input.rotulos && typeof input.rotulos === 'object') {
+    out.rotulos = Object.fromEntries(
+      Object.keys(DEFAULT_LABELS).filter((k) => k in input.rotulos).map((k) => [k, str(input.rotulos[k], 30)]),
+    );
+  }
+  if ('fonteTitulo' in input) out.fonteTitulo = TITLE_FONTS.includes(input.fonteTitulo) ? input.fonteTitulo : 'Anton';
+  if ('fonteTexto' in input) out.fonteTexto = TEXT_FONTS.includes(input.fonteTexto) ? input.fonteTexto : 'Montserrat';
+  if ('temas' in input && Array.isArray(input.temas)) {
+    out.temas = input.temas.slice(0, 12).map((t: any, i: number): MarketingTheme => ({
+      id: /^custom-[\w-]{1,40}$/.test(String(t?.id)) ? String(t.id) : `custom-${Date.now()}-${i}`,
+      name: str(t?.name, 40) || `Tema ${i + 1}`,
+      bg: color(t?.bg, '#111111'),
+      accent: color(t?.accent, '#8bd61f'),
+      badge: color(t?.badge, color(t?.accent, '#8bd61f')),
+      light: !!t?.light,
+      listras: !!t?.listras,
+    }));
+  }
+  if ('temasOcultos' in input && Array.isArray(input.temasOcultos)) out.temasOcultos = input.temasOcultos.map((x: unknown) => str(x, 60)).filter(Boolean);
+  if ('selosPersonalizados' in input) out.selosPersonalizados = images(input.selosPersonalizados, 8);
+  if ('fotos' in input) out.fotos = images(input.fotos, 30);
+  if ('usarFotosPadrao' in input) out.usarFotosPadrao = input.usarFotosPadrao === true || input.usarFotosPadrao === 'true';
+  if ('iaContexto' in input) out.iaContexto = str(input.iaContexto, 400);
   return out;
+}
+
+/** Só URLs http(s); o resto vira vazio. */
+function url(value: unknown): string {
+  const v = str(value, 600);
+  return /^https?:\/\//i.test(v) ? v : '';
+}
+function color(value: unknown, fallback: string): string {
+  const v = str(value, 7);
+  return /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : fallback;
+}
+function images(value: unknown, max: number): MarketingImage[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item: any) => ({ nome: str(item?.nome, 60), url: url(item?.url) }))
+    .filter((item) => item.url)
+    .slice(0, max);
 }
 
 @Injectable()
@@ -47,7 +101,7 @@ export class MarketingService {
 
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
-      select: { comercial_name: true, operational_contact: true, representative_contact: true, operational_email: true, representative_email: true, websiteUrl: true, lp_domain: true, instagramUrl: true },
+      select: { comercial_name: true, logoUrl: true, operational_contact: true, representative_contact: true, operational_email: true, representative_email: true, websiteUrl: true, lp_domain: true, instagramUrl: true },
     });
     const site = company?.websiteUrl || (company?.lp_domain ? `https://${company.lp_domain}` : '');
     const data: MarketingSettings = {
@@ -57,6 +111,9 @@ export class MarketingService {
       site,
       instagram: company?.instagramUrl || '',
       localPadrao: company?.comercial_name ? `Centro de Treinamentos da ${company.comercial_name}` : '',
+      marca: company?.logoUrl
+        ? { tipo: 'logo', texto: company.comercial_name, logoClaroUrl: company.logoUrl, logoEscuroUrl: company.logoUrl }
+        : { tipo: 'texto', texto: company?.comercial_name ?? '' },
     };
 
     await this.prisma.$transaction(async (tx) => {
@@ -98,7 +155,7 @@ export class MarketingService {
   private async withCompany(companyId: number, settings: MarketingSettings) {
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
-      select: { comercial_name: true, logoUrl: true, lp_domain: true, primary_color: true },
+      select: { comercial_name: true, logoUrl: true, lp_domain: true, primary_color: true, secondary_color: true },
     });
     return {
       settings: { ...DEFAULT_SETTINGS, ...settings },
@@ -107,6 +164,7 @@ export class MarketingService {
         logoUrl: company?.logoUrl ?? null,
         siteDomain: company?.lp_domain ?? null,
         primaryColor: company?.primary_color ?? null,
+        secondaryColor: company?.secondary_color ?? null,
       },
     };
   }
@@ -115,7 +173,7 @@ export class MarketingService {
    * Reescreve a legenda com IA mantendo os dados. A legenda já chega pronta
    * (variáveis resolvidas no navegador); a IA só muda gancho, ritmo e chamada.
    */
-  async rewriteCaption(body: Record<string, any>) {
+  async rewriteCaption(companyId: number, body: Record<string, any>) {
     const caption = str(body?.caption, 4000);
     if (caption.length < 20) throw new BadRequestException('Gere a legenda antes de pedir a variação');
     const styles: Record<string, string> = {
@@ -126,7 +184,9 @@ export class MarketingService {
       profissional: 'Deixe o tom mais institucional e técnico, valorizando certificação e qualidade.',
     };
     const style = styles[String(body?.style)] ?? styles.variar;
-    const prompt = `Você escreve legendas de Instagram para um centro de treinamentos de segurança do trabalho no Brasil (trabalho em altura, espaço confinado, acesso por corda, resgate).
+    const saved = await this.prisma.marketing_Setting.findUnique({ where: { companyId }, select: { data: true } });
+    const contexto = str((saved?.data as MarketingSettings | undefined)?.iaContexto, 400) || DEFAULT_IA_CONTEXT;
+    const prompt = `Você escreve legendas de Instagram para ${contexto}.
 
 Reescreva a legenda abaixo. ${style}
 

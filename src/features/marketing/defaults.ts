@@ -121,6 +121,47 @@ Inscrições: {{link_inscricao}}`,
   },
 ];
 
+/** Rótulos fixos da arte (white label: cada empresa troca os seus). */
+export const DEFAULT_LABELS = {
+  topo: 'TREINAMENTO',
+  novaTurma: 'NOVA TURMA',
+  vagasAbertas: 'VAGAS ABERTAS!',
+  ultimasVagas: 'ÚLTIMAS VAGAS!',
+  lotada: 'TURMA LOTADA',
+  promocao: 'PROMOÇÃO!',
+  investimento: 'INVESTIMENTO',
+  valores: 'VALORES',
+  incluso: 'INCLUSO',
+  inscricoes: 'INSCRIÇÕES',
+};
+export type MarketingLabels = typeof DEFAULT_LABELS;
+
+export const TITLE_FONTS = ['Anton', 'Bebas Neue', 'Oswald', 'Archivo Black', 'Barlow Condensed'];
+export const TEXT_FONTS = ['Montserrat', 'Poppins', 'Inter', 'Roboto', 'Barlow'];
+
+/** Marca na arte: símbolo vetorial padrão, logo enviado ou só o nome. */
+export interface MarketingBrand {
+  tipo: 'padrao' | 'logo' | 'texto';
+  texto?: string;
+  /** logo para fundo escuro (normalmente branco) */
+  logoClaroUrl?: string;
+  /** logo para fundo claro (normalmente colorido/escuro) */
+  logoEscuroUrl?: string;
+}
+
+/** Tema próprio: as cores derivadas (texto, degradê, contraste) saem no front. */
+export interface MarketingTheme {
+  id: string;
+  name: string;
+  bg: string;
+  accent: string;
+  badge: string;
+  light: boolean;
+  listras: boolean;
+}
+
+export interface MarketingImage { nome: string; url: string }
+
 /** Configurações padrão; os contatos vêm do cadastro da empresa quando existem. */
 export interface MarketingSettings {
   whatsapp?: string;
@@ -137,17 +178,46 @@ export interface MarketingSettings {
   selos?: string[];
   temaPadrao?: string;
   ultimasVagasLimite?: number;
+  // ---- identidade visual (white label) ----
+  marca?: MarketingBrand;
+  rotulos?: Partial<MarketingLabels>;
+  fonteTitulo?: string;
+  fonteTexto?: string;
+  temas?: MarketingTheme[];
+  temasOcultos?: string[];
+  selosPersonalizados?: MarketingImage[];
+  fotos?: MarketingImage[];
+  usarFotosPadrao?: boolean;
+  iaContexto?: string;
 }
 
+export const DEFAULT_IA_CONTEXT =
+  'um centro de treinamentos de segurança do trabalho no Brasil (trabalho em altura, espaço confinado, acesso por corda, resgate)';
+
+/**
+ * Padrão para empresas novas: neutro (sem selos nem fotos de terceiros, marca
+ * pelo logo do cadastro). As empresas que já tinham configuração ganharam
+ * `marca: padrao` e `usarFotosPadrao: true` na migração, para não mudar nada.
+ */
 export const DEFAULT_SETTINGS: MarketingSettings = {
   horarioPadrao: 'Das 08h às 17h',
   localPadrao: '',
   inclusoPadrao: ['Alojamento', 'Camisa', 'Apostila', 'Certificado'],
-  hashtagsPadrao: '#worksafe #segurancanotrabalho #treinamento #trabalhoemaltura',
+  hashtagsPadrao: '#treinamento #segurancanotrabalho',
   hashtagsPorCurso: {},
   linkInscricao: 'turma',
   linkPersonalizado: '',
-  selos: ['aneac', 'icra', 'opc'],
+  selos: [],
   temaPadrao: 'verde',
   ultimasVagasLimite: 5,
+  marca: { tipo: 'texto' },
+  rotulos: {},
+  fonteTitulo: 'Anton',
+  fonteTexto: 'Montserrat',
+  temas: [],
+  temasOcultos: [],
+  selosPersonalizados: [],
+  fotos: [],
+  usarFotosPadrao: false,
+  iaContexto: '',
 };

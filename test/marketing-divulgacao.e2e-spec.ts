@@ -115,6 +115,43 @@ describe('Divulgação de turmas (e2e)', () => {
       .send({ caption: 'Legenda com mais de vinte caracteres' }).expect(503);
   });
 
+  it('identidade visual: empresa nova nasce neutra e só guarda o que é válido', async () => {
+    const comLogo = await makeCompany({ logoUrl: 'https://bucket.s3.amazonaws.com/logo.png', comercial_name: 'Altura Segura' });
+    const first = await api().get('/marketing/settings').set(auth(comLogo.id)).expect(200);
+    expect(first.body.settings).toMatchObject({
+      marca: { tipo: 'logo', texto: 'Altura Segura', logoClaroUrl: 'https://bucket.s3.amazonaws.com/logo.png' },
+      selos: [], usarFotosPadrao: false, fonteTitulo: 'Anton', fonteTexto: 'Montserrat',
+    });
+
+    const res = await api().put('/marketing/settings').set(auth(comLogo.id)).send({
+      marca: { tipo: 'invalido', texto: 'ALTURA', logoClaroUrl: 'javascript:alert(1)' },
+      rotulos: { topo: 'CURSO', novaTurma: 'TURMA ABERTA', inventado: 'x' },
+      fonteTitulo: 'Comic Sans', fonteTexto: 'Poppins',
+      temas: [{ id: 'custom-a', name: 'Azul', bg: '#001122', accent: 'vermelho', badge: '#FF0000', light: 1, listras: 0 }],
+      selosPersonalizados: [{ nome: 'ISO', url: 'https://x.s3.amazonaws.com/iso.png' }, { nome: 'ruim', url: 'ftp://x' }],
+      usarFotosPadrao: 'true',
+      iaContexto: 'uma escola de NR-10 em Fortaleza',
+    }).expect(200);
+    expect(res.body.settings).toMatchObject({
+      marca: { tipo: 'texto', texto: 'ALTURA', logoClaroUrl: '' },
+      rotulos: { topo: 'CURSO', novaTurma: 'TURMA ABERTA' },
+      fonteTitulo: 'Anton', fonteTexto: 'Poppins',
+      temas: [{ id: 'custom-a', name: 'Azul', bg: '#001122', accent: '#8bd61f', badge: '#ff0000', light: true, listras: false }],
+      selosPersonalizados: [{ nome: 'ISO', url: 'https://x.s3.amazonaws.com/iso.png' }],
+      usarFotosPadrao: true,
+      iaContexto: 'uma escola de NR-10 em Fortaleza',
+    });
+    expect(res.body.settings.rotulos).not.toHaveProperty('inventado');
+
+    const spy = jest.spyOn(ai, 'generateContent').mockResolvedValue('Nova legenda');
+    await api().post('/marketing/captions/ai').set(auth(comLogo.id))
+      .send({ caption: 'Legenda com mais de vinte caracteres', contexto: 'ignorado' }).expect(200);
+    expect(spy.mock.calls[0][0]).toContain('uma escola de NR-10 em Fortaleza');
+    expect(spy.mock.calls[0][0]).not.toContain('ignorado');
+
+    await api().post('/marketing/upload').set(auth(comLogo.id)).expect(400);
+  });
+
   it('cada ação pede a sua permissão', async () => {
     const company = await makeCompany();
     await api().get('/marketing/settings').set(auth(company.id, [])).expect(403);
@@ -122,5 +159,6 @@ describe('Divulgação de turmas (e2e)', () => {
     await api().put('/marketing/settings').set(auth(company.id, ['list_divulgacao'])).send({ whatsapp: 'x' }).expect(403);
     await api().post('/marketing-captions').set(auth(company.id, ['list_divulgacao'])).send({ name: 'X', body: 'y' }).expect(403);
     await api().post('/marketing/captions/restore-defaults').set(auth(company.id, ['list_divulgacao'])).expect(403);
+    await api().post('/marketing/upload').set(auth(company.id, ['list_divulgacao'])).expect(403);
   });
 });

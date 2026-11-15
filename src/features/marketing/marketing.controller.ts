@@ -1,4 +1,6 @@
-import { Body, Controller, Get, HttpCode, Post, Put, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, Post, Put, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { getMulterOptions } from '../upload/upload.middleware';
 import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { MarketingService } from './marketing.service';
@@ -21,5 +23,17 @@ export class MarketingController {
   restore(@Req() req: Request) { return this.marketing.restoreDefaultCaptions(companyOf(req)); }
 
   @Permissions('list_divulgacao') @Post('captions/ai') @HttpCode(200)
-  rewrite(@Body() body: Record<string, unknown>) { return this.marketing.rewriteCaption(body ?? {}); }
+  rewrite(@Req() req: Request, @Body() body: Record<string, unknown>) { return this.marketing.rewriteCaption(companyOf(req), body ?? {}); }
+
+  /**
+   * Logo, selo ou foto da identidade visual. Vai para o bucket público sem
+   * otimização (logo precisa manter a transparência do PNG). Devolve a URL;
+   * quem guarda é o PUT de settings.
+   */
+  @Permissions('update_divulgacao') @Post('upload') @HttpCode(200)
+  @UseInterceptors(FileInterceptor('image', getMulterOptions('marketing')))
+  upload(@UploadedFile() file?: Express.MulterS3.File) {
+    if (!file?.location) throw new BadRequestException('Envie uma imagem (PNG, JPG ou WebP)');
+    return { url: file.location };
+  }
 }
