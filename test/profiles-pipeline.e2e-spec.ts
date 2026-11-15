@@ -191,7 +191,7 @@ describe('Perfis e Minha esteira (e2e)', () => {
     const all = await esteira(auth(company.id, [...ALL, 'approve_pedidos_de_compra', 'list_pedidos_de_compra', 'update_pedidos_de_compra']));
     expect(all.today).toBe(TODAY);
     expect(all.blocks.map((block: any) => block.key)).toEqual([
-      'retornos', 'os_mobilizar', 'os_atrasadas', 'rdo_hoje', 'compras_aprovar', 'compras_comprar', 'compras_receber', 'faturar', 'pagar_atrasadas', 'pagar_semana',
+      'retornos', 'os_mobilizar', 'os_atrasadas', 'rdo_hoje', 'compras_aprovar', 'compras_comprar', 'compras_receber', 'faturar', 'pagar_atrasadas', 'pagar_semana', 'receber_vencidas',
     ]);
     expect(bloco(all, 'retornos')).toMatchObject({ area: 'Comercial', count: 2 });
     expect(bloco(all, 'retornos').items.map((item: any) => [item.late, item.link])).toEqual([[true, `/comercial/propostas/${proposal.id}`], [false, `/comercial/propostas/${proposal.id}`]]);
@@ -222,7 +222,7 @@ describe('Perfis e Minha esteira (e2e)', () => {
     await api().put(`/service-orders/${id}`).set(h).send({ team: [{ name: 'Campo', role: 'Alpinista N1', userId: field.id }] }).expect(200);
     expect((await esteira(f)).blocks.map((block: any) => [block.key, block.count])).toEqual([['os_atrasadas', 1], ['rdo_hoje', 0]]);
     expect((await esteira(auth(company.id, ['list_pedidos_de_compra', 'update_pedidos_de_compra']))).blocks.map((block: any) => block.key)).toEqual(['compras_comprar', 'compras_receber']);
-    expect((await esteira(auth(company.id, ['list_financeiro']))).blocks.map((block: any) => block.key)).toEqual(['faturar', 'pagar_atrasadas', 'pagar_semana']);
+    expect((await esteira(auth(company.id, ['list_financeiro']))).blocks.map((block: any) => block.key)).toEqual(['faturar', 'pagar_atrasadas', 'pagar_semana', 'receber_vencidas']);
     // retornos são de quem ficou de fazer: outro vendedor não recebe os meus
     expect(bloco(await esteira(auth(company.id, ['list_comercial', 'all_propostas'], field.id)), 'retornos').count).toBe(0);
     // outra empresa: nada

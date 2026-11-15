@@ -37,7 +37,7 @@ export class PipelineService {
     if (can('list_ordens_de_servico')) blocks.push(this.orders(actor, now, can('update_ordens_de_servico'), can('update_rdo')));
     if (can('list_ordens_de_servico')) blocks.push(this.teamDocuments(actor, now));
     if (can('list_pedidos_de_compra')) blocks.push(this.purchases(actor, can('approve_pedidos_de_compra'), can('update_pedidos_de_compra')));
-    if (can('list_financeiro')) blocks.push(this.billing(actor), this.payables(actor, now));
+    if (can('list_financeiro')) blocks.push(this.billing(actor), this.payables(actor, now), this.receivables(actor, now));
     // RH: documentos de funcionários vencidos, a vencer e obrigatórios faltando
     if (can(DOCUMENTS_VIEW_PERMISSION)) blocks.push(this.documents.pipelineBlocks(actor.companyId));
     // Empresa: documentos da empresa vencidos, a vencer e obrigatórios faltando, só nas pastas que a pessoa vê
@@ -187,14 +187,15 @@ export class PipelineService {
     const open = { companyId: actor.companyId, inactiveAt: null, status: 'aberta' };
     const block = async (key: string, title: string, hint: string, dueDate: Prisma.DateTimeFilter, isLate: boolean): Promise<PipelineBlock> => {
       const where: Prisma.Financial_PayableWhereInput = { ...open, dueDate };
+      const link = `/financeiro/pagar?view=${isLate ? 'atrasadas' : 'abertas'}`;
       const [sum, rows] = await Promise.all([
         this.prisma.financial_Payable.aggregate({ where, _count: { _all: true }, _sum: { value: true } }),
         this.prisma.financial_Payable.findMany({ where, orderBy: [{ dueDate: 'asc' }, { id: 'asc' }], take: TOP, include: { supplier: { select: { name: true } } } }),
       ]);
       return {
-        key, area: 'Financeiro', title, hint, count: sum._count._all, total: round2(Number(sum._sum.value ?? 0)), link: '/financeiro/pagar',
+        key, area: 'Financeiro', title, hint, count: sum._count._all, total: round2(Number(sum._sum.value ?? 0)), link,
         items: rows.map((row) => ({
-          id: row.id, title: row.description, subtitle: [row.supplier?.name, `vence ${br(iso(row.dueDate))}`].filter(Boolean).join(' · '), link: '/financeiro/pagar', value: Number(row.value), late: isLate,
+          id: row.id, title: row.description, subtitle: [row.supplier?.name, `vence ${br(iso(row.dueDate))}`].filter(Boolean).join(' · '), link: `/financeiro/pagar?view=todas&q=${row.id}`, value: Number(row.value), late: isLate,
         })),
       };
     };
@@ -202,5 +203,28 @@ export class PipelineService {
       block('pagar_atrasadas', 'Contas a pagar atrasadas', 'Venceram e ainda estão em aberto', { lt: start }, true),
       block('pagar_semana', 'Contas a pagar da semana', 'Vencem de hoje até daqui a 7 dias', { gte: start, lt: week }, false),
     ]);
+  }
+
+  /** Financeiro: contas a receber vencidas (em aberto com vencimento passado, manuais ou do gateway). */
+  private async receivables(actor: PipelineActor, now: string): Promise<PipelineBlock[]> {
+    const where: Prisma.FinancialRecordsWhereInput = {
+      companyId: actor.companyId, inactiveAt: null, status: { in: ['waiting', 'overdue', 'processing'] }, dueDate: { lt: asDate(now) },
+    };
+    const [sum, rows] = await Promise.all([
+      this.prisma.financialRecords.aggregate({ where, _count: { _all: true }, _sum: { value: true } }),
+      this.prisma.financialRecords.findMany({
+        where, orderBy: [{ dueDate: 'asc' }, { id: 'asc' }], take: TOP,
+        include: { customer: { select: { name: true } }, trainee: { select: { name: true } }, subscription: { select: { name: true } } },
+      }),
+    ]);
+    return [{
+      key: 'receber_vencidas', area: 'Financeiro', title: 'Contas a receber vencidas', hint: 'Venceram e o dinheiro ainda não entrou',
+      count: sum._count._all, total: round2(Number(sum._sum.value ?? 0)), link: '/financeiro/receber?view=atrasadas',
+      items: rows.map((row) => ({
+        id: row.id, title: row.customer?.name ?? row.trainee?.name ?? row.subscription?.name ?? row.description ?? 'Conta a receber',
+        subtitle: [row.description, row.dueDate ? `venceu ${br(iso(row.dueDate))}` : null].filter(Boolean).join(' · '),
+        link: `/financeiro/receber?view=todas&q=${row.id}`, value: Number(row.value ?? 0), late: true,
+      })),
+    }];
   }
 }
