@@ -93,7 +93,8 @@ export class ReportService {
     if (merged.frequency === 'monthly' && !(dayOfMonth! >= 1 && dayOfMonth! <= 28)) throw new BadRequestException('Escolha o dia do mês (1 a 28)');
     const channels = (Array.isArray(merged.channels) ? merged.channels : ['system']).filter((channel: string) => CHANNELS.includes(channel));
     if (!channels.length) throw new BadRequestException('Escolha ao menos um canal');
-    const recipients = [...new Set((Array.isArray(merged.recipients) ? merged.recipients : [actor.userId]).map(Number).filter((id: number) => id > 0))].slice(0, 30);
+    // sem ninguém escolhido, quem configura recebe
+    const recipients = [...new Set((Array.isArray(merged.recipients) && merged.recipients.length ? merged.recipients : [actor.userId]).map(Number).filter((id: number) => id > 0))].slice(0, 30);
     if (!recipients.length) throw new BadRequestException('Escolha quem recebe');
     return {
       name, kind, report: kind === 'data' ? merged.report : null, botId: kind === 'ai' ? Number(merged.botId) : null, prompt,
@@ -265,7 +266,9 @@ export class ReportService {
       lines.push('\n## Obras');
       lines.push(noAccess(execucao, 'as OS') ?? '');
       for (const os of execucao.ordens ?? []) lines.push(`- Em execução: **${os.numero}** ${os.titulo} — ${os.cliente ?? ''}`);
-      for (const os of (agendadas.ordens ?? []).filter((item: any) => item.inicioPrevisto && item.inicioPrevisto <= today)) lines.push(`- Começa hoje ou atrasada: **${os.numero}** ${os.titulo} (${br(os.inicioPrevisto)})`);
+      const starting = (agendadas.ordens ?? []).filter((item: any) => item.inicioPrevisto && item.inicioPrevisto <= today);
+      for (const os of starting) lines.push(`- Começa hoje ou atrasada: **${os.numero}** ${os.titulo} (${br(os.inicioPrevisto)})`);
+      if (!execucao._semPermissao && !(execucao.ordens ?? []).length && !starting.length) lines.push('Nenhuma obra em execução ou começando hoje.');
       const retornos = await get('listar_acompanhamentos', { situacao: 'hoje' });
       const atrasados = await get('listar_acompanhamentos', { situacao: 'atrasadas' });
       lines.push('\n## Retornos com clientes');
