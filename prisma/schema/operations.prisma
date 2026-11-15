@@ -100,7 +100,19 @@ model Service_DailyReport {
   // rascunho | fechado
   status    String   @default("rascunho") @db.VarChar(12)
 
-  // equipe do dia: [{ name, role, hours, overtime }]
+  // entrada na atividade e saída (HH:MM); `weather` é o clima na entrada
+  startTime      String? @db.VarChar(5)
+  endTime        String? @db.VarChar(5)
+  // intervalo descontado das horas de quem ficou a jornada inteira
+  breakMinutes   Int     @default(60)
+  weatherEnd     String? @db.VarChar(16)
+  // condição da frente de trabalho na entrada e na saída: normal | restricao | impedido
+  startCondition String? @db.VarChar(12)
+  endCondition   String? @db.VarChar(12)
+  startNote      String? @db.VarChar(500)
+  endNote        String? @db.VarChar(500)
+
+  // equipe do dia: [{ name, role, hours, overtime, in?, out?, leaveReason? }] (in/out só quando diferem do dia)
   crew        Json
   // o que foi feito no dia
   activities  String?

@@ -22,7 +22,9 @@ export const REPORT_WEATHERS = ['bom', 'nublado', 'chuva', 'impraticavel'] as co
 export const OCCURRENCE_TYPES = ['paralisacao', 'pendencia_cliente', 'quase_acidente', 'acidente', 'outro'] as const;
 const SHIFT_LABEL: Record<string, string> = { integral: 'Dia inteiro', manha: 'Manhã', tarde: 'Tarde', noite: 'Noite' };
 
-export interface CrewMember { name: string; role: string; hours: number; overtime: number }
+/** `in`/`out` só aparecem quando a pessoa entrou ou saiu em hora diferente da do dia; `leaveReason` explica a saída antecipada. */
+export interface CrewMember { name: string; role: string; hours: number; overtime: number; in?: string | null; out?: string | null; leaveReason?: string | null }
+export const SITE_CONDITIONS = ['normal', 'restricao', 'impedido'] as const;
 export interface StepProgress { step: number; title: string; percent: number }
 export interface Occurrence { type: string; description: string; hoursLost: number }
 export interface Photo { url: string; caption: string }
@@ -42,6 +44,19 @@ function dateOf(value: unknown, label: string): string {
   const raw = /^(\d{4}-\d{2}-\d{2})(T.*)?$/.exec(String(value ?? '').trim())?.[1] ?? '';
   if (!raw || Number.isNaN(asDate(raw).getTime()) || iso(asDate(raw)) !== raw) throw new BadRequestException(`${label}: informe uma data válida`);
   return raw;
+}
+/** Hora do dia "HH:MM"; vazio vira nulo. */
+function timeOf(value: unknown, label: string): string | null {
+  if (blank(value)) return null;
+  const match = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(String(value).trim());
+  if (!match) throw new BadRequestException(`${label}: informe a hora no formato 07:30`);
+  return `${match[1].padStart(2, '0')}:${match[2]}`;
+}
+const minutesOf = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
+/** Minutos entre a entrada e a saída; no turno da noite a saída pode ser no dia seguinte. */
+export function spanMinutes(start: string, end: string, overnight: boolean): number {
+  const span = minutesOf(end) - minutesOf(start);
+  return span <= 0 && overnight ? span + 24 * 60 : span;
 }
 function hoursOf(value: unknown, label: string, max = 24): number {
   if (blank(value)) return 0;
@@ -168,10 +183,18 @@ export class DailyReportService {
 
   // ------------------------------------------------------------------ leitura
 
+  /** Saiu antes da hora de saída do dia. */
+  private leftEarly(member: CrewMember, row: Pick<Service_DailyReport, 'startTime' | 'endTime' | 'shift'>): boolean {
+    if (!member.out || !row.endTime || !row.startTime) return false;
+    const overnight = row.shift === 'noite';
+    return spanMinutes(row.startTime, member.out, overnight) < spanMinutes(row.startTime, row.endTime, overnight);
+  }
+
   private brief(row: Service_DailyReport, userName: Map<number, string>) {
     const crew = (row.crew as unknown as CrewMember[]) ?? [];
     return {
       id: row.id, orderId: row.orderId, date: iso(row.date)!, shift: row.shift, shiftLabel: SHIFT_LABEL[row.shift] ?? row.shift, weather: row.weather, status: row.status,
+      startTime: row.startTime, endTime: row.endTime, earlyLeaves: crew.filter((member) => this.leftEarly(member, row)).length,
       people: crew.length, hours: round2(crew.reduce((sum, member) => sum + member.hours, 0)), overtime: round2(crew.reduce((sum, member) => sum + member.overtime, 0)),
       activities: row.activities ? row.activities.slice(0, 200) : null,
       occurrences: ((row.occurrences as unknown as Occurrence[]) ?? []).length, photos: ((row.photos as unknown as Photo[]) ?? []).length,
@@ -232,11 +255,13 @@ export class DailyReportService {
     const saved = new Map(((row.progress as unknown as StepProgress[]) ?? []).map((item) => [item.step, item.percent]));
     return {
       id: row.id, date: iso(row.date)!, shift: row.shift, weather: row.weather, status: row.status, editable: row.status !== 'fechado',
+      startTime: row.startTime, endTime: row.endTime, breakMinutes: row.breakMinutes, weatherEnd: row.weatherEnd,
+      startCondition: row.startCondition, endCondition: row.endCondition, startNote: row.startNote, endNote: row.endNote,
       crew: (row.crew as unknown as CrewMember[]) ?? [], activities: row.activities,
       progress: steps.map((step) => ({ step: step.step, title: step.title, percent: saved.get(step.step) ?? 0 })),
       occurrences: (row.occurrences as unknown as Occurrence[]) ?? [], equipment: row.equipment, photos: (row.photos as unknown as Photo[]) ?? [], notes: row.notes,
       createdBy: row.createdByUserId ? names.get(row.createdByUserId) ?? null : null, closedAt: row.closedAt, closedBy: row.closedByUserId ? names.get(row.closedByUserId) ?? null : null,
-      order: await this.orderBrief(order), roles: this.rolesOf(order),
+      order: await this.orderBrief(order), roles: this.rolesOf(order), hoursPerDay: (await this.laborOf(order)).hoursPerDay,
     };
   }
 
@@ -259,10 +284,134 @@ export class DailyReportService {
     const team = ((order.team as unknown as Array<{ name: string; role: string }>) ?? []).map((member) => ({ name: member.name, role: member.role, hours: labor.hoursPerDay, overtime: 0 }));
     return {
       id: null, date, shift: 'integral', weather: 'bom', status: 'rascunho', editable: true,
-      crew: yesterday.length ? yesterday.map((member) => ({ ...member, overtime: 0 })) : team, activities: null,
+      // a hora de entrada costuma se repetir: parte da do último RDO; a saída é preenchida no fim do dia
+      startTime: previous?.startTime ?? null, endTime: null, breakMinutes: previous?.breakMinutes ?? 60, weatherEnd: null,
+      startCondition: null, endCondition: null, startNote: null, endNote: null,
+      crew: yesterday.length ? yesterday.map((member) => ({ name: member.name, role: member.role, hours: member.hours, overtime: 0, in: null, out: null, leaveReason: null })) : team.map((member) => ({ ...member, in: null, out: null, leaveReason: null })), activities: null,
       progress: this.stepsOf(order).map((step) => ({ step: step.step, title: step.title, percent: last.get(step.step) ?? 0 })),
       occurrences: [], equipment: previous?.equipment ?? null, photos: [], notes: null,
       createdBy: null, closedAt: null, closedBy: null, order: await this.orderBrief(order), roles: this.rolesOf(order), hoursPerDay: labor.hoursPerDay,
+    };
+  }
+
+  // ------------------------------------------------------------------ estatísticas
+
+  /**
+   * O que os RDOs de um período dizem: jornada (hora de entrada e de saída),
+   * presenças e horas por pessoa e por função, saídas antecipadas e seus
+   * motivos, clima e condição da frente de trabalho, dias parados e ocorrências.
+   */
+  async stats(actor: OrderActor, query: Record<string, string>) {
+    const to = blank(query.to) ? today() : dateOf(query.to, 'Até');
+    const from = blank(query.from) ? iso(new Date(asDate(to).getTime() - 29 * 86400000))! : dateOf(query.from, 'De');
+    if (from > to) throw new BadRequestException('O período começa depois de terminar');
+    if (daysBetween(from, to) > 730) throw new BadRequestException('Escolha um período de até dois anos');
+    const orderId = Number(query.orderId) > 0 ? Number(query.orderId) : null;
+    const visible = await ordersVisibleTo(this.prisma, actor);
+    const orders = await this.prisma.service_Order.findMany({
+      where: { companyId: actor.companyId, AND: [visible], ...(orderId ? { id: orderId } : {}) }, select: { id: true, number: true, title: true, customerId: true }, take: 2000,
+    });
+    const reports = await this.prisma.service_DailyReport.findMany({
+      where: { companyId: actor.companyId, inactiveAt: null, orderId: { in: orders.map((order) => order.id) }, date: { gte: asDate(from), lte: asDate(to) } },
+      orderBy: [{ date: 'asc' }, { id: 'asc' }],
+    });
+    const customers = await this.prisma.customer.findMany({ where: { id: { in: orders.map((order) => order.customerId) } }, select: { id: true, name: true } });
+    const customerName = new Map(customers.map((customer) => [customer.id, customer.name]));
+    const orderOf = new Map(orders.map((order) => [order.id, order]));
+
+    const tally = (keys: readonly string[]) => Object.fromEntries([...keys, 'sem_registro'].map((key) => [key, 0])) as Record<string, number>;
+    const weather = { start: tally(REPORT_WEATHERS), end: tally(REPORT_WEATHERS), changed: 0 };
+    const conditions = { start: tally(SITE_CONDITIONS), end: tally(SITE_CONDITIONS) };
+    const occurrences = new Map<string, { type: string; count: number; hoursLost: number }>();
+    const people = new Map<string, { name: string; role: string; days: Set<string>; hours: number; overtime: number; earlyLeaves: number }>();
+    const roles = new Map<string, { role: string; presences: number; hours: number; overtime: number }>();
+    const byOrder = new Map<number, { days: Set<string>; presences: number; hours: number; overtime: number; hoursLost: number; earlyLeaves: number }>();
+    const byDay = new Map<string, { people: number; hours: number; overtime: number; hoursLost: number }>();
+    const reasons = new Map<string, { reason: string; count: number }>();
+    const stoppedDays = new Set<string>();
+    const starts: number[] = [];
+    const ends: number[] = [];
+    const spans: number[] = [];
+    let presences = 0, hours = 0, overtime = 0, hoursLost = 0, earlyLeaves = 0;
+
+    for (const report of reports) {
+      const date = iso(report.date)!;
+      const crew = (report.crew as unknown as CrewMember[]) ?? [];
+      const list = (report.occurrences as unknown as Occurrence[]) ?? [];
+      const order = byOrder.get(report.orderId) ?? { days: new Set<string>(), presences: 0, hours: 0, overtime: 0, hoursLost: 0, earlyLeaves: 0 };
+      const day = byDay.get(date) ?? { people: 0, hours: 0, overtime: 0, hoursLost: 0 };
+      order.days.add(date);
+
+      // jornada: a saída é contada a partir da entrada, para o turno que vira a noite não bagunçar a média
+      if (report.startTime && report.endTime) {
+        const start = Number(report.startTime.slice(0, 2)) * 60 + Number(report.startTime.slice(3));
+        const span = spanMinutes(report.startTime, report.endTime, report.shift === 'noite');
+        starts.push(start); ends.push(start + span); spans.push(span);
+      }
+      weather.start[report.weather] = (weather.start[report.weather] ?? 0) + 1;
+      weather.end[report.weatherEnd ?? 'sem_registro'] += 1;
+      if (report.weatherEnd && report.weatherEnd !== report.weather) weather.changed += 1;
+      conditions.start[report.startCondition ?? 'sem_registro'] += 1;
+      conditions.end[report.endCondition ?? 'sem_registro'] += 1;
+      if (report.weather === 'impraticavel' || report.startCondition === 'impedido' || list.some((item) => item.type === 'paralisacao')) stoppedDays.add(`${report.orderId}:${date}`);
+
+      for (const item of list) {
+        const entry = occurrences.get(item.type) ?? { type: item.type, count: 0, hoursLost: 0 };
+        entry.count += 1; entry.hoursLost = round2(entry.hoursLost + (item.hoursLost || 0));
+        occurrences.set(item.type, entry);
+        hoursLost += item.hoursLost || 0; order.hoursLost += item.hoursLost || 0; day.hoursLost += item.hoursLost || 0;
+      }
+      for (const member of crew) {
+        const early = this.leftEarly(member, report);
+        presences += 1; hours += member.hours; overtime += member.overtime;
+        order.presences += 1; order.hours += member.hours; order.overtime += member.overtime;
+        day.people += 1; day.hours += member.hours; day.overtime += member.overtime;
+        const person = people.get(norm(member.name)) ?? { name: member.name, role: member.role, days: new Set<string>(), hours: 0, overtime: 0, earlyLeaves: 0 };
+        person.days.add(date); person.hours += member.hours; person.overtime += member.overtime; if (member.role) person.role = member.role;
+        people.set(norm(member.name), person);
+        const roleKey = norm(member.role || 'Sem função');
+        const role = roles.get(roleKey) ?? { role: member.role || 'Sem função', presences: 0, hours: 0, overtime: 0 };
+        role.presences += 1; role.hours += member.hours; role.overtime += member.overtime;
+        roles.set(roleKey, role);
+        if (early) {
+          earlyLeaves += 1; order.earlyLeaves += 1; person.earlyLeaves += 1;
+          const reason = member.leaveReason || 'Sem motivo informado';
+          const entry = reasons.get(norm(reason)) ?? { reason, count: 0 };
+          entry.count += 1; reasons.set(norm(reason), entry);
+        }
+      }
+      byOrder.set(report.orderId, order); byDay.set(date, day);
+    }
+
+    const clock = (minutes: number) => `${String(Math.floor((minutes % 1440) / 60)).padStart(2, '0')}:${String(Math.round(minutes % 60) % 60).padStart(2, '0')}`;
+    const average = (values: number[]) => (values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null);
+    const avgStart = average(starts), avgEnd = average(ends), avgSpan = average(spans);
+    const days = new Set(reports.map((report) => iso(report.date)!));
+    return {
+      period: { from, to }, orderId,
+      reports: reports.length, drafts: reports.filter((report) => report.status !== 'fechado').length, days: days.size, orders: byOrder.size,
+      people: { presences, distinct: people.size, averagePerDay: days.size ? round2(presences / days.size) : 0 },
+      hours: { normal: round2(hours), overtime: round2(overtime), lost: round2(hoursLost), perPresence: presences ? round2((hours + overtime) / presences) : 0 },
+      times: {
+        reports: starts.length,
+        averageStart: avgStart === null ? null : clock(Math.round(avgStart)), averageEnd: avgEnd === null ? null : clock(Math.round(avgEnd)),
+        averageSpan: avgSpan === null ? null : round2(avgSpan / 60),
+        earliestStart: starts.length ? clock(Math.min(...starts)) : null, latestEnd: ends.length ? clock(Math.max(...ends)) : null,
+      },
+      earlyLeaves: {
+        count: earlyLeaves, rate: presences ? round2((earlyLeaves / presences) * 100) : 0,
+        reasons: [...reasons.values()].sort((a, b) => b.count - a.count),
+      },
+      weather, conditions, stoppedDays: stoppedDays.size,
+      occurrences: [...occurrences.values()].sort((a, b) => b.count - a.count),
+      byPerson: [...people.values()].map((person) => ({ name: person.name, role: person.role, days: person.days.size, hours: round2(person.hours), overtime: round2(person.overtime), earlyLeaves: person.earlyLeaves }))
+        .sort((a, b) => b.hours + b.overtime - (a.hours + a.overtime)),
+      byRole: [...roles.values()].map((role) => ({ ...role, hours: round2(role.hours), overtime: round2(role.overtime) })).sort((a, b) => b.hours - a.hours),
+      byOrder: [...byOrder.entries()].map(([id, row]) => {
+        const order = orderOf.get(id)!;
+        return { id, number: order.number, title: order.title, customer: customerName.get(order.customerId) ?? '', days: row.days.size, presences: row.presences, hours: round2(row.hours), overtime: round2(row.overtime), hoursLost: round2(row.hoursLost), earlyLeaves: row.earlyLeaves };
+      }).sort((a, b) => b.hours - a.hours),
+      byDay: [...byDay.entries()].map(([date, row]) => ({ date, people: row.people, hours: round2(row.hours), overtime: round2(row.overtime), hoursLost: round2(row.hoursLost) })),
     };
   }
 
@@ -274,10 +423,40 @@ export class DailyReportService {
     const weather = blank(body.weather) ? 'bom' : String(body.weather);
     if (!(REPORT_WEATHERS as readonly string[]).includes(weather)) throw new BadRequestException('Clima inválido');
 
+    // entrada na atividade e saída, com o clima e a condição da frente de trabalho em cada momento
+    const overnight = shift === 'noite';
+    const startTime = timeOf(body.startTime, 'Hora de entrada');
+    const endTime = timeOf(body.endTime, 'Hora de saída');
+    if (endTime && !startTime) throw new BadRequestException('Informe a hora de entrada antes da hora de saída');
+    if (startTime && endTime && spanMinutes(startTime, endTime, overnight) <= 0) throw new BadRequestException('A hora de saída precisa ser depois da hora de entrada');
+    const breakMinutes = blank(body.breakMinutes) ? 60 : Number(body.breakMinutes);
+    if (!Number.isInteger(breakMinutes) || breakMinutes < 0 || breakMinutes > 240) throw new BadRequestException('Intervalo: informe de 0 a 240 minutos');
+    const weatherEnd = blank(body.weatherEnd) ? null : String(body.weatherEnd);
+    if (weatherEnd && !(REPORT_WEATHERS as readonly string[]).includes(weatherEnd)) throw new BadRequestException('Clima na saída inválido');
+    const condition = (value: unknown, label: string) => {
+      if (blank(value)) return null;
+      if (!(SITE_CONDITIONS as readonly string[]).includes(String(value))) throw new BadRequestException(`${label} inválida`);
+      return String(value);
+    };
+    const startCondition = condition(body.startCondition, 'Condição na entrada');
+    const endCondition = condition(body.endCondition, 'Condição na saída');
+
     const rawCrew = Array.isArray(body.crew) ? body.crew : [];
     if (rawCrew.length > 80) throw new BadRequestException('Pessoas demais na equipe do dia');
     const crew: CrewMember[] = rawCrew
-      .map((raw: Body) => ({ name: clean(raw?.name, 120), role: clean(raw?.role, 80), hours: hoursOf(raw?.hours, 'Horas'), overtime: hoursOf(raw?.overtime, 'Horas extras', 16) }))
+      .map((raw: Body) => {
+        const name = clean(raw?.name, 120);
+        // hora própria só fica guardada quando difere da do dia
+        const memberIn = timeOf(raw?.in, `Entrada de ${name || 'pessoa'}`);
+        const memberOut = timeOf(raw?.out, `Saída de ${name || 'pessoa'}`);
+        const first = memberIn ?? startTime;
+        if (first && memberOut && spanMinutes(first, memberOut, overnight) <= 0) throw new BadRequestException(`Saída de ${name || 'pessoa'}: precisa ser depois da entrada`);
+        return {
+          name, role: clean(raw?.role, 80), hours: hoursOf(raw?.hours, 'Horas'), overtime: hoursOf(raw?.overtime, 'Horas extras', 16),
+          in: memberIn && memberIn !== startTime ? memberIn : null, out: memberOut && memberOut !== endTime ? memberOut : null,
+          leaveReason: clean(raw?.leaveReason, 200) || null,
+        };
+      })
       .filter((member: CrewMember) => member.name || member.role);
     for (const member of crew) if (!member.name) throw new BadRequestException('Informe o nome de cada pessoa da equipe do dia');
 
@@ -309,6 +488,7 @@ export class DailyReportService {
     });
 
     return {
+      startTime, endTime, breakMinutes, weatherEnd, startCondition, endCondition, startNote: clean(body.startNote, 500) || null, endNote: clean(body.endNote, 500) || null,
       shift, weather, crew: crew as unknown as Prisma.InputJsonValue, activities: text(body.activities, 5000) || null,
       progress: progress as unknown as Prisma.InputJsonValue, occurrences: occurrences as unknown as Prisma.InputJsonValue,
       equipment: text(body.equipment, 2000) || null, photos: photos as unknown as Prisma.InputJsonValue, notes: text(body.notes, 5000) || null,
@@ -360,6 +540,10 @@ export class DailyReportService {
     // dia parado não tem equipe nem atividade: nesse caso a ocorrência ou o clima explicam
     const stopped = row.weather === 'impraticavel' || ((row.occurrences as unknown as Occurrence[]) ?? []).length > 0;
     if (!crew.length && !row.activities && !stopped) throw new BadRequestException('Informe a equipe do dia ou o que foi feito antes de fechar. Se o dia foi parado, registre a ocorrência ou o clima.');
+    // dia trabalhado fecha com a hora de entrada e de saída: é delas que saem a jornada e as estatísticas
+    if (crew.length && (!row.startTime || !row.endTime)) throw new BadRequestException('Informe a hora de entrada e a hora de saída antes de fechar o RDO.');
+    const noReason = crew.find((member) => this.leftEarly(member, row) && !member.leaveReason);
+    if (noReason) throw new BadRequestException(`Informe por que ${noReason.name} saiu antes.`);
     const saved = await this.prisma.service_DailyReport.update({ where: { id }, data: { status: 'fechado', closedAt: new Date(), closedByUserId: actor.userId || null } });
     return this.present(saved, await this.orderOf(actor, row.orderId));
   }

@@ -113,7 +113,7 @@ describe('Perfis e Minha esteira (e2e)', () => {
     await mover(h, id, { status: 'em_execucao', date: day(-1) }).expect(200);
     await api().put(`/service-orders/${id}`).set(f).send({ notes: 'x' }).expect(403);
     await mover(f, id, { status: 'concluida' }).expect(403);
-    const report = (await rdo(f, id, { date: TODAY, crew: [{ name: 'João', role: 'Alpinista N1', hours: 8 }], activities: 'Jateamento' }).expect(201)).body;
+    const report = (await rdo(f, id, { date: TODAY, startTime: '07:00', endTime: '16:00', crew: [{ name: 'João', role: 'Alpinista N1', hours: 8 }], activities: 'Jateamento' }).expect(201)).body;
     await api().patch(`/service-reports/${report.id}/close`).set(f).expect(200);
     expect((await api().get('/service-reports').set(f).expect(200)).body.running).toHaveLength(1);
     // editar a OS não basta para lançar RDO: a permissão é própria

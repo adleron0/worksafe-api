@@ -241,7 +241,7 @@ describe('Operação — ordem de serviço (e2e)', () => {
     // o RDO em branco vem com a equipe escalada, as funções vendidas e as etapas do cronograma
     const blankReport = (await api().get(`/service-orders/${id}/reports/template`).set(h).expect(200)).body;
     expect(blankReport).toMatchObject({ date: TODAY, shift: 'integral', weather: 'bom', roles: ['Alpinista N1'], hoursPerDay: 8, order: { number: `OS-${YEAR}-0001` } });
-    expect(blankReport.crew).toEqual([{ name: 'João', role: 'Alpinista N1', hours: 8, overtime: 0 }, { name: 'Pedro', role: 'Alpinista N1', hours: 8, overtime: 0 }]);
+    expect(blankReport.crew).toEqual(['João', 'Pedro'].map((name) => ({ name, role: 'Alpinista N1', hours: 8, overtime: 0, in: null, out: null, leaveReason: null })));
     expect(blankReport.progress).toEqual([{ step: 0, title: 'Mobilização', percent: 0 }, { step: 1, title: 'Execução', percent: 0 }]);
 
     const first = (await rdo(h, id, {

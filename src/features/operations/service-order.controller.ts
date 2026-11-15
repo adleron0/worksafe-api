@@ -62,6 +62,10 @@ export class DailyReportController {
   @Permissions('update_rdo') @Post('service-orders/:orderId/reports')
   create(@Param('orderId', ParseIntPipe) orderId: number, @Req() req: Request, @Body() body: Json) { return this.reports.create(actorOf(req), orderId, body ?? {}); }
 
+  /** Estatísticas do diário num período (de todas as obras que a pessoa vê, ou de uma). */
+  @Permissions('list_ordens_de_servico') @Get('service-reports/stats')
+  stats(@Req() req: Request, @Query() query: Record<string, string>) { return this.reports.stats(actorOf(req), query ?? {}); }
+
   @Permissions('list_ordens_de_servico') @Get('service-reports/:id')
   get(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.reports.get(actorOf(req), id); }
 
