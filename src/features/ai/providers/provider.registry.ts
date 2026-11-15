@@ -14,6 +14,7 @@ export interface ModelPrice { input: number; output: number; cached: number }
  * do padrão do fornecedor.
  */
 export const MODEL_PRICES: Record<string, ModelPrice> = {
+  'gemini-3.8-flash': { input: 0.75, output: 3.75, cached: 0.075 },
   'gemini-3-flash-preview': { input: 0.5, output: 3, cached: 0.05 },
   'gemini-3.1-pro-preview': { input: 2, output: 12, cached: 0.2 },
   'gemini-3.5-flash-lite': { input: 0.3, output: 2.5, cached: 0.03 },
@@ -25,7 +26,7 @@ export const MODEL_PRICES: Record<string, ModelPrice> = {
 };
 
 const PROVIDER_DEFAULT_PRICE: Record<string, ModelPrice> = {
-  gemini: MODEL_PRICES['gemini-3.1-pro-preview'],
+  gemini: MODEL_PRICES['gemini-3.8-flash'],
   anthropic: MODEL_PRICES['claude-sonnet-5-5'],
   openai: { input: 2, output: 8, cached: 0.5 },
   openrouter: { input: 2, output: 8, cached: 0.5 },
@@ -37,8 +38,9 @@ const PROVIDER_DEFAULT_PRICE: Record<string, ModelPrice> = {
 /** Modelos padrão: "rápido" para consultas, "forte" para ações com várias etapas. */
 export const DEFAULT_MODELS = {
   get provider() { return process.env.AI_DEFAULT_PROVIDER || 'gemini'; },
-  get fast() { return process.env.AI_MODEL_FAST || 'gemini-3-flash-preview'; },
-  get strong() { return process.env.AI_MODEL_STRONG || 'gemini-3.1-pro-preview'; },
+  get fast() { return process.env.AI_MODEL_FAST || 'gemini-3.8-flash'; },
+  // Flash também nos bots de ações: o Pro não está no plano gratuito da chave atual
+  get strong() { return process.env.AI_MODEL_STRONG || 'gemini-3.8-flash'; },
 };
 
 /** Fornecedores que aparecem na tela de configuração. */

@@ -26,7 +26,7 @@ export class GeminiSupplier implements IAISupplier {
 
   async generateContent(prompt: string): Promise<string> {
     const result = await this.ensureConfigured().models.generateContent({
-      model: process.env.AI_MODEL_FAST || 'gemini-3-flash-preview',
+      model: process.env.AI_MODEL_FAST || 'gemini-3.8-flash',
       contents: prompt,
     });
     return result.text ?? '';
