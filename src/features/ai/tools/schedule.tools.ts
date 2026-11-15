@@ -50,7 +50,7 @@ export const SCHEDULE_TOOLS: ToolDefinition[] = [
       etapa: str('evento os_mudou_etapa: só para esta etapa (opcional)'),
       canais: { type: 'array', items: { type: 'string', enum: ['system', 'email', 'whatsapp'] }, description: 'Onde entregar o resultado (padrão: sistema)' },
     }, ['nome', 'oQueFazer', 'quando']),
-    permissions: [], anyPermissions: ['usar_bots'], risk: 'sensitive',
+    permissions: ['usar_bots', 'agendar_bots'], risk: 'sensitive',
     prepare: async (ctx, input, deps) => {
       const wanted = text(input.assistente, 40).toLowerCase();
       const bots = await deps.prisma.ai_Bot.findMany({ where: { companyId: ctx.companyId, inactiveAt: null, active: true }, select: { id: true, key: true, name: true, persona: true, permissionKey: true } });
@@ -114,7 +114,7 @@ export const SCHEDULE_TOOLS: ToolDefinition[] = [
     title: 'Pausando ou retomando a tarefa',
     description: 'Pausa ou retoma uma tarefa agendada (veja os ids em minhas_tarefas).',
     inputSchema: obj({ id: int('Id da tarefa'), pausar: { type: 'boolean', description: 'true pausa, false retoma' } }, ['id', 'pausar']),
-    permissions: [], anyPermissions: ['usar_bots'], risk: 'draft',
+    permissions: ['usar_bots', 'agendar_bots'], risk: 'draft',
     run: async (ctx, input, deps) => {
       const id = positiveInt(input.id);
       if (!id) throw new ToolRefusal('Informe a tarefa');

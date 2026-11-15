@@ -53,6 +53,11 @@ export class AiController {
   @Permissions('usar_bots') @Get('team')
   team(@Req() req: Request) { return this.agent.team(actorOf(req)); }
 
+  @Permissions('usar_bots') @Get('team/:botId/activity')
+  botActivity(@Req() req: Request, @Param('botId', ParseIntPipe) botId: number, @Query('dias') dias?: string) {
+    return this.agent.botActivity(actorOf(req), botId, Number(dias) || 1);
+  }
+
   @Permissions('update_bots') @Get('bots/config')
   config(@Req() req: Request) { return this.bots.listAll(actorOf(req)); }
 

@@ -55,8 +55,9 @@ export class AgentService {
     const bots = await this.bots.listFor(actor);
     const ids = bots.map((bot) => bot.id);
     const dayStart = new Date(`${nowBr().toISOString().slice(0, 10)}T03:00:00.000Z`);
-    const seesAll = actor.permissions.includes('view_auditoria_bots');
+    const seesAll = this.seesAllRequests(actor);
     const admin = actor.permissions.includes('update_bots');
+    const scope = seesAll ? {} : { userId: actor.userId };
     const schedules = await this.prisma.ai_Schedule.findMany({
       where: { companyId: actor.companyId, inactiveAt: null, active: true, kind: 'ai', botId: { in: ids }, ...(admin ? {} : { ownerUserId: actor.userId }) },
       orderBy: { nextRunAt: 'asc' }, select: { id: true, botId: true, name: true, nextRunAt: true, frequency: true, eventType: true },
@@ -65,9 +66,9 @@ export class AgentService {
       this.prisma.ai_Run.findMany({ where: { status: 'running', conversation: { companyId: actor.companyId, botId: { in: ids } } }, select: { userId: true, conversation: { select: { botId: true } } } }),
       this.prisma.ai_Run.findMany({ where: { status: 'running', userId: actor.userId, conversation: { companyId: actor.companyId, botId: { in: ids } } }, select: { conversation: { select: { id: true, botId: true, title: true } } } }),
       this.prisma.ai_PendingAction.findMany({ where: { companyId: actor.companyId, userId: actor.userId, confirmedAt: null, cancelledAt: null, expiresAt: { gt: new Date() } }, select: { toolCall: { select: { botId: true } } } }),
-      this.prisma.ai_Run.findMany({ where: { startedAt: { gte: dayStart }, conversation: { companyId: actor.companyId, botId: { in: ids } } }, select: { conversation: { select: { botId: true } } } }),
-      this.prisma.ai_ToolCall.groupBy({ by: ['botId'], where: { companyId: actor.companyId, botId: { in: ids }, createdAt: { gte: dayStart }, status: { in: ['ok', 'pending'] } }, _count: { _all: true } }),
-      this.prisma.ai_ToolCall.groupBy({ by: ['botId'], where: { companyId: actor.companyId, botId: { in: ids } }, _max: { createdAt: true } }),
+      this.prisma.ai_Run.findMany({ where: { ...scope, startedAt: { gte: dayStart }, conversation: { companyId: actor.companyId, botId: { in: ids } } }, select: { conversation: { select: { botId: true } } } }),
+      this.prisma.ai_ToolCall.groupBy({ by: ['botId'], where: { ...scope, companyId: actor.companyId, botId: { in: ids }, createdAt: { gte: dayStart }, status: { in: ['ok', 'pending'] } }, _count: { _all: true } }),
+      this.prisma.ai_ToolCall.groupBy({ by: ['botId'], where: { ...scope, companyId: actor.companyId, botId: { in: ids } }, _max: { createdAt: true } }),
       this.prisma.ai_Conversation.findMany({ where: { companyId: actor.companyId, userId: actor.userId, botId: { in: ids }, archivedAt: null, origin: 'bots' }, orderBy: { lastMessageAt: 'desc' }, take: 50, select: { id: true, botId: true, title: true, lastMessageAt: true } }),
       this.prisma.ai_ToolCall.findMany({ where: { companyId: actor.companyId, botId: { in: ids }, ...(seesAll ? {} : { userId: actor.userId }) }, orderBy: { id: 'desc' }, take: 20, select: { id: true, botId: true, userId: true, tool: true, status: true, createdAt: true, origin: true } }),
       seesAll ? this.prisma.user.findMany({ where: { companyId: actor.companyId }, select: { id: true, name: true } }) : Promise.resolve([] as { id: number; name: string }[]),
@@ -77,7 +78,12 @@ export class AgentService {
     const pendingBy = count(pending, (row) => row.toolCall.botId);
     const runsBy = count(todayRuns, (row) => row.conversation.botId);
     const callsBy = new Map(todayCalls.map((row) => [row.botId ?? 0, row._count._all]));
-    const lastBy = new Map(lastCalls.map((row) => [row.botId ?? 0, row._max.createdAt]));
+    const lastConversations = await this.prisma.ai_Conversation.groupBy({ by: ['botId'], where: { ...scope, companyId: actor.companyId, botId: { in: ids } }, _max: { lastMessageAt: true } });
+    const lastBy = new Map<number, Date | null>(lastCalls.map((row) => [row.botId ?? 0, row._max.createdAt]));
+    for (const row of lastConversations) {
+      const current = lastBy.get(row.botId);
+      if (row._max.lastMessageAt && (!current || row._max.lastMessageAt > current)) lastBy.set(row.botId, row._max.lastMessageAt);
+    }
     const userName = new Map(users.map((user) => [user.id, user.name]));
     const botName = new Map(bots.map((bot) => [bot.id, bot]));
     return {
@@ -104,10 +110,66 @@ export class AgentService {
           })(),
         };
       }),
+      seesAll,
       activity: activity.map((row) => ({
         id: row.id, botId: row.botId, persona: botName.get(row.botId ?? 0)?.persona ?? null, avatar: botName.get(row.botId ?? 0)?.avatar ?? null,
         title: this.catalog.get(row.tool)?.title ?? row.tool, status: row.status, at: row.createdAt, origin: row.origin,
         user: seesAll ? userName.get(row.userId) ?? null : null,
+      })),
+    };
+  }
+
+  /** Quem vê os pedidos de todo mundo aos bots (com o nome de quem pediu). */
+  private seesAllRequests(actor: BotActor) {
+    return actor.permissions.includes('view_pedidos_bots') || actor.permissions.includes('view_auditoria_bots');
+  }
+
+  /**
+   * Pedidos (cada mensagem que pôs o bot para trabalhar) e tarefas (ferramentas que
+   * deram certo ou esperam confirmação) de um bot no período. Sem permissão de ver
+   * tudo, só os da própria pessoa.
+   */
+  async botActivity(actor: BotActor, botId: number, days: number) {
+    const bot = await this.bots.usable(actor, botId);
+    const span = Math.min(30, Math.max(1, Math.floor(days) || 1));
+    const today = nowBr().toISOString().slice(0, 10);
+    const since = new Date(new Date(`${today}T03:00:00.000Z`).getTime() - (span - 1) * 86400000);
+    const seesAll = this.seesAllRequests(actor);
+    const scope = seesAll ? {} : { userId: actor.userId };
+    const [runs, calls] = await Promise.all([
+      this.prisma.ai_Run.findMany({
+        where: { ...scope, startedAt: { gte: since }, conversation: { companyId: actor.companyId, botId } }, orderBy: { id: 'desc' }, take: 200,
+        select: { id: true, userId: true, status: true, startedAt: true, endedAt: true, error: true, steps: true, conversation: { select: { id: true, title: true, origin: true, userId: true } } },
+      }),
+      this.prisma.ai_ToolCall.findMany({
+        where: { ...scope, companyId: actor.companyId, botId, createdAt: { gte: since }, status: { in: ['ok', 'pending'] } }, orderBy: { id: 'desc' }, take: 300,
+        select: { id: true, userId: true, tool: true, status: true, origin: true, outputSummary: true, createdAt: true, runId: true },
+      }),
+    ]);
+    const messages = await this.prisma.ai_Message.findMany({ where: { runId: { in: runs.map((run) => run.id) }, role: 'user' }, select: { runId: true, content: true } });
+    const askOf = new Map(messages.map((message) => [message.runId, String((message.content as { text?: string })?.text ?? '')]));
+    const userIds = [...new Set([...runs.map((run) => run.userId), ...calls.map((call) => call.userId)])];
+    const users = await this.prisma.user.findMany({ where: { id: { in: userIds }, companyId: actor.companyId }, select: { id: true, name: true } });
+    const nameOf = new Map(users.map((user) => [user.id, user.name]));
+    const who = (userId: number) => ({ mine: userId === actor.userId, user: userId === actor.userId ? 'Você' : nameOf.get(userId) ?? 'Alguém' });
+    const runConversation = new Map(runs.map((run) => [run.id, run.conversation]));
+    // a conversa só abre para o dono (a tela de conversas é pessoal)
+    const link = (conversation?: { id: number; userId: number; origin: string }) => (conversation && conversation.userId === actor.userId && conversation.origin === 'bots' ? conversation.id : null);
+    return {
+      bot: { id: bot.id, persona: (bot as { persona?: string | null }).persona ?? bot.name },
+      days: span, seesAll,
+      requests: runs.map((run) => ({
+        id: run.id, at: run.startedAt, endedAt: run.endedAt, status: run.status, ...who(run.userId),
+        origin: run.conversation.origin, title: run.conversation.title,
+        ask: (askOf.get(run.id) ?? '').replace(/^\[aviso do sistema\]\s*/, '').slice(0, 400),
+        tools: Array.isArray(run.steps) ? (run.steps as Array<{ kind?: string }>).filter((step) => step.kind === 'tool').length : 0,
+        error: run.status === 'error' ? run.error : null,
+        conversationId: link(run.conversation),
+      })),
+      tasks: calls.map((call) => ({
+        id: call.id, at: call.createdAt, status: call.status, origin: call.origin, ...who(call.userId),
+        tool: call.tool, title: this.catalog.get(call.tool)?.title ?? call.tool, summary: call.outputSummary,
+        conversationId: link(call.runId ? runConversation.get(call.runId) : undefined),
       })),
     };
   }

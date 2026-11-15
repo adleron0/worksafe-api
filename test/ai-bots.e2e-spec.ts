@@ -14,7 +14,7 @@ import { makeCompany, makeCourse, makeCourseClass, makeSeller } from './setup/fa
  * sensíveis esperando o clique.
  */
 describe('Bots de IA (e2e)', () => {
-  const ALL = ['usar_bots', 'usar_bot_treinamentos', 'usar_bot_marketing', 'usar_bot_gestao', 'list_classes', 'create_classes', 'update_classes', 'list_blog', 'create_blog', 'update_blog', 'view_auditoria_bots', 'update_bots'];
+  const ALL = ['usar_bots', 'agendar_bots', 'usar_bot_treinamentos', 'usar_bot_marketing', 'usar_bot_gestao', 'list_classes', 'create_classes', 'update_classes', 'list_blog', 'create_blog', 'update_blog', 'view_auditoria_bots', 'update_bots'];
   let jwt: JwtService;
   let userId = 0;
 
@@ -107,7 +107,7 @@ describe('Bots de IA (e2e)', () => {
     const { company } = await cenario();
     const perms = ['usar_bots', 'usar_bot_treinamentos', 'list_classes'];
     const bot = await botOf(company.id, 'treinamentos', perms);
-    expect(bot.capabilities.map((tool: any) => tool.name).sort()).toEqual(['agendar_tarefa', 'listar_turmas', 'minha_esteira', 'minhas_tarefas', 'pausar_tarefa']);
+    expect(bot.capabilities.map((tool: any) => tool.name).sort()).toEqual(['listar_turmas', 'minha_esteira', 'minhas_tarefas']);
     const conversation = (await api().post(`/ai/bots/${bot.id}/conversations`).set(auth(company.id, perms)).expect(201)).body;
     FakeProvider.script([
       () => ({ toolCalls: [{ name: 'publicar_turma', input: { turmaId: 1 } }] }),
@@ -226,6 +226,45 @@ describe('Bots de IA (e2e)', () => {
     await api().put(`/ai/bots/${lia.id}`).set(auth(company.id)).send({ persona: 'Lívia', role: 'Gerente de Turmas', avatar: 'marketing' }).expect(200);
     team = (await api().get('/ai/team').set(auth(company.id)).expect(200)).body;
     expect(team.members.find((member: any) => member.key === 'treinamentos')).toMatchObject({ persona: 'Lívia', role: 'Gerente de Turmas', avatar: 'marketing' });
+  });
+
+  it('equipe: pedidos e tarefas do dia, com quem pediu só para quem pode ver tudo', async () => {
+    const { company, turma, db } = await cenario();
+    const until = async (id: number) => { for (let i = 0; i < 100 && (await db.ai_Run.findUnique({ where: { id } }))?.status === 'running'; i++) await new Promise((resolve) => setTimeout(resolve, 50)); };
+    const bruno = (await makeSeller(company.id, { name: 'Bruno Vendas' })).id;
+    const lia = await botOf(company.id, 'treinamentos');
+    const BASICO = ['usar_bots', 'usar_bot_treinamentos', 'list_classes', 'update_classes'];
+    // Bruno pede uma consulta; Ana pede a publicação (fica pendente)
+    const conversaBruno = (await api().post(`/ai/bots/${lia.id}/conversations`).set(auth(company.id, BASICO, bruno)).expect(201)).body;
+    FakeProvider.script([() => ({ toolCalls: [{ name: 'listar_turmas', input: {} }] }), () => ({ text: 'Tem vaga.' })]);
+    let { runId } = (await api().post(`/ai/conversations/${conversaBruno.id}/messages`).set(auth(company.id, BASICO, bruno)).send({ text: 'Quais turmas têm vaga?' }).expect(201)).body;
+    await until(runId);
+    const conversaAna = (await api().post(`/ai/bots/${lia.id}/conversations`).set(auth(company.id)).expect(201)).body;
+    FakeProvider.script([() => ({ toolCalls: [{ name: 'publicar_turma', input: { turmaId: turma.id } }] }), () => ({ text: 'Confirme no cartão.' })]);
+    ({ runId } = (await api().post(`/ai/conversations/${conversaAna.id}/messages`).set(auth(company.id)).send({ text: 'publica a turma de dezembro' }).expect(201)).body);
+    await waitRun(company.id, runId);
+
+    // sem permissão de ver tudo: o cartão e a lista mostram só os pedidos da própria pessoa
+    const teamBruno = (await api().get('/ai/team').set(auth(company.id, BASICO, bruno)).expect(200)).body;
+    expect(teamBruno.members.find((member: any) => member.key === 'treinamentos').today).toEqual({ conversations: 1, actions: 1 });
+    const minha = (await api().get(`/ai/team/${lia.id}/activity`).set(auth(company.id, BASICO, bruno)).expect(200)).body;
+    expect(minha.seesAll).toBe(false);
+    expect(minha.requests).toHaveLength(1);
+    expect(minha.requests[0]).toMatchObject({ user: 'Você', mine: true, ask: 'Quais turmas têm vaga?', conversationId: conversaBruno.id, status: 'done' });
+    expect(minha.tasks.map((task: any) => task.tool)).toEqual(['listar_turmas']);
+
+    // com view_pedidos_bots: todos, com o nome de quem pediu; a conversa dos outros não abre
+    const VER = [...BASICO, 'view_pedidos_bots'];
+    const todas = (await api().get(`/ai/team/${lia.id}/activity?dias=7`).set(auth(company.id, VER)).expect(200)).body;
+    expect(todas).toMatchObject({ seesAll: true, days: 7 });
+    expect(todas.requests.map((item: any) => [item.user, item.ask])).toEqual([['Você', 'publica a turma de dezembro'], ['Bruno Vendas', 'Quais turmas têm vaga?']]);
+    expect(todas.requests[1].conversationId).toBeNull();
+    expect(todas.tasks.map((task: any) => [task.user, task.tool, task.status])).toEqual([['Você', 'publicar_turma', 'pending'], ['Bruno Vendas', 'listar_turmas', 'ok']]);
+    const teamAna = (await api().get('/ai/team').set(auth(company.id, VER)).expect(200)).body;
+    expect(teamAna.members.find((member: any) => member.key === 'treinamentos').today).toEqual({ conversations: 2, actions: 2 });
+
+    // sem acesso ao bot, não vê nada dele
+    await api().get(`/ai/team/${lia.id}/activity`).set(auth(company.id, ['usar_bots'], bruno)).expect(403);
   });
 
   it('configuração: instruções versionadas, voltar versão e ferramenta desconhecida', async () => {

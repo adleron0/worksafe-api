@@ -15,22 +15,22 @@ export class ReportController {
   @Permissions('usar_bots') @Get('schedules')
   schedules(@Req() req: Request) { return this.reports.list(actorOf(req)); }
 
-  @Permissions('usar_bots') @Post('schedules')
+  @Permissions('usar_bots', 'agendar_bots') @Post('schedules')
   create(@Req() req: Request, @Body() body: Json) { return this.reports.create(actorOf(req), body ?? {}); }
 
-  @Permissions('usar_bots') @Put('schedules/:id')
+  @Permissions('usar_bots', 'agendar_bots') @Put('schedules/:id')
   update(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.reports.update(actorOf(req), id, body ?? {}); }
 
-  @Permissions('usar_bots') @Patch('schedules/:id/remove')
+  @Permissions('usar_bots', 'agendar_bots') @Patch('schedules/:id/remove')
   remove(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.reports.remove(actorOf(req), id); }
 
-  @Permissions('usar_bots') @Patch('schedules/:id/pause')
+  @Permissions('usar_bots', 'agendar_bots') @Patch('schedules/:id/pause')
   pause(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.reports.setActive(actorOf(req), id, false); }
 
-  @Permissions('usar_bots') @Patch('schedules/:id/resume')
+  @Permissions('usar_bots', 'agendar_bots') @Patch('schedules/:id/resume')
   resume(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.reports.setActive(actorOf(req), id, true); }
 
-  @Permissions('usar_bots') @Post('schedules/:id/run') @HttpCode(200)
+  @Permissions('usar_bots', 'agendar_bots') @Post('schedules/:id/run') @HttpCode(200)
   run(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.reports.runNow(actorOf(req), id); }
 
   @Permissions('usar_bots') @Get('reports')

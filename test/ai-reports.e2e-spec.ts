@@ -17,7 +17,7 @@ describe('Relatórios agendados (e2e)', () => {
   let reports: ReportService;
   let catalog: ToolCatalogService;
   let userId = 0;
-  const PERMS = ['usar_bots', 'update_bots', 'list_classes', 'usar_bot_gestao'];
+  const PERMS = ['usar_bots', 'agendar_bots', 'update_bots', 'list_classes', 'usar_bot_gestao'];
 
   beforeAll(async () => {
     process.env.AI_DEFAULT_PROVIDER = 'fake';
@@ -162,7 +162,7 @@ describe('Relatórios agendados (e2e)', () => {
     const { company, db } = await cenario();
     const comum = (await makeSeller(company.id, { name: 'Bia' })).id;
     await grant(comum, ['usar_bots', 'usar_bot_gestao']);
-    const BIA = ['usar_bots', 'usar_bot_gestao'];
+    const BIA = ['usar_bots', 'agendar_bots', 'usar_bot_gestao'];
     const asBia = (perms = BIA) => auth(company.id, perms, comum);
     const gestao = (await api().get('/ai/bots').set(asBia()).expect(200)).body.find((bot: any) => bot.key === 'gestao');
     // tarefa de outra pessoa (a Ana) não aparece para a Bia
