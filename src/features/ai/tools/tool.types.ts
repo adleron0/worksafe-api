@@ -46,6 +46,8 @@ export interface ToolDefinition {
   inputSchema: JsonSchema;
   /** A pessoa precisa de TODAS estas permissões. */
   permissions: string[];
+  /** E, se houver, de PELO MENOS UMA destas. */
+  anyPermissions?: string[];
   risk: ToolRisk;
   /** read e draft: executa e devolve o resultado (JSON). */
   run?: (ctx: ToolContext, input: Record<string, any>, deps: ToolDeps) => Promise<unknown>;

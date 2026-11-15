@@ -1,5 +1,6 @@
 import { asRefusal, brl, isDate, iso, money, orderActor, activityActor, positiveInt, proposalActor, text, todayBr } from './actors';
 import { CacheService } from 'src/common/cache/cache.service';
+import { ImageIntakeService } from '../images/image-intake.service';
 import { ToolDefinition, ToolRefusal } from './tool.types';
 
 /** As telas e o site leem blog e turmas de cache: gravar direto precisa limpar como as rotas limpam. */
@@ -161,19 +162,30 @@ export const WRITE_TOOLS: ToolDefinition[] = [
   {
     name: 'criar_rascunho_post_blog',
     title: 'Escrevendo o rascunho do post',
-    description: 'Cria um post do blog em RASCUNHO (não publica). Conteúdo em HTML simples (<h2>, <p>, <ul>). Devolve o link para revisar.',
-    inputSchema: obj({ titulo: str('Título'), resumo: str('Resumo de uma ou duas frases'), conteudo: str('Conteúdo em HTML simples') }, ['titulo', 'conteudo']),
+    description: 'Cria um post do blog em RASCUNHO (não publica). Conteúdo em HTML simples (<h2>, <p>, <ul>; imagens com <img src="URL">, só de imagens já no WorkSafe). Capa opcional (capaUrl, também do WorkSafe). Devolve o link para revisar.',
+    inputSchema: obj({ titulo: str('Título'), resumo: str('Resumo de uma ou duas frases'), conteudo: str('Conteúdo em HTML simples'), capaUrl: str('URL da imagem de capa (de imagens_do_envio ou enviar_imagem_*)') }, ['titulo', 'conteudo']),
     permissions: ['create_blog'],
     risk: 'draft',
     run: async (ctx, input, deps) => {
       const title = text(input.titulo, 255);
       if (title.length < 5) throw new ToolRefusal('Título curto demais');
-      const content = String(input.conteudo ?? '').replace(/<\s*(script|iframe|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '').slice(0, 60000);
+      const content = String(input.conteudo ?? '')
+        .replace(/<\s*(script|iframe|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+        // imagem só do bucket do sistema: nada de imagem externa (rastreio, link quebrado)
+        .replace(/<img\b[^>]*>/gi, (tag) => {
+          const src = /\ssrc\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1];
+          if (!src || !ImageIntakeService.ownUrl(src)) return '';
+          const alt = (/\salt\s*=\s*["']([^"']*)["']/i.exec(tag)?.[1] ?? '').replace(/[<>"]/g, '');
+          return `<img src="${src}" alt="${alt}">`;
+        })
+        .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*')/gi, '')
+        .slice(0, 60000);
+      if (input.capaUrl && !ImageIntakeService.ownUrl(input.capaUrl)) throw new ToolRefusal('A capa precisa ser uma imagem já no WorkSafe (suba antes com link_para_enviar_imagens)');
       if (content.length < 200) throw new ToolRefusal('Conteúdo curto demais para um post');
       const base = title.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80) || 'post';
       let slug = base;
       for (let n = 2; await deps.prisma.blog_Post.findFirst({ where: { companyId: ctx.companyId, slug }, select: { id: true } }); n++) slug = `${base}-${n}`;
-      const row = await deps.prisma.blog_Post.create({ data: { companyId: ctx.companyId, authorId: ctx.userId, title, slug, excerpt: text(input.resumo, 500) || null, content, status: 'draft' } });
+      const row = await deps.prisma.blog_Post.create({ data: { companyId: ctx.companyId, authorId: ctx.userId, title, slug, excerpt: text(input.resumo, 500) || null, content, coverImage: input.capaUrl || null, status: 'draft' } });
       await evict(BLOG_CACHE);
       return { id: row.id, titulo: row.title, situacao: 'rascunho', link: "/blog/posts" };
     },
@@ -182,12 +194,13 @@ export const WRITE_TOOLS: ToolDefinition[] = [
     name: 'nova_turma_rascunho',
     title: 'Preparando a nova turma',
     description: 'Abre uma nova turma copiando uma turma anterior (curso, preço, local, vagas, textos) com novas datas. A turma nasce FECHADA e fora do site; publicar é outra ação, com confirmação.',
-    inputSchema: obj({ turmaModeloId: int('Id da turma a copiar (de listar_turmas)'), inicio: str('Início (AAAA-MM-DD)'), fim: str('Fim (AAAA-MM-DD)'), nome: str('Nome da nova turma (opcional)') }, ['turmaModeloId', 'inicio', 'fim']),
+    inputSchema: obj({ turmaModeloId: int('Id da turma a copiar (de listar_turmas)'), inicio: str('Início (AAAA-MM-DD)'), fim: str('Fim (AAAA-MM-DD)'), nome: str('Nome da nova turma (opcional)'), imagemUrl: str('Imagem da turma (opcional, já no WorkSafe); sem ela, usa a da turma modelo') }, ['turmaModeloId', 'inicio', 'fim']),
     permissions: ['create_classes'],
     risk: 'draft',
     run: async (ctx, input, deps) => {
       if (!isDate(input.inicio) || !isDate(input.fim) || input.fim < input.inicio) throw new ToolRefusal('Informe início e fim válidos (AAAA-MM-DD), com o fim depois do início');
       if (input.inicio < todayBr()) throw new ToolRefusal('A turma nova não pode começar no passado');
+      if (input.imagemUrl && !ImageIntakeService.ownUrl(input.imagemUrl)) throw new ToolRefusal('A imagem precisa já estar no WorkSafe (suba antes com link_para_enviar_imagens)');
       const source = await deps.prisma.courseClass.findFirst({ where: { id: positiveInt(input.turmaModeloId) ?? 0, companyId: ctx.companyId } });
       if (!source) throw new ToolRefusal('Turma modelo não encontrada');
       const { id: _id, createdAt: _c, updatedAt: _u, inactiveAt: _i, faq, whyUs, ...rest } = source as any;
@@ -196,7 +209,7 @@ export const WRITE_TOOLS: ToolDefinition[] = [
       const created = await deps.prisma.courseClass.create({
         data: {
           ...rest, faq: faq ?? undefined, whyUs: whyUs ?? undefined,
-          name: text(input.nome, 200) || source.name, initialDate: start, finalDate: end,
+          name: text(input.nome, 200) || source.name, initialDate: start, finalDate: end, imageUrl: input.imagemUrl || source.imageUrl,
           active: false, openClass: false, allowSubscriptions: false, allowCheckout: false, landingPagesDates: null,
           periodSubscriptionsInitialDate: null, periodSubscriptionsFinalDate: null,
         },

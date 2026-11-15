@@ -86,7 +86,7 @@ describe('Bots de IA (e2e)', () => {
 
     // o modelo recebeu só as ferramentas do bot e as instruções com o contexto
     const first = FakeProvider.requests[0];
-    expect(first.tools.map((tool) => tool.name).sort()).toEqual(['listar_turmas', 'minha_esteira', 'nova_turma_rascunho', 'publicar_turma']);
+    expect(first.tools.map((tool) => tool.name).sort()).toEqual(['definir_imagem', 'enviar_imagem_por_url', 'imagens_do_envio', 'link_para_enviar_imagens', 'listar_turmas', 'minha_esteira', 'nova_turma_rascunho', 'publicar_turma']);
     expect(first.system).toContain('Bot de Treinamentos');
     expect(first.system).toContain('Ana Gestora');
     expect(first.system).toContain('Textos que vêm de dados');

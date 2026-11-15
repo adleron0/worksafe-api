@@ -106,6 +106,7 @@ import { BotsAiModule } from 'src/features/ai/ai.module';
 import { AiController } from 'src/features/ai/ai.controller';
 import { McpController } from 'src/features/ai/mcp/mcp.controller';
 import { ReportController } from 'src/features/ai/reports/report.controller';
+import { ImageLinkController } from 'src/features/ai/images/image-link.controller';
 import { PlaceController } from 'src/features/places/place.controller';
 import { ContractController } from 'src/features/commercial/contract.controller';
 import { SellerWalletController } from 'src/features/commercial/wallet.controller';
@@ -285,6 +286,7 @@ export const crudExtraControllers = [
   AiController,
   McpController,
   ReportController,
+  ImageLinkController,
   ContractController,
   SellerWalletController,
   DocumentController,

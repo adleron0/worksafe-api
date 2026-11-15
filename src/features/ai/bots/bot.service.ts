@@ -52,7 +52,7 @@ export class BotService {
     return {
       bots: bots.map((bot) => this.present(bot, actor.permissions, true)),
       providers: this.providers.status(),
-      tools: this.catalog.all().map((tool) => ({ name: tool.name, title: tool.title, description: tool.description, risk: tool.risk, permissions: tool.permissions })),
+      tools: this.catalog.all().map((tool) => ({ name: tool.name, title: tool.title, description: tool.description, risk: tool.risk, permissions: [...tool.permissions, ...(tool.anyPermissions?.length ? [`uma de: ${tool.anyPermissions.join(', ')}`] : [])] })),
       enabled: process.env.AI_BOTS_ENABLED !== 'false',
     };
   }

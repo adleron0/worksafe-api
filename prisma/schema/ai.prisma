@@ -283,3 +283,22 @@ model Mcp_Token {
 
   @@index([companyId, userId])
 }
+
+// Link de envio de imagens: o app de IA não consegue repassar o arquivo que a
+// pessoa anexou no chat, então gera um link do WorkSafe onde ela arrasta as
+// imagens. O token só é guardado como hash e vale 30 minutos.
+model Ai_UploadLink {
+  id         Int      @id @default(autoincrement())
+  companyId  Int
+  userId     Int
+  tokenHash  String   @unique @db.VarChar(128)
+  // para quê (mostrado na página): "Capa do post sobre NR-35"
+  purpose    String   @db.VarChar(200)
+  maxFiles   Int      @default(10)
+  // [{ id, url, name, width, height }]
+  images     Json     @default("[]")
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  @@index([companyId, userId])
+}

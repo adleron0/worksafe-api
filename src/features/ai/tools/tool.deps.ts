@@ -10,6 +10,7 @@ import { PurchaseOrderService } from 'src/features/operations/purchase-order.ser
 import { ServiceOrderService } from 'src/features/operations/service-order.service';
 import { PayableService } from 'src/features/financial/payable.service';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { ImageIntakeService } from '../images/image-intake.service';
 
 /**
  * Os serviços de domínio que as ferramentas usam. As ferramentas não
@@ -29,5 +30,6 @@ export class ToolDeps {
     readonly documents: EmployeeDocumentService,
     readonly employeeActivities: EmployeeActivityService,
     readonly payables: PayableService,
+    readonly images: ImageIntakeService,
   ) {}
 }

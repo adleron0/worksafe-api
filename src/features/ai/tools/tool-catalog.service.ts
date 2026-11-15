@@ -6,6 +6,7 @@ import { READ_TOOLS } from './read.tools';
 import { ToolDeps } from './tool.deps';
 import { ActionResult, ToolContext, ToolDefinition, ToolRefusal } from './tool.types';
 import { WRITE_TOOLS } from './write.tools';
+import { IMAGE_TOOLS } from './image.tools';
 
 /** Resultado de uma chamada, como volta para o modelo. */
 export interface ToolOutcome {
@@ -56,7 +57,7 @@ export class ToolCatalogService {
   private readonly tools = new Map<string, ToolDefinition>();
 
   constructor(private readonly prisma: PrismaService, private readonly deps: ToolDeps) {
-    for (const tool of [...READ_TOOLS, ...WRITE_TOOLS]) this.tools.set(tool.name, tool);
+    for (const tool of [...READ_TOOLS, ...WRITE_TOOLS, ...IMAGE_TOOLS]) this.tools.set(tool.name, tool);
   }
 
   all(): ToolDefinition[] {
@@ -68,7 +69,8 @@ export class ToolCatalogService {
   }
 
   allowed(tool: ToolDefinition, permissions: string[]): boolean {
-    return tool.permissions.every((permission) => permissions.includes(permission));
+    return tool.permissions.every((permission) => permissions.includes(permission))
+      && (!tool.anyPermissions?.length || tool.anyPermissions.some((permission) => permissions.includes(permission)));
   }
 
   /** As ferramentas que a pessoa pode usar, dentro de uma lista (a do bot). O modelo nem vê as outras. */
@@ -103,7 +105,7 @@ export class ToolCatalogService {
       return { status: 'denied', content: JSON.stringify({ erro: `A ferramenta "${name}" não existe para este bot.` }), isError: true, toolCallId: row.id };
     }
     if (!this.allowed(tool, ctx.permissions)) {
-      const row = await audit('denied', `Sem permissão: ${tool.permissions.join(', ')}`);
+      const row = await audit('denied', `Sem permissão: ${[...tool.permissions, ...(tool.anyPermissions?.length ? [`uma de ${tool.anyPermissions.join('/')}`] : [])].join(', ')}`);
       return { status: 'denied', content: JSON.stringify({ erro: 'A pessoa não tem permissão para isso. Diga que ela precisa pedir a permissão ao administrador.' }), isError: true, toolCallId: row.id };
     }
 

@@ -89,7 +89,7 @@ export const BOT_DEFAULTS: BotDefault[] = [
     description: 'Turmas, vagas e inscrições. Abre turmas novas a partir das anteriores.',
     icon: 'graduation-cap',
     strong: false,
-    tools: ['minha_esteira', 'listar_turmas', 'nova_turma_rascunho', 'publicar_turma'],
+    tools: ['minha_esteira', 'listar_turmas', 'nova_turma_rascunho', 'publicar_turma', 'link_para_enviar_imagens', 'imagens_do_envio', 'enviar_imagem_por_url', 'definir_imagem'],
     instructions: `Você é o Bot de Treinamentos. Ajuda a acompanhar turmas, vagas e inscrições e a abrir turmas novas.
 - Turma nova: copie a turma anterior do mesmo curso (nova_turma_rascunho) com as novas datas. Ela nasce fechada; publicar é outra ação, com confirmação.
 - Ao falar de vagas, compare inscritos confirmados com o limite e o quórum mínimo.`,
@@ -104,10 +104,11 @@ export const BOT_DEFAULTS: BotDefault[] = [
     description: 'Blog e divulgação: escreve rascunhos de posts e prepara publicações.',
     icon: 'megaphone',
     strong: false,
-    tools: ['listar_posts_blog', 'listar_turmas', 'criar_rascunho_post_blog', 'publicar_post_blog'],
+    tools: ['listar_posts_blog', 'listar_turmas', 'criar_rascunho_post_blog', 'publicar_post_blog', 'link_para_enviar_imagens', 'imagens_do_envio', 'enviar_imagem_por_url', 'definir_imagem'],
     instructions: `Você é o Bot de Marketing. Escreve rascunhos de posts para o blog da empresa (segurança do trabalho, trabalho em altura, espaço confinado, acesso por corda, NRs) e ajuda a divulgar turmas.
 - Posts com 600 a 1.200 palavras, HTML simples (<h2>, <p>, <ul>), tom técnico e acessível, sem prometer o que a empresa não faz.
 - Não cite normas com número de item ou artigo se não tiver certeza.
+- Imagens: para usar fotos da pessoa, gere o link de envio (link_para_enviar_imagens), espere ela avisar e pegue as URLs com imagens_do_envio. Use-as como capa (capaUrl) e dentro do texto (<img src="..." alt="...">).
 - Publicar é ação com confirmação.`,
     shortcuts: [
       { label: 'Novo post', prompt: 'Escreva um rascunho de post para o blog sobre ' },

@@ -84,7 +84,7 @@ describe('MCP com OAuth (e2e)', () => {
     const list = (await rpc(tokens.access_token, 'tools/list').expect(200)).body;
     const names = list.result.tools.map((tool: any) => tool.name).sort();
     // só o que as permissões da pessoa liberam
-    expect(names).toEqual(['listar_turmas', 'minha_esteira', 'publicar_turma']);
+    expect(names).toEqual(['definir_imagem', 'enviar_imagem_base64', 'enviar_imagem_por_url', 'imagens_do_envio', 'link_para_enviar_imagens', 'listar_turmas', 'minha_esteira', 'publicar_turma']);
 
     const called = (await rpc(tokens.access_token, 'tools/call', { name: 'listar_turmas', arguments: {} }).expect(200)).body;
     expect(JSON.parse(called.result.content[0].text).turmas[0]).toMatchObject({ nome: 'NR-33 Espaço confinado', abertaNoSite: false });
