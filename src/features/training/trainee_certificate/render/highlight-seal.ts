@@ -242,9 +242,19 @@ export function drawHighlightSeal(
   tracePath(ctx, LOGO_OUTER);
   ctx.fillStyle = DARK;
   ctx.fill();
-  tracePath(ctx, LOGO_GATE);
-  ctx.fillStyle = metalGradient(ctx, theme, 15.5, 18, 30.2, 35.7);
-  ctx.fill();
+  // trava menor que no logo, ancorada na borda direita, para dar respiro aos textos
+  {
+    const k = 0.78;
+    const ax = 30.2, ay = 26.8;
+    ctx.save();
+    ctx.translate(ax, ay);
+    ctx.scale(k, k);
+    ctx.translate(-ax, -ay);
+    tracePath(ctx, LOGO_GATE);
+    ctx.fillStyle = metalGradient(ctx, theme, 15.5, 18, 30.2, 35.7);
+    ctx.fill();
+    ctx.restore();
+  }
 
   // textos
   ctx.textBaseline = 'alphabetic';
@@ -252,8 +262,10 @@ export function drawHighlightSeal(
   const yearText = String(year ?? new Date().getFullYear());
   ctx.font = bebas(8.2);
   ctx.fillStyle = PAPER;
-  ctx.textAlign = 'right';
-  ctx.fillText(yearText, 26.5, 13.6);
+  // todos os textos alinhados à esquerda, na mesma margem de ALUNO DESTAQUE
+  const LEFT = 2.6;
+  ctx.textAlign = 'left';
+  ctx.fillText(yearText, LEFT, 13.6);
 
   const [l1, l2] = splitLabel(label.toUpperCase());
   // mesmo tamanho nas duas linhas: o da que precisar encolher mais
@@ -263,15 +275,16 @@ export function drawHighlightSeal(
   );
   ctx.font = bebas(size);
   ctx.fillStyle = metalGradient(ctx, theme, 2.6, 18, 16, 25);
-  spacedText(ctx, l1, 2.6, l2 ? 24 : 27, 0.1, 'left');
+  spacedText(ctx, l1, LEFT, l2 ? 24 : 27, 0.1, 'left');
   if (l2) {
     ctx.fillStyle = PAPER;
-    spacedText(ctx, l2, 2.6, 24 + size * 1.08, 0.1, 'left');
+    spacedText(ctx, l2, LEFT, 24 + size * 1.08, 0.1, 'left');
   }
 
-  ctx.font = '700 2px "Montserrat"';
   ctx.fillStyle = 'rgba(247,243,238,0.85)';
-  spacedText(ctx, 'WORKSAFE BRASIL', 13, 40.4, 0.25, 'center');
+  ctx.font = '700 1.7px "Montserrat"';
+  spacedText(ctx, 'WORKSAFE', LEFT, 36.2, 0.22, 'left');
+  spacedText(ctx, 'BRASIL', LEFT, 38.4, 0.22, 'left');
 
   ctx.restore();
 

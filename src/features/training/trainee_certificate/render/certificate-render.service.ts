@@ -38,7 +38,7 @@ import { QrStyle, styledQrPng } from './qr-styled';
  */
 
 /** Suba quando o resultado do render mudar, para invalidar caches/URLs. */
-export const RENDER_VERSION = 4;
+export const RENDER_VERSION = 5;
 
 export type CertificateSide = 'front' | 'back';
 
