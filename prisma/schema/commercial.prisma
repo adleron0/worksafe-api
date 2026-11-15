@@ -114,6 +114,9 @@ model Commercial_Professional {
   salary    Decimal @db.Decimal(12, 2)
   notes     String? @db.VarChar(255)
 
+  // funcionários que exercem esta função (RH)
+  employees Hr_EmployeeRole[]
+
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?

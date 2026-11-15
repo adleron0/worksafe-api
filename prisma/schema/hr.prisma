@@ -1,0 +1,83 @@
+// RH: cadastro de funcionários, as funções de cada um e o histórico
+// (férias, afastamento, suspensão, advertência, desligamento).
+//
+// A situação do funcionário não é gravada: sai do histórico na leitura.
+// Só entra aqui o que a operação e a integração de obra pedem; salário, dados
+// bancários, endereço e dados de saúde ficam de fora de propósito.
+
+model Hr_Employee {
+  id        Int    @id @default(autoincrement())
+  companyId Int
+  name      String @db.VarChar(160)
+
+  // dados pessoais: só aparecem para quem tem view_dados_pessoais_funcionarios
+  // CPF só dígitos
+  cpf            String?   @db.VarChar(11)
+  rg             String?   @db.VarChar(30)
+  birthDate      DateTime? @db.Date
+  email          String?   @db.VarChar(160)
+  emergencyName  String?   @db.VarChar(120)
+  emergencyPhone String?   @db.VarChar(30)
+
+  phone        String? @db.VarChar(30)
+  // matrícula
+  registration String? @db.VarChar(30)
+  // clt | pj | temporario | estagio
+  contractType String  @default("clt") @db.VarChar(12)
+
+  admissionDate   DateTime? @db.Date
+  // preenchida pelo registro de desligamento do histórico
+  terminationDate DateTime? @db.Date
+
+  // usuário do sistema, quando a pessoa tem login (um usuário para no máximo um funcionário)
+  userId Int?    @unique
+  notes  String? @db.VarChar(1000)
+
+  roles  Hr_EmployeeRole[]
+  events Hr_EmployeeEvent[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([companyId, cpf])
+  @@index([companyId, name])
+}
+
+// Funções que a pessoa exerce: as mesmas da base de cálculo do Comercial, para
+// o custo de mão de obra do RDO casar pelo cadastro.
+model Hr_EmployeeRole {
+  id             Int                     @id @default(autoincrement())
+  employeeId     Int
+  employee       Hr_Employee             @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  professionalId Int
+  professional   Commercial_Professional @relation(fields: [professionalId], references: [id], onDelete: Restrict)
+  isPrimary      Boolean                 @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@unique([employeeId, professionalId])
+  @@index([professionalId])
+}
+
+// Histórico do funcionário. Férias, afastamento e suspensão têm período e
+// definem a situação; advertência e mudança de função têm só a data;
+// desligamento grava a data no funcionário.
+model Hr_EmployeeEvent {
+  id         Int         @id @default(autoincrement())
+  companyId  Int
+  employeeId Int
+  employee   Hr_Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  // ferias | afastamento | suspensao | advertencia | desligamento | mudanca_funcao
+  type       String      @db.VarChar(20)
+  startDate  DateTime    @db.Date
+  endDate    DateTime?   @db.Date
+  reason     String?     @db.VarChar(1000)
+
+  createdByUserId Int?
+  createdAt       DateTime  @default(now())
+  inactiveAt      DateTime?
+
+  @@index([employeeId, startDate])
+  @@index([companyId, type, startDate])
+}
