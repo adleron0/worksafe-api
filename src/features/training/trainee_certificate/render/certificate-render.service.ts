@@ -38,7 +38,7 @@ import { QrStyle, styledQrPng } from './qr-styled';
  */
 
 /** Suba quando o resultado do render mudar, para invalidar caches/URLs. */
-export const RENDER_VERSION = 3;
+export const RENDER_VERSION = 4;
 
 export type CertificateSide = 'front' | 'back';
 
@@ -207,21 +207,41 @@ export class CertificateRenderService {
 
     const variables = parseCertificateVariables(cert.variableToReplace);
     const json = replaceInCanvasJSON(raw, variables);
+    const highlight = resolveHighlight(cert);
+    // Marcador "Selo" do editor: com destaque recebe o selo de destaque
+    // (desenhado depois); sem destaque, a imagem padrão do marcador, se houver.
+    const sealMarker = (json.objects || []).find(
+      (o: any) => o?.isHighlightSealPlaceholder,
+    );
+    json.objects = (json.objects || []).flatMap((o: any) => {
+      if (!o?.isHighlightSealPlaceholder) return [o];
+      if (highlight || !o.sealDefaultSrc) return [];
+      const w = (o.width || 120) * (o.scaleX || 1);
+      const h = (o.height || 120) * (o.scaleY || 1);
+      return [
+        {
+          type: 'Image',
+          version: '6.7.1',
+          originX: 'center',
+          originY: 'center',
+          left: (o.left || 0) + w / 2,
+          top: (o.top || 0) + h / 2,
+          scaleX: 1,
+          scaleY: 1,
+          angle: o.angle || 0,
+          src: String(o.sealDefaultSrc),
+          targetWidth: w,
+          targetHeight: h,
+          name: 'selo_padrao',
+        },
+      ];
+    });
     const images = await this.resolveImages(json, cert.key, scale);
     const tImages = Date.now();
 
     const { width, height } = getLogicalCanvasSize(
       cert.canvasWidth,
       cert.canvasHeight,
-    );
-    json.objects = json.objects || [];
-    // Marcador "selo de destaque" do editor: guarda a posição e sai do
-    // desenho (com ou sem destaque — sem destaque o espaço fica livre).
-    const sealMarker = json.objects.find(
-      (o: any) => o?.isHighlightSealPlaceholder,
-    );
-    json.objects = json.objects.filter(
-      (o: any) => !o?.isHighlightSealPlaceholder,
     );
     if (!json.objects.some((o: any) => o.name === 'backgroundRect')) {
       json.objects.unshift({
@@ -255,7 +275,6 @@ export class CertificateRenderService {
       const tLoad = Date.now();
       canvas.renderAll();
       // destaque: efeito estático (frente e verso) e selo (só na frente)
-      const highlight = resolveHighlight(cert);
       if (highlight) {
         const node = (canvas as any).getNodeCanvas();
         drawStaticFoil(
