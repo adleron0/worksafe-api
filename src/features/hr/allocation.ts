@@ -26,7 +26,7 @@ export interface AllocationSpan {
 }
 /** Atividade fora de OS (aula, treinamento, atividade no CT...) de uma pessoa. */
 export interface ActivitySpan {
-  employeeId: number; activityId: number; typeId: number; typeName: string; color: string; occupies: boolean; location: string | null; notes: string | null;
+  employeeId: number; activityId: number; typeId: number; typeName: string; color: string; occupies: boolean; location: string | null; placeId: number | null; notes: string | null;
   start: string; end: string; shift: Shift;
 }
 /** Turma presencial em que o funcionário dá aula (instrutor) ou participa (aluno): sai do cadastro de turmas, pelo CPF. */
@@ -152,7 +152,7 @@ export async function allocationWindow(prisma: Db, companyId: number, from: stri
     undated: all.filter((span) => !span.start),
     activities: activities.flatMap((activity) => activity.employees.map((member): ActivitySpan => ({
       employeeId: member.employeeId, activityId: activity.id, typeId: activity.typeId, typeName: activity.type.name, color: activity.type.color, occupies: activity.type.occupies,
-      location: activity.location, notes: activity.notes, start: iso(activity.startDate)!, end: iso(activity.endDate)!, shift: shiftOf(activity.shift),
+      location: activity.location, placeId: activity.placeId, notes: activity.notes, start: iso(activity.startDate)!, end: iso(activity.endDate)!, shift: shiftOf(activity.shift),
     }))),
     classes,
     unavailable: events.map((event): UnavailableSpan => ({ employeeId: event.employeeId, type: event.type, label: UNAVAILABLE_LABEL[event.type] ?? STATUS_LABEL.indisponivel, start: iso(event.startDate)!, end: iso(event.endDate) })),

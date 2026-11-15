@@ -169,7 +169,8 @@ model Hr_Activity {
   companyId Int
   typeId    Int
   type      Hr_ActivityType @relation(fields: [typeId], references: [id], onDelete: Restrict)
-  // onde acontece (texto, até existir o cadastro de locais)
+  // onde acontece: um local da empresa (CT, base) e/ou um texto livre
+  placeId   Int?
   location  String?         @db.VarChar(200)
   startDate DateTime        @db.Date
   endDate   DateTime        @db.Date

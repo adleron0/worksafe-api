@@ -32,6 +32,11 @@ model Service_Order {
   contactPhone String? @db.VarChar(60)
   contactEmail String? @db.VarChar(255)
   location     String? @db.VarChar(300)
+  // ponto próprio da obra no mapa (outra planta, outro município); sem ele, vale o ponto do cliente
+  latitude     Float?
+  longitude    Float?
+  // quando a obra é num local da empresa (CT, base)
+  placeId      Int?
 
   responsibleUserId Int?
   // equipe escalada: [{ name, role }]

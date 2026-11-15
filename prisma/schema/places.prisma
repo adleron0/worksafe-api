@@ -1,0 +1,31 @@
+// Locais da empresa: centros de treinamento, bases temporárias, sede.
+// Com o ponto no mapa (latitude e longitude), junto dos pontos de clientes e
+// de ordens de serviço, é o que a visão em mapa da alocação mostra.
+model Company_Place {
+  id        Int    @id @default(autoincrement())
+  companyId Int
+  name      String @db.VarChar(120)
+  // ct | base | sede | outro
+  kind      String @default("ct") @db.VarChar(12)
+
+  street       String? @db.VarChar(200)
+  number       String? @db.VarChar(20)
+  neighborhood String? @db.VarChar(120)
+  city         String? @db.VarChar(120)
+  state        String? @db.VarChar(2)
+  zipCode      String? @db.VarChar(10)
+
+  latitude  Float?
+  longitude Float?
+
+  // base temporária: de quando até quando existe
+  startDate DateTime? @db.Date
+  endDate   DateTime? @db.Date
+  notes     String?   @db.VarChar(500)
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@index([companyId, kind])
+}

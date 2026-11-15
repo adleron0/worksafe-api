@@ -100,7 +100,7 @@ export class EmployeeActivityService {
 
   private present(activity: ActivityFull) {
     return {
-      id: activity.id, typeId: activity.typeId, typeName: activity.type.name, color: activity.type.color, occupies: activity.type.occupies, location: activity.location,
+      id: activity.id, typeId: activity.typeId, typeName: activity.type.name, color: activity.type.color, occupies: activity.type.occupies, location: activity.location, placeId: activity.placeId,
       startDate: iso(activity.startDate)!, endDate: iso(activity.endDate)!, shift: shiftOf(activity.shift) as Shift, notes: activity.notes,
       employees: activity.employees.map((member) => member.employee),
     };
@@ -144,6 +144,16 @@ export class EmployeeActivityService {
       const shift = blank(body.shift) ? 'integral' : String(body.shift);
       if (!SHIFTS.some((item) => item.id === shift)) throw new BadRequestException('Parte do dia inválida');
       data.shift = shift;
+    }
+    if ('placeId' in body) {
+      if (blank(body.placeId)) data.placeId = null;
+      else {
+        const place = await this.prisma.company_Place.findFirst({ where: { id: Number(body.placeId), companyId }, select: { id: true, name: true } });
+        if (!place) throw new BadRequestException('Local não encontrado');
+        data.placeId = place.id;
+        // sem texto digitado, o "onde" é o nome do local
+        if (blank(body.location)) body = { ...body, location: place.name };
+      }
     }
     if ('location' in body) data.location = clean(body.location, 200) || null;
     if ('notes' in body) data.notes = clean(body.notes, 500) || null;

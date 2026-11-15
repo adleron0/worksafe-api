@@ -259,6 +259,8 @@ export class ServiceOrderService {
       contract: contract ? { id: contract.id, number: contract.number } : null,
       customerOrder: contract ? { number: contract.customerOrderNumber, date: iso(contract.customerOrderDate), fileUrl: contract.customerOrderUrl, fileName: contract.customerOrderFileName } : null,
       contactName: row.contactName, contactPhone: row.contactPhone, contactEmail: row.contactEmail, location: row.location,
+      // ponto no mapa: o da própria obra, o do local da empresa ou, sem eles, o do cliente
+      point: await this.pointOf(row),
       responsible, team: (row.team as unknown as TeamMember[]) ?? [],
       plannedStart: iso(row.plannedStart), plannedEnd: iso(row.plannedEnd), startedAt: iso(row.startedAt), finishedAt: iso(row.finishedAt),
       scope: row.scope, schedule: row.schedule, checklist: (row.checklist as unknown as ChecklistItem[]) ?? [],
@@ -266,6 +268,22 @@ export class ServiceOrderService {
       // custo orçado e receita: só com a permissão de custos
       canSeeCosts: actor.canSeeCosts, budget: actor.canSeeCosts ? row.budget : null,
       events: events.map((event) => ({ id: event.id, type: event.type, from: event.fromStage, to: event.toStage, note: event.note, at: event.createdAt, user: event.userId ? userName.get(event.userId) ?? null : null })),
+    };
+  }
+
+  /** O ponto de uma OS no mapa e de onde ele vem. */
+  private async pointOf(row: Pick<Service_Order, 'latitude' | 'longitude' | 'placeId' | 'customerId'>) {
+    const [place, customer] = await Promise.all([
+      row.placeId ? this.prisma.company_Place.findUnique({ where: { id: row.placeId }, select: { id: true, name: true, latitude: true, longitude: true } }) : null,
+      this.prisma.customer.findUnique({ where: { id: row.customerId }, select: { latitude: true, longitude: true } }),
+    ]);
+    const own = row.latitude !== null && row.longitude !== null ? { latitude: row.latitude, longitude: row.longitude } : null;
+    const fromPlace = place?.latitude !== null && place?.latitude !== undefined && place.longitude !== null ? { latitude: place.latitude, longitude: place.longitude as number } : null;
+    const fromCustomer = customer?.latitude !== null && customer?.latitude !== undefined && customer.longitude !== null ? { latitude: customer.latitude, longitude: customer.longitude as number } : null;
+    const used = own ?? fromPlace ?? fromCustomer;
+    return {
+      latitude: used?.latitude ?? null, longitude: used?.longitude ?? null, source: own ? 'obra' : fromPlace ? 'local' : fromCustomer ? 'cliente' : null,
+      own, place: place ? { id: place.id, name: place.name } : null, customer: fromCustomer,
     };
   }
 
@@ -403,6 +421,23 @@ export class ServiceOrderService {
     }
     for (const [key, max] of [['location', 300], ['contactName', 160], ['contactPhone', 60], ['contactEmail', 255]] as const) {
       if (key in body) data[key] = clean(body[key], max) || null;
+    }
+    // ponto próprio da obra no mapa: as duas coordenadas, ou as duas em branco para voltar a valer o ponto do cliente
+    if ('latitude' in body || 'longitude' in body) {
+      const empty = blank(body.latitude) && blank(body.longitude);
+      const latitude = Number(body.latitude);
+      const longitude = Number(body.longitude);
+      if (!empty && (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180)) throw new BadRequestException('Ponto no mapa inválido');
+      data.latitude = empty ? null : Math.round(latitude * 1e6) / 1e6;
+      data.longitude = empty ? null : Math.round(longitude * 1e6) / 1e6;
+    }
+    if ('placeId' in body) {
+      if (blank(body.placeId)) data.placeId = null;
+      else {
+        const place = await this.prisma.company_Place.findFirst({ where: { id: Number(body.placeId), companyId: actor.companyId }, select: { id: true } });
+        if (!place) throw new BadRequestException('Local não encontrado');
+        data.placeId = place.id;
+      }
     }
     if ('notes' in body) data.notes = text(body.notes, 5000) || null;
     if ('conclusionNotes' in body) data.conclusionNotes = text(body.conclusionNotes, 5000) || null;
