@@ -1,6 +1,6 @@
 import { createCanvas } from 'canvas';
 import * as QRCode from 'qrcode';
-import { LOGO_GATE, LOGO_OUTER, tracePath } from './highlight-seal';
+import { LOGO_GATE, LOGO_INNER, LOGO_OUTER, tracePath } from './highlight-seal';
 
 /**
  * QR de validação desenhado à mão: fundo transparente, módulos arredondados e
@@ -111,9 +111,11 @@ export function styledQrPng(
     ctx.save();
     ctx.translate(size / 2 - (30.87 * k) / 2, size / 2 - box / 2);
     ctx.scale(k, k);
+    // corpo com a abertura interna (como no logo)
     tracePath(ctx as unknown as CanvasRenderingContext2D, LOGO_OUTER);
+    tracePath(ctx as unknown as CanvasRenderingContext2D, LOGO_INNER, false);
     ctx.fillStyle = color;
-    ctx.fill();
+    ctx.fill('evenodd');
     tracePath(ctx as unknown as CanvasRenderingContext2D, LOGO_GATE);
     ctx.fillStyle = '#ed2232';
     ctx.fill();
