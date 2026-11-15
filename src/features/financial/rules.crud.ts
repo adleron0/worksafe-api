@@ -18,14 +18,15 @@ export const costCenterEntity: EntityRules = {
   filterable: ['name', 'code', 'createdAt'],
   sortable: ['id', 'name', 'code', 'createdAt'],
   includable: ['_count'],
-  includes: { _count: { select: { financialRecords: true } } },
+  includes: { _count: { select: { financialRecords: true, payables: true } } },
   softDelete: { field: 'inactiveAt' },
   hooks: {
     preWrite: async ({ op, data, existing, scopeId, deps }) => {
       const prisma = deps.prisma as PrismaService;
       const companyId = Number(scopeId);
       if (op === 'archive' && existing) {
-        const open = await prisma.financialRecords.count({ where: { companyId, costCenterId: Number(existing.id), inactiveAt: null, status: { in: [...OPEN] } } });
+        const open = await prisma.financialRecords.count({ where: { companyId, costCenterId: Number(existing.id), inactiveAt: null, status: { in: [...OPEN] } } })
+          + await prisma.financial_Payable.count({ where: { companyId, costCenterId: Number(existing.id), inactiveAt: null, status: 'aberta' } });
         if (open > 0) throw new CrudError('CONFLICT', `Há ${open} lançamento(s) em aberto neste centro de custo`);
         const defaults = await prisma.financial_ClassificationDefault.count({ where: { companyId, costCenterId: Number(existing.id) } });
         if (defaults > 0) throw new CrudError('CONFLICT', 'Este centro de custo é usado na classificação automática: troque o padrão antes de inativar');
@@ -59,7 +60,7 @@ export const bankAccountEntity: EntityRules = {
   filterable: ['name', 'type', 'isDefault', 'createdAt'],
   sortable: ['id', 'name', 'type', 'createdAt'],
   includable: ['_count'],
-  includes: { _count: { select: { financialRecords: true } } },
+  includes: { _count: { select: { financialRecords: true, payables: true } } },
   softDelete: { field: 'inactiveAt' },
   hooks: {
     preWrite: async ({ op, data, existing, scopeId, deps }) => {

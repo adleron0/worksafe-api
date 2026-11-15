@@ -62,6 +62,8 @@ model Service_Order {
   @@unique([companyId, number])
   @@index([companyId, status])
   @@index([companyId, customerId])
+
+  payables Financial_Payable[]
 }
 
 // Histórico de passagens de qualquer esteira (ordem de serviço, depois compras e pagar).

@@ -82,6 +82,8 @@ import { splitEntity } from 'src/features/gateway/splits/rules.crud';
 import { FinancialController } from 'src/features/financial/financial.controller';
 import { FinancialModule } from 'src/features/financial/module';
 import { bankAccountEntity, costCenterEntity } from 'src/features/financial/rules.crud';
+import { payableEntity, supplierEntity } from 'src/features/financial/payable.rules';
+import { PayableController } from 'src/features/financial/payable.controller';
 import { CommercialController } from 'src/features/commercial/commercial.controller';
 import { ProposalController } from 'src/features/commercial/proposal.controller';
 import { ActivityController } from 'src/features/commercial/activity.controller';
@@ -106,6 +108,9 @@ import { CrudEntity, multipart } from './crud.module';
 const upload = (folder: string) => multipart(UseInterceptors(FileInterceptor('image', getMulterOptions(folder))));
 /** Nota fiscal do recebível: PDF, XML ou imagem no campo `invoiceFile`. */
 const uploadInvoice = multipart(UseInterceptors(FileInterceptor('invoiceFile', getDocumentMulterOptions('financial-invoices'))));
+/** Anexos da conta a pagar: boleto, nota e comprovante. */
+const uploadPayable = multipart(UseInterceptors(FileFieldsInterceptor(
+  [{ name: 'billFile', maxCount: 1 }, { name: 'invoiceFile', maxCount: 1 }, { name: 'receiptFile', maxCount: 1 }], getDocumentMulterOptions('financial-payables'))));
 const uploadOptimized = multipart(UseInterceptors(FileInterceptor('image', getOptimizedMulterOptions())));
 const uploadBranding = multipart(UseInterceptors(
   FileFieldsInterceptor([{ name: 'logo', maxCount: 1 }, { name: 'favicon', maxCount: 1 }], getOptimizedMulterOptions()),
@@ -210,6 +215,8 @@ export const crudEntities: CrudEntity[] = [
   { rules: splitEntity },
   { rules: costCenterEntity },
   { rules: bankAccountEntity },
+  { rules: supplierEntity },
+  { rules: payableEntity, controller: { decorators: { create: [uploadPayable], update: [uploadPayable] } } },
   { rules: professionalEntity },
   // ---- aluno: guard do aluno em toda op; escopo = traineeId do token ----
   { rules: studentEntity, controller: { decorators: { list: [studentGuard], getById: [studentGuard], update: [studentGuard, upload('student-image')] } } },
@@ -240,6 +247,7 @@ export const crudExtraControllers = [
   TraineeCertificateCustomController,
   FinancialRecordsCustomController,
   FinancialController,
+  PayableController,
   CommercialController,
   ProposalController,
   ActivityController,

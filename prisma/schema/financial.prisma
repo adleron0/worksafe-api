@@ -34,6 +34,8 @@ model Financial_ChartAccount {
   financialRecords       FinancialRecords[]
   classificationDefaults Financial_ClassificationDefault[]
 
+  payables Financial_Payable[]
+
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
@@ -51,6 +53,8 @@ model Financial_CostCenter {
 
   financialRecords       FinancialRecords[]
   classificationDefaults Financial_ClassificationDefault[]
+
+  payables Financial_Payable[]
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
@@ -81,6 +85,8 @@ model Financial_BankAccount {
 
   financialRecords FinancialRecords[]
 
+  payables Financial_Payable[]
+
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
@@ -103,4 +109,97 @@ model Financial_ClassificationDefault {
   updatedAt DateTime @default(now()) @updatedAt
 
   @@unique([companyId, origin])
+}
+
+// Fornecedores: de quem a empresa compra, aluga ou contrata. Cadastro simples,
+// usado nas contas a pagar e (depois) nos pedidos de compra.
+model Financial_Supplier {
+  id          Int     @id @default(autoincrement())
+  companyId   Int
+  name        String  @db.VarChar(160)
+  // razão social, quando o nome acima é o fantasia
+  legalName   String? @db.VarChar(200)
+  // CNPJ ou CPF, só dígitos
+  document    String? @db.VarChar(14)
+  // o que fornece (ex.: locação de andaimes)
+  supplies    String? @db.VarChar(255)
+  contactName String? @db.VarChar(120)
+  email       String? @db.VarChar(160)
+  phone       String? @db.VarChar(30)
+  pixKey      String? @db.VarChar(140)
+  bankName    String? @db.VarChar(120)
+  agency      String? @db.VarChar(20)
+  account     String? @db.VarChar(30)
+  notes       String? @db.VarChar(500)
+
+  payables Financial_Payable[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@index([companyId, name])
+  @@index([companyId, document])
+}
+
+// Contas a pagar. Tabela separada dos recebíveis (FinancialRecords é presa a
+// cliente, aluno e gateway). "Atrasada" não é situação gravada: é conta aberta
+// com vencimento passado, calculada na leitura.
+model Financial_Payable {
+  id          Int                 @id @default(autoincrement())
+  companyId   Int
+  supplierId  Int?
+  supplier    Financial_Supplier? @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  description String              @db.VarChar(255)
+  value       Decimal             @db.Decimal(18, 2)
+  dueDate     DateTime
+  // competência AAAA-MM
+  accrualDate String              @db.VarChar(7)
+  // aberta | paga
+  status      String              @default("aberta") @db.VarChar(12)
+
+  // nota ou documento do fornecedor
+  documentNumber String? @db.VarChar(60)
+  paymentMethod  String? @db.VarChar(20)
+
+  // parcelas de um mesmo lançamento compartilham o groupKey
+  installmentNumber Int?
+  installmentTotal  Int?
+  groupKey          String? @db.VarChar(40)
+
+  // de onde veio: manual | pedido_compra; e a obra, quando o gasto é de uma OS
+  origin          String         @default("manual") @db.VarChar(20)
+  serviceOrderId  Int?
+  serviceOrder    Service_Order? @relation(fields: [serviceOrderId], references: [id], onDelete: Restrict)
+  purchaseOrderId Int?
+
+  chartAccountId Int?
+  chartAccount   Financial_ChartAccount? @relation(fields: [chartAccountId], references: [id], onDelete: Restrict)
+  costCenterId   Int?
+  costCenter     Financial_CostCenter?   @relation(fields: [costCenterId], references: [id], onDelete: Restrict)
+
+  // baixa: quando saiu, quanto, de qual conta e quem lançou
+  paidAt          DateTime?
+  paidValue       Decimal?               @db.Decimal(18, 2)
+  bankAccountId   Int?
+  bankAccount     Financial_BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+  settledByUserId Int?
+
+  // anexos
+  billUrl    String? @db.Text
+  invoiceUrl String? @db.Text
+  receiptUrl String? @db.Text
+
+  observations    String? @db.VarChar(500)
+  createdByUserId Int?
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@index([companyId, status, dueDate])
+  @@index([companyId, accrualDate])
+  @@index([companyId, supplierId])
+  @@index([companyId, serviceOrderId])
+  @@index([groupKey])
 }

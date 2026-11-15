@@ -110,6 +110,13 @@ export class ChartAccountService {
       _count: { _all: true },
       _sum: { value: true },
     });
+    // contas a pagar entram nas contas de despesa
+    const payables = await this.prisma.financial_Payable.groupBy({
+      by: ['chartAccountId'],
+      where: { companyId, inactiveAt: null, chartAccountId: { not: null }, ...(options.month ? { accrualDate: options.month } : {}) },
+      _count: { _all: true },
+      _sum: { value: true },
+    });
 
     // Sobe pela árvore inteira (inclusive contas inativas ocultas da resposta).
     const parents = new Map<number, number | null>(
@@ -117,7 +124,7 @@ export class ChartAccountService {
         .map((a) => [a.id, a.parentId]),
     );
     const totals = new Map<number, { entries: number; value: number }>();
-    for (const row of grouped) {
+    for (const row of [...grouped, ...payables]) {
       let id: number | null | undefined = row.chartAccountId;
       while (id) {
         const total = totals.get(id) ?? { entries: 0, value: 0 };
@@ -193,6 +200,7 @@ export class ChartAccountService {
       let movedEntries = 0;
       if (parent.acceptsEntries) {
         movedEntries = (await tx.financialRecords.updateMany({ where: { companyId: actor.companyId, chartAccountId: parent.id }, data: { chartAccountId: account.id } })).count;
+        movedEntries += (await tx.financial_Payable.updateMany({ where: { companyId: actor.companyId, chartAccountId: parent.id }, data: { chartAccountId: account.id } })).count;
         await tx.financial_ClassificationDefault.updateMany({ where: { companyId: actor.companyId, chartAccountId: parent.id }, data: { chartAccountId: account.id } });
         await tx.financial_ChartAccount.update({ where: { id: parent.id }, data: { acceptsEntries: false } });
       }
@@ -242,11 +250,13 @@ export class ChartAccountService {
 
       const subtreeIds = subtree.map((a) => a.id);
       if (target.nature !== account.nature) {
-        const used = await tx.financialRecords.count({ where: { companyId: actor.companyId, chartAccountId: { in: subtreeIds } } });
+        const used = await tx.financialRecords.count({ where: { companyId: actor.companyId, chartAccountId: { in: subtreeIds } } })
+          + await tx.financial_Payable.count({ where: { companyId: actor.companyId, chartAccountId: { in: subtreeIds } } });
         if (used > 0) throw new ConflictException('Esta conta tem lançamentos: não pode trocar entre Receitas e Despesas');
       }
       if (target.acceptsEntries) {
-        const used = await tx.financialRecords.count({ where: { companyId: actor.companyId, chartAccountId: target.id } });
+        const used = await tx.financialRecords.count({ where: { companyId: actor.companyId, chartAccountId: target.id } })
+          + await tx.financial_Payable.count({ where: { companyId: actor.companyId, chartAccountId: target.id } });
         if (used > 0) {
           throw new ConflictException(`${target.code} ${target.name} tem lançamentos. Crie uma conta filha nela antes (os lançamentos passam para a filha) e então mova`);
         }
@@ -290,7 +300,8 @@ export class ChartAccountService {
       if (account.inactiveAt) return account;
       const activeChildren = await tx.financial_ChartAccount.count({ where: { companyId: actor.companyId, parentId: id, inactiveAt: null } });
       if (activeChildren > 0) throw new ConflictException('Inative antes as contas filhas ativas');
-      const open = await tx.financialRecords.count({ where: { companyId: actor.companyId, chartAccountId: id, inactiveAt: null, status: { in: OPEN } } });
+      const open = await tx.financialRecords.count({ where: { companyId: actor.companyId, chartAccountId: id, inactiveAt: null, status: { in: OPEN } } })
+        + await tx.financial_Payable.count({ where: { companyId: actor.companyId, chartAccountId: id, inactiveAt: null, status: 'aberta' } });
       if (open > 0) throw new ConflictException(`Há ${open} lançamento(s) em aberto nesta conta: reclassifique ou dê baixa antes de inativar`);
       const defaults = await tx.financial_ClassificationDefault.count({ where: { companyId: actor.companyId, chartAccountId: id } });
       if (defaults > 0) throw new ConflictException('Esta conta é usada na classificação automática: troque a conta padrão antes de inativar');

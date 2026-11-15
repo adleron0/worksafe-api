@@ -8,13 +8,14 @@ export class FinancialService {
   constructor(private readonly prisma: PrismaService, private readonly chart: ChartAccountService) {}
 
   /**
-   * Saldo gerencial de cada conta: saldo inicial + o que foi baixado nela.
+   * Saldo gerencial de cada conta: saldo inicial + o que entrou nela − o que saiu
+   * (contas a pagar baixadas).
    * Conta do tipo gateway soma também o que o provedor confirmou (esses
    * recebíveis não passam pela baixa manual, então não têm conta gravada).
    */
   async bankBalances(companyId: number) {
     const accounts = await this.prisma.financial_BankAccount.findMany({ where: { companyId } });
-    const out: Array<{ id: number; balance: number; received: number }> = [];
+    const out: Array<{ id: number; balance: number; received: number; paid: number }> = [];
     for (const account of accounts) {
       const since = account.openingBalanceDate ? { paidAt: { gte: account.openingBalanceDate } } : {};
       const base = { companyId, status: 'received' as const, inactiveAt: null, ...since };
@@ -28,10 +29,16 @@ export class FinancialService {
         : [];
       const received = [...settled, ...viaGateway]
         .reduce((sum, r) => sum + Number(r.receivedValue ?? r.netValue ?? r.value ?? 0), 0);
+      // saídas: contas a pagar baixadas nesta conta
+      const outflow = await this.prisma.financial_Payable.aggregate({
+        where: { companyId, status: 'paga', inactiveAt: null, bankAccountId: account.id, ...since }, _sum: { paidValue: true },
+      });
+      const paid = Number(outflow._sum.paidValue ?? 0);
       out.push({
         id: account.id,
         received: Math.round(received * 100) / 100,
-        balance: Math.round((Number(account.openingBalance) + received) * 100) / 100,
+        paid: Math.round(paid * 100) / 100,
+        balance: Math.round((Number(account.openingBalance) + received - paid) * 100) / 100,
       });
     }
     return out;
