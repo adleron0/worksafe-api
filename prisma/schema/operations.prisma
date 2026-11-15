@@ -54,6 +54,9 @@ model Service_Order {
   notes           String?
   conclusionNotes String?
   statusNote      String? @db.VarChar(500)
+  // resultado (orçado × realizado) congelado ao encerrar a OS
+  result          Json?
+  closedAt        DateTime?
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt

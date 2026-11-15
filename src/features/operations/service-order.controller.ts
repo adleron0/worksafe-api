@@ -3,6 +3,7 @@ import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { COSTS_PERMISSION, permissionsOf } from 'src/features/commercial/proposal.controller';
 import { DailyReportService } from './daily-report.service';
+import { OrderResultService } from './order-result.service';
 import { OrderActor, ServiceOrderService } from './service-order.service';
 
 const actorOf = (req: Request): OrderActor => {
@@ -14,13 +15,20 @@ type Json = Record<string, unknown>;
 /** Ordens de serviço: a esteira da operação (mobilizar, agendar, executar, concluir). */
 @Controller('service-orders')
 export class ServiceOrderController {
-  constructor(private readonly orders: ServiceOrderService) {}
+  constructor(private readonly orders: ServiceOrderService, private readonly resultService: OrderResultService) {}
 
   @Permissions('list_ordens_de_servico') @Get()
   list(@Req() req: Request, @Query() query: Record<string, string>) { return this.orders.list(actorOf(req), query ?? {}); }
 
   @Permissions('list_ordens_de_servico') @Get('options')
   options(@Req() req: Request) { return this.orders.options(actorOf(req)); }
+
+  /** Resultado de todas as obras (orçado × realizado × projeção): só com a permissão de custos. */
+  @Permissions('list_ordens_de_servico') @Get('results')
+  results(@Req() req: Request, @Query() query: Record<string, string>) { return this.resultService.list(actorOf(req), query ?? {}); }
+
+  @Permissions('list_ordens_de_servico') @Get(':id/result')
+  result(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.resultService.of(actorOf(req), id); }
 
   @Permissions('list_ordens_de_servico') @Get(':id')
   get(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.orders.get(actorOf(req), id); }

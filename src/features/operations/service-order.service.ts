@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma, ServiceOrderStatus, Service_Order } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { FlowDefinition, assertMove, listFlowEvents, recordFlowEvent } from 'src/common/flow/flow';
+import { OrderResultService } from './order-result.service';
 
 /**
  * Ordem de serviço: a obra que nasce de uma proposta de serviço aceita.
@@ -57,7 +58,7 @@ const newId = () => Math.random().toString(36).slice(2, 10);
 
 @Injectable()
 export class ServiceOrderService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly results: OrderResultService) {}
 
   // ------------------------------------------------------------------ criação
 
@@ -238,7 +239,7 @@ export class ServiceOrderService {
       responsible, team: (row.team as unknown as TeamMember[]) ?? [],
       plannedStart: iso(row.plannedStart), plannedEnd: iso(row.plannedEnd), startedAt: iso(row.startedAt), finishedAt: iso(row.finishedAt),
       scope: row.scope, schedule: row.schedule, checklist: (row.checklist as unknown as ChecklistItem[]) ?? [],
-      notes: row.notes, conclusionNotes: row.conclusionNotes,
+      notes: row.notes, conclusionNotes: row.conclusionNotes, closedAt: row.closedAt,
       // custo orçado e receita: só com a permissão de custos
       canSeeCosts: actor.canSeeCosts, budget: actor.canSeeCosts ? row.budget : null,
       events: events.map((event) => ({ id: event.id, type: event.type, from: event.fromStage, to: event.toStage, note: event.note, at: event.createdAt, user: event.userId ? userName.get(event.userId) ?? null : null })),
@@ -349,6 +350,9 @@ export class ServiceOrderService {
     // voltar uma etapa desfaz a data que a etapa tinha registrado
     if (!forward && row.status === 'em_execucao') data.startedAt = null;
     if (!forward && row.status === 'concluida') data.finishedAt = null;
+    // encerrar congela o resultado (orçado × realizado); reabrir volta a calcular
+    if (target === 'encerrada') { data.result = await this.results.frozen(row); data.closedAt = new Date(); }
+    if (row.status === 'encerrada') { data.result = Prisma.DbNull; data.closedAt = null; }
 
     await this.prisma.$transaction(async (tx) => {
       // só anda se ainda estiver onde a tela viu: dois cliques não andam duas etapas
