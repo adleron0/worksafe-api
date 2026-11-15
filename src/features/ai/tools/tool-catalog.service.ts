@@ -7,6 +7,7 @@ import { ToolDeps } from './tool.deps';
 import { ActionResult, ToolContext, ToolDefinition, ToolRefusal } from './tool.types';
 import { WRITE_TOOLS } from './write.tools';
 import { IMAGE_TOOLS } from './image.tools';
+import { FINANCE_TOOLS } from './finance.tools';
 
 /** Resultado de uma chamada, como volta para o modelo. */
 export interface ToolOutcome {
@@ -57,7 +58,7 @@ export class ToolCatalogService {
   private readonly tools = new Map<string, ToolDefinition>();
 
   constructor(private readonly prisma: PrismaService, private readonly deps: ToolDeps) {
-    for (const tool of [...READ_TOOLS, ...WRITE_TOOLS, ...IMAGE_TOOLS]) this.tools.set(tool.name, tool);
+    for (const tool of [...READ_TOOLS, ...WRITE_TOOLS, ...IMAGE_TOOLS, ...FINANCE_TOOLS]) this.tools.set(tool.name, tool);
   }
 
   all(): ToolDefinition[] {

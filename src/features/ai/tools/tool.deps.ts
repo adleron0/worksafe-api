@@ -11,6 +11,7 @@ import { ServiceOrderService } from 'src/features/operations/service-order.servi
 import { PayableService } from 'src/features/financial/payable.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ImageIntakeService } from '../images/image-intake.service';
+import { InternalApiService } from './internal-api.service';
 
 /**
  * Os serviços de domínio que as ferramentas usam. As ferramentas não
@@ -31,5 +32,6 @@ export class ToolDeps {
     readonly employeeActivities: EmployeeActivityService,
     readonly payables: PayableService,
     readonly images: ImageIntakeService,
+    readonly api: InternalApiService,
   ) {}
 }
