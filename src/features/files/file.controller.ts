@@ -7,14 +7,14 @@ import { permissionsOf } from 'src/features/commercial/proposal.controller';
 import { FILE_MAX_BYTES } from './file.rules';
 import { CompanyFileService, FILES_MANAGE_PERMISSION, FILES_WRITE_PERMISSION, FileActor, UploadedFile } from './file.service';
 
-const actorOf = (req: Request): FileActor => {
+export const actorOf = (req: Request): FileActor => {
   const user = (req as Request & { user?: { sub?: number; companyId?: number; permissions?: unknown } }).user;
   const permissions = permissionsOf(user?.permissions);
-  return { userId: Number(user?.sub ?? 0), companyId: Number(user?.companyId ?? 0), canWrite: permissions.includes(FILES_WRITE_PERMISSION), canManage: permissions.includes(FILES_MANAGE_PERMISSION) };
+  return { userId: Number(user?.sub ?? 0), companyId: Number(user?.companyId ?? 0), canWrite: permissions.includes(FILES_WRITE_PERMISSION), canManage: permissions.includes(FILES_MANAGE_PERMISSION), permissions };
 };
 type Json = Record<string, unknown>;
 /** O arquivo passa pela memória da API até o armazenamento privado: nunca vai para o bucket público. */
-const UPLOAD = { storage: multer.memoryStorage(), limits: { fileSize: FILE_MAX_BYTES } };
+export const UPLOAD = { storage: multer.memoryStorage(), limits: { fileSize: FILE_MAX_BYTES } };
 
 /**
  * Arquivos da empresa: pastas, arquivos e lixeira. Entrar pede `view_arquivos`;
@@ -53,6 +53,10 @@ export class CompanyFileController {
 
   @Permissions('manage_arquivos') @Patch('types/:id/active')
   activateType(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.files.setTypeActive(actorOf(req), id, true); }
+
+  /** "Por cliente": os clientes, propostas e OS que têm arquivos (só lista; os arquivos abrem no registro). */
+  @Permissions('view_arquivos') @Get('by-customer')
+  byCustomer(@Req() req: Request) { return this.files.byCustomer(actorOf(req)); }
 
   @Permissions('update_arquivos') @Get('trash')
   trash(@Req() req: Request) { return this.files.trash(actorOf(req)); }
@@ -130,6 +134,69 @@ export class CompanyFileController {
 
   /** Pela API: sem link direto, sem cache, e cada acesso fica registrado. */
   @Permissions('view_arquivos') @Get('files/:id/file')
+  async file(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Res() res: Response, @Query('download') download?: string) {
+    const { body, fileName, mimeType, inline } = await this.files.file(actorOf(req), id, download === '1');
+    res.set({
+      'Content-Type': mimeType, 'Content-Length': String(body.length), 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff',
+      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+    });
+    res.end(body);
+  }
+}
+
+/**
+ * Arquivos de um registro (cliente, proposta, ordem de serviço). As rotas não
+ * pedem a permissão do módulo Arquivos: quem vê o registro vê os arquivos dele,
+ * e quem pode alterar o registro envia e apaga. A conferência é feita no serviço,
+ * com o "só as minhas" de propostas e de OS.
+ */
+@Controller('record-files')
+export class RecordFileController {
+  constructor(private readonly files: CompanyFileService) {}
+
+  @Get(':entity/:entityId')
+  list(@Param('entity') entity: string, @Param('entityId', ParseIntPipe) entityId: number, @Req() req: Request) { return this.files.recordFiles(actorOf(req), entity, entityId); }
+
+  @Post(':entity/:entityId')
+  @UseInterceptors(FileInterceptor('file', UPLOAD))
+  upload(@Param('entity') entity: string, @Param('entityId', ParseIntPipe) entityId: number, @Req() req: Request, @Body() body: Json, @Uploaded() file?: UploadedFile) {
+    return this.files.upload(actorOf(req), file, { ...(body ?? {}), entity, entityId });
+  }
+
+  // arquivo grande, direto ao armazenamento: o corpo leva `entity` e `entityId` (ou `replaceId`)
+  @Post('uploads')
+  startUpload(@Req() req: Request, @Body() body: Json) { return this.files.startUpload(actorOf(req), { ...(body ?? {}), folderId: undefined }); }
+
+  @Post('uploads/:id/parts')
+  uploadParts(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.files.uploadParts(actorOf(req), id, body ?? {}); }
+
+  @Post('uploads/:id/complete')
+  finishUpload(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.files.finishUpload(actorOf(req), id, body ?? {}); }
+
+  @Delete('uploads/:id')
+  cancelUpload(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.files.cancelUpload(actorOf(req), id); }
+
+  @Post('files/:id/replace')
+  @UseInterceptors(FileInterceptor('file', UPLOAD))
+  replace(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json, @Uploaded() file?: UploadedFile) { return this.files.replace(actorOf(req), id, file, body ?? {}); }
+
+  /** Renomear ou corrigir a observação (arquivo de registro não muda de lugar). */
+  @Put('files/:id')
+  updateFile(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) {
+    const { name, notes } = (body ?? {}) as { name?: unknown; notes?: unknown };
+    return this.files.updateFile(actorOf(req), id, { ...(name !== undefined ? { name } : {}), ...(notes !== undefined ? { notes } : {}) });
+  }
+
+  @Delete('files/:id')
+  trashFile(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.files.trashFile(actorOf(req), id); }
+
+  @Post('files/:id/restore')
+  restoreFile(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.files.restoreFile(actorOf(req), id); }
+
+  @Get('files/:id/link')
+  link(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Query('download') download?: string) { return this.files.link(actorOf(req), id, download === '1'); }
+
+  @Get('files/:id/file')
   async file(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Res() res: Response, @Query('download') download?: string) {
     const { body, fileName, mimeType, inline } = await this.files.file(actorOf(req), id, download === '1');
     res.set({

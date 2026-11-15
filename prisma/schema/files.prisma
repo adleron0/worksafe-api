@@ -32,8 +32,12 @@ model File_Folder {
 model File_Item {
   id        Int         @id @default(autoincrement())
   companyId Int
-  folderId  Int
-  folder    File_Folder @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  // o arquivo fica numa pasta OU pertence a um registro (cliente, proposta, OS)
+  folderId  Int?
+  folder    File_Folder? @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  // "customer" | "proposal" | "service_order": quem vê o registro vê o arquivo
+  entity    String?      @db.VarChar(30)
+  entityId  Int?
 
   // o nome mostrado (pode ser trocado) e o nome original do arquivo enviado
   name     String @db.VarChar(200)
@@ -71,6 +75,7 @@ model File_Item {
 
   @@index([companyId, folderId])
   @@index([companyId, trashedAt])
+  @@index([companyId, entity, entityId])
   @@index([companyId, expiryDate])
   @@index([versionGroup])
 }

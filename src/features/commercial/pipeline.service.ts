@@ -41,7 +41,7 @@ export class PipelineService {
     // RH: documentos de funcionários vencidos, a vencer e obrigatórios faltando
     if (can(DOCUMENTS_VIEW_PERMISSION)) blocks.push(this.documents.pipelineBlocks(actor.companyId));
     // Empresa: documentos da empresa vencidos, a vencer e obrigatórios faltando, só nas pastas que a pessoa vê
-    if (can(FILES_VIEW_PERMISSION)) blocks.push(this.files.pipelineBlocks({ userId: actor.userId, companyId: actor.companyId, canWrite: can(FILES_WRITE_PERMISSION), canManage: can(FILES_MANAGE_PERMISSION) }));
+    if (can(FILES_VIEW_PERMISSION)) blocks.push(this.files.pipelineBlocks({ userId: actor.userId, companyId: actor.companyId, canWrite: can(FILES_WRITE_PERMISSION), canManage: can(FILES_MANAGE_PERMISSION), permissions: actor.permissions }));
     return { today: now, blocks: (await Promise.all(blocks)).flat() };
   }
 

@@ -584,4 +584,104 @@ describe('Arquivos da empresa (e2e)', () => {
     await api().get(`/company-files/folders/${folderId('Seguros')}/zip`).set(auth(company.id)).expect(400); // pasta sem arquivos
     await api().get(`/company-files/folders/${contratos}/zip`).set(auth(company.id, [])).expect(403);
   });
+
+  it('arquivos de um registro: quem vê o cliente, a proposta ou a OS vê os arquivos, com o "só as minhas"', async () => {
+    const { company, db } = await cenario();
+    const rank = await db.dOM_Ranks.create({ data: { name: 'A', companyId: company.id } });
+    const state = (await db.dOM_States.findFirst()) ?? (await db.dOM_States.create({ data: { name: 'Pernambuco', uf: 'PE' } }));
+    const city = (await db.dOM_Cities.findFirst()) ?? (await db.dOM_Cities.create({ data: { name: 'Recife', stateId: state.id } }));
+    const customer = await db.customer.create({ data: { name: 'Indústria Alfa', corporateName: 'Indústria Alfa SA', cnpj: '11222333000181', companyId: company.id, rankId: rank.id, phone: '8133334444', email: 'compras@alfa.local', stateId: state.id, cityId: city.id } });
+    const vendedora = await makeSeller(company.id, { name: 'Vendedora' });
+    const outro = await makeSeller(company.id, { name: 'Outro vendedor' });
+    const proposal = await db.commercial_Proposal.create({ data: { companyId: company.id, number: 'P-2026-0001', year: 2026, sequence: 1, customerId: customer.id, title: 'Montagem de andaime', sellerId: vendedora.id, referenceDate: new Date('2026-11-15T00:00:00.000Z'), snapshot: {} } as any });
+    const order = await db.service_Order.create({ data: {
+      companyId: company.id, number: 'OS-2026-0001', year: 2026, sequence: 1, contractId: 9001, proposalId: proposal.id, customerId: customer.id, title: 'Montagem', status: 'agendada', scope: [], checklist: [],
+      responsibleUserId: vendedora.id, team: [],
+    } as any });
+    const CLIENTES = ['list_clientes', 'update_clientes'];
+    const COMERCIAL = ['list_comercial', 'update_comercial'];
+    const OS = ['list_ordens_de_servico', 'update_ordens_de_servico'];
+    const enviarEm = (entity: string, id: number, permissions: string[], sub?: number, name = 'contrato.pdf') =>
+      api().post(`/record-files/${entity}/${id}`).set(auth(company.id, permissions, sub)).attach('file', PDF, { filename: name, contentType: 'application/pdf' });
+    const listar = (entity: string, id: number, permissions: string[], sub?: number) => api().get(`/record-files/${entity}/${id}`).set(auth(company.id, permissions, sub));
+
+    // cliente: quem vê clientes vê; quem só vê não envia; não precisa da permissão do módulo Arquivos
+    const doCliente = (await enviarEm('customer', customer.id, CLIENTES, undefined, 'contrato social do cliente.pdf').expect(201)).body;
+    expect(doCliente).toMatchObject({ folderId: null, entity: 'customer', entityId: customer.id, name: 'contrato social do cliente.pdf' });
+    await enviarEm('customer', customer.id, ['list_clientes']).expect(403);
+    await enviarEm('customer', customer.id, WRITE).expect(404); // ter Arquivos não dá acesso a clientes
+    await enviarEm('customer', 999999, CLIENTES).expect(404);
+    await enviarEm('pedido', customer.id, CLIENTES).expect(400);
+    const lista = (await listar('customer', customer.id, ['list_clientes']).expect(200)).body;
+    expect(lista).toMatchObject({ record: { entity: 'customer', label: 'Indústria Alfa' }, canWrite: false });
+    expect(lista.files.map((file: any) => file.name)).toEqual(['contrato social do cliente.pdf']);
+    const other = await makeCompany();
+    await listar('customer', customer.id, CLIENTES).set(auth(other.id, CLIENTES)).expect(404);
+
+    // proposta e OS: vale o "só as minhas"
+    const daProposta = (await enviarEm('proposal', proposal.id, COMERCIAL, vendedora.id, 'memorial.pdf').expect(201)).body;
+    await listar('proposal', proposal.id, COMERCIAL, outro.id).expect(404);
+    await enviarEm('proposal', proposal.id, COMERCIAL, outro.id).expect(404);
+    expect((await listar('proposal', proposal.id, [...COMERCIAL, 'all_propostas'], outro.id).expect(200)).body.record.label).toBe('P-2026-0001 · Montagem de andaime');
+    const daOs = (await enviarEm('service_order', order.id, OS, vendedora.id, 'art.pdf').expect(201)).body;
+    await listar('service_order', order.id, OS, outro.id).expect(404);
+    expect((await listar('service_order', order.id, [...OS, 'all_ordens_de_servico'], outro.id).expect(200)).body.files).toHaveLength(1);
+
+    // o arquivo em si segue a mesma regra, pelas rotas do registro e pelas do módulo
+    await api().get(`/record-files/files/${daProposta.id}/file`).set(auth(company.id, COMERCIAL, vendedora.id)).expect(200);
+    await api().get(`/record-files/files/${daProposta.id}/file`).set(auth(company.id, COMERCIAL, outro.id)).expect(404);
+    await api().get(`/record-files/files/${daProposta.id}/link`).set(auth(company.id, COMERCIAL, outro.id)).expect(404);
+    await api().get(`/company-files/files/${daProposta.id}/file`).set(auth(company.id, MANAGE, outro.id)).expect(404); // administrar Arquivos não abre proposta alheia
+    expect((await api().get(`/record-files/files/${daProposta.id}/link`).set(auth(company.id, COMERCIAL, vendedora.id)).expect(200)).body.expiresIn).toBe(300);
+    expect(await db.flow_Event.count({ where: { entity: 'company_file', entityId: daProposta.id, type: 'visualizado' } })).toBe(2);
+
+    // renomear, versão nova, lixeira e restaurar: de quem pode alterar o registro
+    await api().put(`/record-files/files/${daOs.id}`).set(auth(company.id, ['list_ordens_de_servico'], vendedora.id)).send({ name: 'ART' }).expect(403);
+    await api().put(`/record-files/files/${daOs.id}`).set(auth(company.id, OS, vendedora.id)).send({ name: 'ART da obra', folderId: 1 }).expect(200);
+    await api().put(`/company-files/files/${daOs.id}`).set(auth(company.id, [...MANAGE, ...OS], vendedora.id)).send({ folderId: 1 }).expect(400); // arquivo de registro não vai para pasta
+    const v2 = (await api().post(`/record-files/files/${daOs.id}/replace`).set(auth(company.id, OS, vendedora.id)).attach('file', Buffer.from('v2'), { filename: 'art v2.pdf', contentType: 'application/pdf' }).expect(201)).body;
+    expect(v2).toMatchObject({ name: 'ART da obra', entity: 'service_order', entityId: order.id, folderId: null });
+    let daOrdem = (await listar('service_order', order.id, OS, vendedora.id).expect(200)).body;
+    expect(daOrdem.files).toHaveLength(1);
+    expect(daOrdem.files[0].versions.map((version: any) => version.id)).toEqual([daOs.id]);
+    await api().delete(`/record-files/files/${v2.id}`).set(auth(company.id, ['list_ordens_de_servico'], vendedora.id)).expect(403);
+    await api().delete(`/record-files/files/${v2.id}`).set(auth(company.id, OS, vendedora.id)).expect(200);
+    daOrdem = (await listar('service_order', order.id, OS, vendedora.id).expect(200)).body;
+    expect(daOrdem.files).toEqual([]);
+    expect(daOrdem.trashed.map((file: any) => [file.name, file.daysLeft])).toEqual([['ART da obra', 30]]);
+    await api().post(`/record-files/files/${v2.id}/restore`).set(auth(company.id, OS, vendedora.id)).expect(201);
+    expect((await listar('service_order', order.id, OS, vendedora.id).expect(200)).body.files).toHaveLength(1);
+
+    // arquivo grande num registro, direto ao armazenamento
+    const started = (await api().post('/record-files/uploads').set(auth(company.id, COMERCIAL, vendedora.id)).send({ entity: 'proposal', entityId: proposal.id, fileName: 'vídeo da visita.mp4', mimeType: 'video/mp4', size: 3000 }).expect(201)).body;
+    await api().post('/record-files/uploads').set(auth(company.id, COMERCIAL, outro.id)).send({ entity: 'proposal', entityId: proposal.id, fileName: 'x.mp4', mimeType: 'video/mp4', size: 3000 }).expect(404);
+    const pending = await db.file_Item.findUniqueOrThrow({ where: { id: started.id } });
+    const etag = (files as any).storage.memoryPart(pending.uploadId, 1, Buffer.alloc(3000, 5));
+    const big = (await api().post(`/record-files/uploads/${started.id}/complete`).set(auth(company.id, COMERCIAL, vendedora.id)).send({ parts: [{ partNumber: 1, etag }] }).expect(201)).body;
+    expect(big).toMatchObject({ entity: 'proposal', entityId: proposal.id, folderId: null, size: 3000 });
+
+    // os arquivos de registro não aparecem nas pastas, na busca, na lixeira nem nos vencimentos do módulo
+    const root = (await api().get('/company-files/browse').set(auth(company.id)).expect(200)).body;
+    expect(root.folders.reduce((sum: number, folder: any) => sum + folder.files, 0)).toBe(0);
+    expect((await api().get('/company-files/search?q=memorial').set(auth(company.id)).expect(200)).body.files).toEqual([]);
+    await api().delete(`/record-files/files/${doCliente.id}`).set(auth(company.id, CLIENTES)).expect(200);
+    expect((await api().get('/company-files/trash').set(auth(company.id)).expect(200)).body.files).toEqual([]);
+    await api().post(`/record-files/files/${doCliente.id}/restore`).set(auth(company.id, CLIENTES)).expect(201);
+
+    // "Por cliente": só o que a pessoa enxerga
+    const tudo = (await api().get('/company-files/by-customer').set(auth(company.id, [...VIEW, ...CLIENTES, ...COMERCIAL, ...OS, 'all_propostas', 'all_ordens_de_servico'])).expect(200)).body.rows;
+    expect(tudo).toHaveLength(1);
+    expect(tudo[0]).toMatchObject({ name: 'Indústria Alfa', files: 1, canOpen: true });
+    expect(tudo[0].records.map((item: any) => [item.entity, item.files])).toEqual([['service_order', 1], ['proposal', 2]]);
+    const parcial = (await api().get('/company-files/by-customer').set(auth(company.id, [...VIEW, ...COMERCIAL], outro.id)).expect(200)).body.rows;
+    expect(parcial).toEqual([]); // não vê clientes, e a proposta não é dele
+    const soCliente = (await api().get('/company-files/by-customer').set(auth(company.id, [...VIEW, ...CLIENTES])).expect(200)).body.rows;
+    expect(soCliente[0]).toMatchObject({ files: 1, records: [] });
+    await api().get('/company-files/by-customer').set(auth(company.id, CLIENTES)).expect(403);
+
+    // apagar de vez um arquivo de registro: só quem administra os Arquivos e vê o registro
+    await api().delete(`/record-files/files/${doCliente.id}`).set(auth(company.id, CLIENTES)).expect(200);
+    await api().delete(`/company-files/files/${doCliente.id}/purge`).set(auth(company.id, [...MANAGE, ...CLIENTES])).expect(200);
+    expect(await db.file_Item.count({ where: { id: doCliente.id } })).toBe(0);
+  });
 });

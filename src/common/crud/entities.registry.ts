@@ -93,7 +93,7 @@ import { OperationsModule } from 'src/features/operations/module';
 import { PurchaseOrderController } from 'src/features/operations/purchase-order.controller';
 import { HrModule } from 'src/features/hr/module';
 import { FilesModule } from 'src/features/files/module';
-import { CompanyFileController } from 'src/features/files/file.controller';
+import { CompanyFileController, RecordFileController } from 'src/features/files/file.controller';
 import { EmployeeController } from 'src/features/hr/employee.controller';
 import { EmployeeDocumentController } from 'src/features/hr/document.controller';
 import { EmployeeActivityController } from 'src/features/hr/activity.controller';
@@ -268,6 +268,7 @@ export const crudExtraControllers = [
   EmployeeController,
   EmployeeDocumentController,
   CompanyFileController,
+  RecordFileController,
   EmployeeActivityController,
   PlaceController,
   ContractController,

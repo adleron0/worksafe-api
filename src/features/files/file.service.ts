@@ -10,6 +10,7 @@ import {
   DEFAULT_FILE_TYPES, DEFAULT_FOLDERS, DIRECT_MAX_BYTES, FILE_MAX_BYTES, LINK_SECONDS, PART_BYTES, PART_LINK_SECONDS, PENDING_UPLOAD_HOURS, TRASH_DAYS, ZIP_MAX_BYTES, ZIP_MAX_FILES,
   cleanName, downloadName, extensionOf, fold, opensInline, uploadedName,
 } from './file.rules';
+import { RecordAccess, RecordEntity, recordAccess, recordEntityOf, visibleRecords } from './file.records';
 
 /**
  * Arquivos da empresa: pastas livres em árvore e os arquivos dentro delas.
@@ -25,7 +26,7 @@ import {
  * guarda o anterior como versão.
  */
 type Body = Record<string, any>;
-export interface FileActor { userId: number; companyId: number; canWrite: boolean; canManage: boolean }
+export interface FileActor { userId: number; companyId: number; canWrite: boolean; canManage: boolean; /** para os arquivos ligados a um registro: quem vê o registro vê o arquivo */ permissions?: string[] }
 export interface UploadedFile { buffer: Buffer; originalname: string; mimetype: string; size: number }
 export const FILES_VIEW_PERMISSION = 'view_arquivos';
 export const FILES_WRITE_PERMISSION = 'update_arquivos';
@@ -118,12 +119,40 @@ export class CompanyFileService {
     return folder;
   }
 
-  /** O arquivo vigente (ou, com `version`, também uma versão anterior), numa pasta que a pessoa vê. */
-  private async fileOf(actor: FileActor, tree: Tree, id: number, options: { trashed?: boolean; version?: boolean } = {}): Promise<FileRow> {
+  /**
+   * O arquivo vigente (ou, com `version`, também uma versão anterior) que a pessoa
+   * alcança: numa pasta que ela vê, ou num registro (cliente, proposta, OS) que ela
+   * vê. Com `write`, confere também se ela pode alterar.
+   */
+  private async fileOf(actor: FileActor, tree: Tree, id: number, options: { trashed?: boolean; version?: boolean; write?: boolean } = {}): Promise<FileRow> {
     const trashed = !!options.trashed;
+    const missing = () => new NotFoundException('Arquivo não encontrado');
     const file = await this.prisma.file_Item.findFirst({ where: { id, companyId: actor.companyId }, include: WITH_TYPE });
-    if (!file || file.uploadId || !tree.allowed(file.folderId) || !!file.trashedAt !== trashed || (!trashed && !tree.live(file.folderId)) || (!!file.replacedAt && !options.version)) throw new NotFoundException('Arquivo não encontrado');
+    if (!file || file.uploadId || !!file.trashedAt !== trashed || (!!file.replacedAt && !options.version)) throw missing();
+    if (file.folderId) {
+      if (!tree.allowed(file.folderId) || (!trashed && !tree.live(file.folderId))) throw missing();
+      if (options.write) this.needWrite(actor);
+      return file;
+    }
+    const access = await this.recordOf(actor, file.entity, file.entityId).catch(() => { throw missing(); });
+    if (options.write && !access.write) throw new ForbiddenException('Seu perfil não pode alterar os arquivos deste registro');
     return file;
+  }
+
+  /** O registro dono do arquivo, se a pessoa o enxerga. */
+  private recordOf(actor: FileActor, entity: unknown, entityId: unknown): Promise<RecordAccess> {
+    return recordAccess(this.prisma, { userId: actor.userId, companyId: actor.companyId, permissions: actor.permissions ?? [] }, recordEntityOf(entity), Number(entityId));
+  }
+
+  /** Onde um arquivo novo entra: numa pasta que a pessoa pode alterar, ou num registro que ela pode alterar. */
+  private async targetOf(actor: FileActor, tree: Tree, body: Body): Promise<{ folderId: number | null; entity: RecordEntity | null; entityId: number | null }> {
+    if (body.entity) {
+      const access = await this.recordOf(actor, body.entity, body.entityId);
+      if (!access.write) throw new ForbiddenException('Seu perfil não pode enviar arquivos para este registro');
+      return { folderId: null, entity: access.entity, entityId: access.id };
+    }
+    this.needWrite(actor);
+    return { folderId: this.folderOf(tree, Number(body.folderId)).id, entity: null, entityId: null };
   }
 
   /** O arquivo e as versões anteriores dele. */
@@ -158,7 +187,7 @@ export class CompanyFileService {
   private presentFile(file: FileRow, names: Map<number, string>, day = today()) {
     const status = statusOf(file, day);
     return {
-      id: file.id, folderId: file.folderId, name: file.name, fileName: file.fileName, mimeType: file.mimeType, size: Number(file.size), notes: file.notes,
+      id: file.id, folderId: file.folderId, entity: file.entity, entityId: file.entityId, name: file.name, fileName: file.fileName, mimeType: file.mimeType, size: Number(file.size), notes: file.notes,
       inline: opensInline(file.mimeType), uploadedBy: file.uploadedByUserId ? names.get(file.uploadedByUserId) ?? null : null, createdAt: file.createdAt,
       typeId: file.typeId, typeName: file.type?.name ?? null, issueDate: iso(file.issueDate), expiryDate: iso(file.expiryDate), warnDays: file.warnDays,
       status, statusLabel: DOCUMENT_STATUS_LABEL[status],
@@ -178,13 +207,13 @@ export class CompanyFileService {
   }
 
   private async fileCounts(companyId: number): Promise<Map<number, number>> {
-    const rows = await this.prisma.file_Item.groupBy({ by: ['folderId'], where: { companyId, ...CURRENT }, _count: { _all: true } });
+    const rows = await this.prisma.file_Item.groupBy({ by: ['folderId'], where: { companyId, ...CURRENT, folderId: { not: null } }, _count: { _all: true } });
     return new Map(rows.map((row) => [row.folderId, row._count._all]));
   }
 
   /** A situação de cada arquivo com validade, por pasta. */
   private async folderStatuses(companyId: number, day: string): Promise<Map<number, FolderStatus[]>> {
-    const rows = await this.prisma.file_Item.findMany({ where: { companyId, ...CURRENT, expiryDate: { not: null } }, select: { folderId: true, expiryDate: true, warnDays: true, type: { select: { warnDays: true } } } });
+    const rows = await this.prisma.file_Item.findMany({ where: { companyId, ...CURRENT, folderId: { not: null }, expiryDate: { not: null } }, select: { folderId: true, expiryDate: true, warnDays: true, type: { select: { warnDays: true } } } });
     const out = new Map<number, FolderStatus[]>();
     for (const row of rows) out.set(row.folderId, [...(out.get(row.folderId) ?? []), statusOf(row, day)]);
     return out;
@@ -443,18 +472,16 @@ export class CompanyFileService {
     const expiry = await this.expiryOf(actor.companyId, { issueDate: null, expiryDate: null, ...body, typeId: 'typeId' in body ? body.typeId : current.typeId }, null);
     // mantém o nome mostrado quando o tipo de arquivo é o mesmo; se mudou (PDF por imagem), vale o nome do novo
     const name = extensionOf(downloadName(current.name, current.fileName)) === extensionOf(fileName) ? current.name : fileName;
-    return { folderId: current.folderId, name, ...expiry, warnDays: 'warnDays' in body ? expiry.warnDays : current.warnDays, notes: 'notes' in body ? cleanName(body.notes, 500) || null : current.notes };
+    return { folderId: current.folderId, entity: current.entity, entityId: current.entityId, name, ...expiry, warnDays: 'warnDays' in body ? expiry.warnDays : current.warnDays, notes: 'notes' in body ? cleanName(body.notes, 500) || null : current.notes };
   }
 
   async upload(actor: FileActor, file: UploadedFile | undefined, body: Body) {
-    this.needWrite(actor);
-    const tree = await this.tree(actor);
-    const folder = this.folderOf(tree, Number(body.folderId));
+    const target = await this.targetOf(actor, await this.tree(actor), body);
     const { put, ...stored } = await this.store(actor, file);
     const expiry = await this.expiryOf(actor.companyId, body, null);
     await put();
     const created = await this.prisma.$transaction(async (tx) => {
-      const row = await tx.file_Item.create({ data: { companyId: actor.companyId, folderId: folder.id, name: stored.fileName, ...stored, ...expiry, notes: cleanName(body.notes, 500) || null, uploadedByUserId: actor.userId || null }, include: WITH_TYPE });
+      const row = await tx.file_Item.create({ data: { companyId: actor.companyId, ...target, name: stored.fileName, ...stored, ...expiry, notes: cleanName(body.notes, 500) || null, uploadedByUserId: actor.userId || null }, include: WITH_TYPE });
       await recordFlowEvent(tx, FILE_ENTITY, { companyId: actor.companyId, entityId: row.id, type: 'envio', userId: actor.userId, note: stored.fileName });
       return row;
     });
@@ -466,8 +493,7 @@ export class CompanyFileService {
    * e o novo herda a pasta, o tipo e a observação. O vencimento é o do novo.
    */
   async replace(actor: FileActor, id: number, file: UploadedFile | undefined, body: Body) {
-    this.needWrite(actor);
-    const current = await this.fileOf(actor, await this.tree(actor), id);
+    const current = await this.fileOf(actor, await this.tree(actor), id, { write: true });
     const { put, ...stored } = await this.store(actor, file);
     const inherited = await this.versionOf(actor, current, stored.fileName, body);
     const group = current.versionGroup ?? randomUUID();
@@ -490,16 +516,15 @@ export class CompanyFileService {
    * entra como versão nova de outro.
    */
   async startUpload(actor: FileActor, body: Body) {
-    this.needWrite(actor);
     const tree = await this.tree(actor);
     const size = Number(body.size);
     if (!Number.isInteger(size) || size <= 0) throw new BadRequestException('Informe o tamanho do arquivo');
     if (size > DIRECT_MAX_BYTES) throw new BadRequestException('O arquivo passa de 2 GB');
     const identity = this.identityOf(actor, body.fileName, body.mimeType);
-    const replaced = Number(body.replaceId) > 0 ? await this.fileOf(actor, tree, Number(body.replaceId)) : null;
+    const replaced = Number(body.replaceId) > 0 ? await this.fileOf(actor, tree, Number(body.replaceId), { write: true }) : null;
     const placement = replaced
       ? await this.versionOf(actor, replaced, identity.fileName, body)
-      : { folderId: this.folderOf(tree, Number(body.folderId)).id, name: identity.fileName, ...(await this.expiryOf(actor.companyId, body, null)), notes: cleanName(body.notes, 500) || null };
+      : { ...(await this.targetOf(actor, tree, body)), name: identity.fileName, ...(await this.expiryOf(actor.companyId, body, null)), notes: cleanName(body.notes, 500) || null };
     const uploadId = await this.storage.startUpload(identity.fileKey, identity.mimeType);
     const row = await this.prisma.file_Item.create({ data: { companyId: actor.companyId, ...identity, ...placement, size: BigInt(size), uploadId, replacesId: replaced?.id ?? null, uploadedByUserId: actor.userId || null } });
     return { id: row.id, partBytes: PART_BYTES, parts: Math.ceil(size / PART_BYTES) };
@@ -514,7 +539,7 @@ export class CompanyFileService {
 
   /** Os endereços para o navegador enviar as partes pedidas (até 50 por vez). */
   async uploadParts(actor: FileActor, id: number, body: Body) {
-    this.needWrite(actor);
+    // só quem abriu o envio (e tinha permissão para isso) continua, fecha ou desiste dele
     const row = await this.pendingUpload(actor, id);
     const total = Math.ceil(Number(row.size) / PART_BYTES);
     const numbers = idsOf(body.partNumbers);
@@ -524,7 +549,7 @@ export class CompanyFileService {
 
   /** Fecha o envio: junta as partes, confere o tamanho e só então o arquivo passa a existir na pasta. */
   async finishUpload(actor: FileActor, id: number, body: Body) {
-    this.needWrite(actor);
+    // só quem abriu o envio (e tinha permissão para isso) continua, fecha ou desiste dele
     const row = await this.pendingUpload(actor, id);
     const parts = (Array.isArray(body.parts) ? body.parts : []).map((part: Body) => ({ partNumber: Number(part?.partNumber), etag: String(part?.etag ?? '') }));
     const total = Math.ceil(Number(row.size) / PART_BYTES);
@@ -540,7 +565,7 @@ export class CompanyFileService {
       const replaced = row.replacesId ? await tx.file_Item.findFirst({ where: { id: row.replacesId, companyId: actor.companyId, ...CURRENT } }) : null;
       const group = replaced ? replaced.versionGroup ?? randomUUID() : null;
       if (replaced) await tx.file_Item.update({ where: { id: replaced.id }, data: { replacedAt: new Date(), versionGroup: group } });
-      const done = await tx.file_Item.update({ where: { id }, data: { uploadId: null, replacesId: null, versionGroup: group, ...(replaced ? { folderId: replaced.folderId } : {}) }, include: WITH_TYPE });
+      const done = await tx.file_Item.update({ where: { id }, data: { uploadId: null, replacesId: null, versionGroup: group, ...(replaced ? { folderId: replaced.folderId, entity: replaced.entity, entityId: replaced.entityId } : {}) }, include: WITH_TYPE });
       await recordFlowEvent(tx, FILE_ENTITY, { companyId: actor.companyId, entityId: id, type: replaced ? 'substituido' : 'envio', userId: actor.userId, note: row.fileName });
       return done;
     });
@@ -549,7 +574,7 @@ export class CompanyFileService {
 
   /** Desiste de um envio em andamento: o que já chegou ao armazenamento é descartado. */
   async cancelUpload(actor: FileActor, id: number) {
-    this.needWrite(actor);
+    // só quem abriu o envio (e tinha permissão para isso) continua, fecha ou desiste dele
     const row = await this.pendingUpload(actor, id);
     await this.storage.cancelUpload(row.fileKey, row.uploadId!);
     await this.prisma.file_Item.delete({ where: { id } });
@@ -626,9 +651,8 @@ export class CompanyFileService {
 
   /** Renomear, mover de pasta, corrigir a observação, o tipo ou as datas. O conteúdo só muda enviando outro arquivo. */
   async updateFile(actor: FileActor, id: number, body: Body) {
-    this.needWrite(actor);
     const tree = await this.tree(actor);
-    const file = await this.fileOf(actor, tree, id);
+    const file = await this.fileOf(actor, tree, id, { write: true });
     const data: Prisma.File_ItemUncheckedUpdateInput = {};
     let renamed = '';
     let moved = 0;
@@ -638,6 +662,7 @@ export class CompanyFileService {
       if (name !== file.name) { data.name = name; renamed = name; }
     }
     if ('folderId' in body) {
+      if (!file.folderId) throw new BadRequestException('Este arquivo pertence a um registro e não fica em pasta');
       const target = this.folderOf(tree, Number(body.folderId));
       if (target.id !== file.folderId) moved = target.id;
     }
@@ -656,8 +681,7 @@ export class CompanyFileService {
 
   /** O arquivo vai para a lixeira com as versões anteriores dele (que voltam junto, se for restaurado). */
   async trashFile(actor: FileActor, id: number) {
-    this.needWrite(actor);
-    const file = await this.fileOf(actor, await this.tree(actor), id);
+    const file = await this.fileOf(actor, await this.tree(actor), id, { write: true });
     await this.prisma.$transaction(async (tx) => {
       await tx.file_Item.update({ where: { id }, data: { trashedAt: new Date(), trashedByUserId: actor.userId || null } });
       await recordFlowEvent(tx, FILE_ENTITY, { companyId: actor.companyId, entityId: id, type: 'lixeira', userId: actor.userId, note: file.name });
@@ -702,9 +726,9 @@ export class CompanyFileService {
     const day = today();
     const tree = await this.tree(actor);
     const [files, required, typed] = await Promise.all([
-      this.prisma.file_Item.findMany({ where: { companyId: actor.companyId, ...CURRENT, expiryDate: { not: null } }, include: WITH_TYPE, orderBy: [{ expiryDate: 'asc' }, { id: 'asc' }], take: 5000 }),
+      this.prisma.file_Item.findMany({ where: { companyId: actor.companyId, ...CURRENT, folderId: { not: null }, expiryDate: { not: null } }, include: WITH_TYPE, orderBy: [{ expiryDate: 'asc' }, { id: 'asc' }], take: 5000 }),
       this.prisma.file_DocumentType.findMany({ where: { companyId: actor.companyId, inactiveAt: null, required: true }, orderBy: { name: 'asc' } }),
-      this.prisma.file_Item.findMany({ where: { companyId: actor.companyId, ...CURRENT, typeId: { not: null } }, select: { typeId: true, folderId: true } }),
+      this.prisma.file_Item.findMany({ where: { companyId: actor.companyId, ...CURRENT, folderId: { not: null }, typeId: { not: null } }, select: { typeId: true, folderId: true } }),
     ]);
     const where = (id: number) => tree.chain(id).map((item) => item.name).join(' › ');
     const rows: PendingRow[] = [];
@@ -760,6 +784,55 @@ export class CompanyFileService {
     ];
   }
 
+  // ------------------------------------------------------------------ arquivos de um registro (cliente, proposta, OS)
+
+  /** Os arquivos de um registro, com as versões, e o que está na lixeira dele. Quem vê o registro vê os arquivos. */
+  async recordFiles(actor: FileActor, entity: unknown, entityId: number) {
+    const access = await this.recordOf(actor, entity, entityId);
+    const where = { companyId: actor.companyId, entity: access.entity, entityId: access.id, uploadId: null };
+    const [files, old, trashed] = await Promise.all([
+      this.prisma.file_Item.findMany({ where: { ...where, trashedAt: null, replacedAt: null }, include: WITH_TYPE, orderBy: [{ name: 'asc' }, { id: 'asc' }], take: LIST_LIMIT }),
+      this.prisma.file_Item.findMany({ where: { ...where, replacedAt: { not: null } }, include: WITH_TYPE, orderBy: [{ replacedAt: 'desc' }, { id: 'desc' }] }),
+      this.prisma.file_Item.findMany({ where: { ...where, trashedAt: { not: null }, replacedAt: null }, include: WITH_TYPE, orderBy: [{ trashedAt: 'desc' }, { id: 'desc' }] }),
+    ]);
+    const names = await this.userNames([...files, ...old, ...trashed].flatMap((file) => [file.uploadedByUserId, file.trashedByUserId]));
+    const day = today();
+    return {
+      record: { entity: access.entity, id: access.id, label: access.label }, canWrite: access.write, canManage: actor.canManage,
+      files: files.map((file) => ({
+        ...this.presentFile(file, names, day),
+        versions: old.filter((version) => file.versionGroup && version.versionGroup === file.versionGroup).map((version) => ({ ...this.presentFile(version, names, day), replacedAt: version.replacedAt })),
+      })),
+      trashed: trashed.map((file) => ({ ...this.presentFile(file, names, day), trashedAt: file.trashedAt, trashedBy: file.trashedByUserId ? names.get(file.trashedByUserId) ?? null : null, daysLeft: this.daysLeft(file.trashedAt!) })),
+      maxBytes: FILE_MAX_BYTES, directMaxBytes: DIRECT_MAX_BYTES, trashDays: TRASH_DAYS,
+    };
+  }
+
+  /** "Por cliente": os registros que têm arquivos e que a pessoa enxerga, agrupados pelo cliente. Só lista; os arquivos abrem no registro. */
+  async byCustomer(actor: FileActor) {
+    const groups = await this.prisma.file_Item.groupBy({ by: ['entity', 'entityId'], where: { companyId: actor.companyId, ...CURRENT, entity: { not: null } }, _count: { _all: true } });
+    const idsOfEntity = (entity: RecordEntity) => groups.filter((group) => group.entity === entity).map((group) => group.entityId as number);
+    const visible = await visibleRecords(this.prisma, { userId: actor.userId, companyId: actor.companyId, permissions: actor.permissions ?? [] });
+    const [proposals, orders] = await Promise.all([
+      visible.proposal && idsOfEntity('proposal').length ? this.prisma.commercial_Proposal.findMany({ where: { AND: [{ companyId: actor.companyId, id: { in: idsOfEntity('proposal') } }, visible.proposal] }, select: { id: true, number: true, title: true, customerId: true } }) : [],
+      visible.service_order && idsOfEntity('service_order').length ? this.prisma.service_Order.findMany({ where: { AND: [{ companyId: actor.companyId, id: { in: idsOfEntity('service_order') } }, visible.service_order] }, select: { id: true, number: true, title: true, customerId: true } }) : [],
+    ]);
+    const count = (entity: RecordEntity, id: number) => groups.find((group) => group.entity === entity && group.entityId === id)?._count._all ?? 0;
+    const items = [
+      ...proposals.map((row) => ({ entity: 'proposal' as const, id: row.id, label: `${row.number} · ${row.title}`, customerId: row.customerId, files: count('proposal', row.id) })),
+      ...orders.map((row) => ({ entity: 'service_order' as const, id: row.id, label: `${row.number} · ${row.title}`, customerId: row.customerId, files: count('service_order', row.id) })),
+    ];
+    const own = visible.customer ? idsOfEntity('customer') : [];
+    const customerIds = [...new Set([...own, ...items.map((item) => item.customerId)])];
+    const customers = customerIds.length ? await this.prisma.customer.findMany({ where: { companyId: actor.companyId, id: { in: customerIds } }, select: { id: true, name: true }, orderBy: { name: 'asc' } }) : [];
+    return {
+      rows: customers.map((customer) => ({
+        id: customer.id, name: customer.name, files: own.includes(customer.id) ? count('customer', customer.id) : 0, canOpen: !!visible.customer,
+        records: items.filter((item) => item.customerId === customer.id).sort((a, b) => a.label.localeCompare(b.label, 'pt-BR')),
+      })),
+    };
+  }
+
   // ------------------------------------------------------------------ lixeira
 
   private daysLeft(trashedAt: Date) { return Math.max(0, TRASH_DAYS - Math.floor((Date.now() - trashedAt.getTime()) / 86400000)); }
@@ -771,7 +844,7 @@ export class CompanyFileService {
     const counts = await this.fileCounts(actor.companyId);
     // pasta apagada dentro de outra pasta apagada volta junto com a de cima: só a de cima aparece
     const folders = [...tree.all.values()].filter((folder) => folder.trashedAt && tree.allowed(folder.id) && (!folder.parentId || tree.live(folder.parentId)));
-    const files = (await this.prisma.file_Item.findMany({ where: { companyId: actor.companyId, trashedAt: { not: null }, replacedAt: null }, include: WITH_TYPE, orderBy: [{ trashedAt: 'desc' }, { id: 'desc' }], take: LIST_LIMIT }))
+    const files = (await this.prisma.file_Item.findMany({ where: { companyId: actor.companyId, folderId: { not: null }, trashedAt: { not: null }, replacedAt: null }, include: WITH_TYPE, orderBy: [{ trashedAt: 'desc' }, { id: 'desc' }], take: LIST_LIMIT }))
       .filter((file) => tree.allowed(file.folderId) && tree.live(file.folderId));
     const names = await this.userNames([...folders.map((folder) => folder.trashedByUserId), ...files.flatMap((file) => [file.trashedByUserId, file.uploadedByUserId])]);
     const where = (id: number | null) => (id ? tree.chain(id).map((item) => item.name).join(' › ') : 'Arquivos');
@@ -788,10 +861,9 @@ export class CompanyFileService {
   }
 
   async restoreFile(actor: FileActor, id: number) {
-    this.needWrite(actor);
     const tree = await this.tree(actor);
-    const file = await this.fileOf(actor, tree, id, { trashed: true });
-    if (!tree.live(file.folderId)) throw new ConflictException('A pasta deste arquivo está na lixeira: restaure a pasta');
+    const file = await this.fileOf(actor, tree, id, { trashed: true, write: true });
+    if (file.folderId && !tree.live(file.folderId)) throw new ConflictException('A pasta deste arquivo está na lixeira: restaure a pasta');
     await this.prisma.$transaction(async (tx) => {
       await tx.file_Item.update({ where: { id }, data: { trashedAt: null, trashedByUserId: null } });
       await recordFlowEvent(tx, FILE_ENTITY, { companyId: actor.companyId, entityId: id, type: 'restaurado', userId: actor.userId });
@@ -865,7 +937,7 @@ export class CompanyFileService {
     if (!force && this.purgedOn.get(companyId) === day) return { files: 0, folders: 0 };
     this.purgedOn.set(companyId, day);
     const cutoff = new Date(Date.now() - TRASH_DAYS * 86400000);
-    const tree = await this.tree({ userId: 0, companyId, canWrite: true, canManage: true });
+    const tree = await this.tree({ userId: 0, companyId, canWrite: true, canManage: true, permissions: [] });
     const folders = [...tree.all.values()].filter((folder) => folder.trashedAt && folder.trashedAt < cutoff);
     // pasta vencida dentro de outra vencida sai com a de cima
     const tops = folders.filter((folder) => !tree.chain(folder.id).some((above) => above.id !== folder.id && folders.includes(above)));
