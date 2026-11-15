@@ -17,7 +17,7 @@ const REFRESH_DAYS = 30;
 const REQUEST_MINUTES = 10;
 
 /** Onde fica a tela de autorização (o front do sistema). */
-export const frontUrl = () => (process.env.FRONT_URL || process.env.ORIGIN_CORS?.split(',')[0] || 'https://sistema.worksafebrasil.com.br').replace(/\/$/, '');
+export const frontUrl = () => (process.env.FRONT_URL || 'https://sistema.worksafebrasil.com.br').replace(/\/$/, '');
 /** URL pública da API (emissor do OAuth e endereço do MCP). */
 export const apiUrl = () => (process.env.API_PUBLIC_URL || 'https://api.worksafebrasil.com.br').replace(/\/$/, '');
 
