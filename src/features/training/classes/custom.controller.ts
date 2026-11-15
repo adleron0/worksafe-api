@@ -51,8 +51,7 @@ export class ClassesCustomController {
     private readonly Service: Service,
     // cacheService é usado pelos decorators de cache
     private readonly cacheService: CacheService,
-  ) {
-  }
+  ) {}
 
   // ROTA PÚBLICA PARA VALIDAR ALUNO PELO CPF E CÓDIGO DA TURMA
   @Public()
@@ -69,6 +68,16 @@ export class ClassesCustomController {
   @Get(':id/highlight-candidates')
   async highlightCandidates(@Param('id') id: string, @Req() request: Request) {
     return this.Service.highlightCandidates(
+      Number(id),
+      Number(request.user.companyId),
+    );
+  }
+
+  // Alunos para emitir certificados (inscrições confirmadas + situação de cada um)
+  @UserPermission(`list_${entity.permission}`)
+  @Get(':id/certificate-issuance')
+  async certificateIssuance(@Param('id') id: string, @Req() request: Request) {
+    return this.Service.certificateIssuance(
       Number(id),
       Number(request.user.companyId),
     );
@@ -95,13 +104,23 @@ export class ClassesCustomController {
   @UserPermission(`create_${entity.permission}`)
   @CacheEvictAll('training-classes:*', 'cache:*/classes*')
   @Post('generate-certificates-selective/:id')
-  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+  @UsePipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  )
   async generateCertificatesSelective(
     @Param('id') id: number,
     @Req() request: Request,
     @Body() dto: GenerateCertificatesSelectiveDto,
   ): Promise<any> {
     const companyId = request.user.companyId || 0;
-    return this.Service.generateCertificatesSelective(Number(id), companyId, dto.subscriptionIds);
+    return this.Service.generateCertificatesSelective(
+      Number(id),
+      companyId,
+      dto.subscriptionIds,
+    );
   }
 }

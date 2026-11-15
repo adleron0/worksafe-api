@@ -9,6 +9,18 @@ import { UploadService } from 'src/features/upload/upload.service';
 import { removeCorrectAnswers } from 'src/helpers/exameHelper';
 import { TraineeCertificateService } from '../trainee_certificate/service';
 
+/** Nota da prova (0–10, uma casa) a partir das respostas corrigidas gravadas. */
+function examScoreOf(responses: unknown): number | null {
+  const questions = Array.isArray(responses) ? responses : null;
+  if (!questions || questions.length === 0) return null;
+  const correct = questions.filter(
+    (q: { options?: { isUserCorrect?: boolean }[] }) =>
+      Array.isArray(q?.options) &&
+      q.options.some((o) => o?.isUserCorrect === true),
+  ).length;
+  return Math.round((correct / questions.length) * 100) / 10;
+}
+
 @Injectable()
 export class ClassesService {
   constructor(
@@ -261,20 +273,10 @@ export class ClassesService {
       }),
     ]);
 
-    const scoreOf = (responses: unknown): number | null => {
-      const questions = Array.isArray(responses) ? responses : null;
-      if (!questions || questions.length === 0) return null;
-      const correct = questions.filter(
-        (q: { options?: { isUserCorrect?: boolean }[] }) =>
-          Array.isArray(q?.options) &&
-          q.options.some((o) => o?.isUserCorrect === true),
-      ).length;
-      return Math.round((correct / questions.length) * 100) / 10;
-    };
     const examByTrainee = new Map(
       exams.map((e) => [
         e.traineeId,
-        { score: scoreOf(e.examResponses), passed: e.result },
+        { score: examScoreOf(e.examResponses), passed: e.result },
       ]),
     );
 
@@ -291,6 +293,96 @@ export class ClassesService {
       );
     const best = rows.reduce((max, r) => Math.max(max, r.examScore ?? -1), -1);
 
+    return {
+      class: turma,
+      rows: rows.map((r) => ({
+        ...r,
+        suggested: best > 0 && r.examScore === best,
+      })),
+    };
+  }
+
+  /**
+   * Alunos para emitir certificados na turma: inscrições confirmadas, com o
+   * certificado já emitido (se houver), a nota da prova e a sugestão de
+   * destaque (maior nota). Base do diálogo "Emitir certificados".
+   */
+  async certificateIssuance(classId: number, companyId: number) {
+    const turma = await this.prisma.courseClass.findFirst({
+      where: { id: classId, companyId },
+      select: {
+        id: true,
+        name: true,
+        allowExam: true,
+        highlightTheme: true,
+        highlightLabel: true,
+        highlightPattern: true,
+        certificate: { select: { id: true, name: true } },
+      },
+    });
+    if (!turma) throw new NotFoundException('Turma não encontrada');
+
+    const [subscriptions, certificates, exams] = await Promise.all([
+      this.prisma.courseClassSubscription.findMany({
+        where: {
+          classId,
+          companyId,
+          subscribeStatus: 'confirmed',
+          inactiveAt: null,
+        },
+        select: {
+          id: true,
+          name: true,
+          cpf: true,
+          workedAt: true,
+          traineeId: true,
+          trainee: { select: { id: true, name: true, imageUrl: true } },
+        },
+      }),
+      this.prisma.traineeCourseCertificate.findMany({
+        where: { classId, companyId, inactiveAt: null },
+        select: {
+          id: true,
+          key: true,
+          traineeId: true,
+          createdAt: true,
+          highlightStudent: true,
+          highlightTheme: true,
+          highlightLabel: true,
+          highlightPattern: true,
+        },
+      }),
+      this.prisma.courseClassExam.findMany({
+        where: { classId, inactiveAt: null },
+        select: { traineeId: true, examResponses: true, result: true },
+      }),
+    ]);
+
+    const certByTrainee = new Map(certificates.map((c) => [c.traineeId, c]));
+    const examByTrainee = new Map(
+      exams.map((e) => [
+        e.traineeId,
+        { score: examScoreOf(e.examResponses), passed: e.result },
+      ]),
+    );
+    const rows = subscriptions
+      .map((s) => ({
+        subscriptionId: s.id,
+        traineeId: s.traineeId,
+        name: s.trainee?.name || s.name,
+        cpf: s.cpf,
+        workedAt: s.workedAt,
+        imageUrl: s.trainee?.imageUrl ?? null,
+        certificate: (s.traineeId && certByTrainee.get(s.traineeId)) || null,
+        examScore: s.traineeId
+          ? (examByTrainee.get(s.traineeId)?.score ?? null)
+          : null,
+        examPassed: s.traineeId
+          ? (examByTrainee.get(s.traineeId)?.passed ?? null)
+          : null,
+      }))
+      .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', 'pt-BR'));
+    const best = rows.reduce((max, r) => Math.max(max, r.examScore ?? -1), -1);
     return {
       class: turma,
       rows: rows.map((r) => ({
