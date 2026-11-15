@@ -1,7 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Image as NodeImage } from 'canvas';
 import * as sharp from 'sharp';
-import * as QRCode from 'qrcode';
 // pdfkit é CommonJS com `module.exports = PDFDocument` (sem esModuleInterop)
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import PDFDocument = require('pdfkit');
@@ -24,6 +23,7 @@ import {
   SealBox,
 } from './highlight-seal';
 import { drawStaticFoil } from './highlight-static';
+import { QrStyle, styledQrPng } from './qr-styled';
 
 /**
  * Render do certificado na API (mesmo JSON do Fabric que o visualizador do
@@ -38,7 +38,7 @@ import { drawStaticFoil } from './highlight-static';
  */
 
 /** Suba quando o resultado do render mudar, para invalidar caches/URLs. */
-export const RENDER_VERSION = 2;
+export const RENDER_VERSION = 3;
 
 export type CertificateSide = 'front' | 'back';
 
@@ -274,9 +274,7 @@ export class CertificateRenderService {
           sealBox(sealMarker, width, height, scale),
           highlight.theme,
           highlight.label,
-          hasQrPlaceholder(cert)
-            ? 'Selo digital: verifique pelo QR Code'
-            : null,
+          null, // sem legenda sob o selo (a validação fica na área do QR)
           new Date(cert.createdAt).getFullYear(),
         );
       }
@@ -319,13 +317,11 @@ export class CertificateRenderService {
       });
     };
 
-    let qr: Promise<Buffer> | null = null;
-    const qrPng = () =>
-      (qr ??= QRCode.toBuffer(`${FRONT_URL}/certificados/${key}`, {
-        width: 200,
-        margin: 1,
-        errorCorrectionLevel: 'H',
-        color: { dark: '#000000', light: '#FFFFFF' },
+    let qr: ReturnType<typeof styledQrPng> | null = null;
+    const qrImage = () =>
+      (qr ??= styledQrPng(`${FRONT_URL}/certificados/${key}`, {
+        size: 600,
+        style: (process.env.CERT_QR_STYLE as QrStyle) || 'suave',
       }));
 
     const walk = async (objects: any[], nested = false): Promise<any[]> => {
@@ -338,12 +334,12 @@ export class CertificateRenderService {
             type: 'Image',
             left: obj.left,
             top: obj.top,
-            scaleX: w / 200,
-            scaleY: h / 200,
+            scaleX: w / 600,
+            scaleY: h / 600,
             angle: obj.angle || 0,
             name: `qrcode_${obj.qrCodeName}`,
           };
-          attach(qrObj, { buffer: await qrPng(), width: 200, height: 200 });
+          attach(qrObj, qrImage());
           out.push(qrObj);
           continue;
         }
@@ -624,19 +620,6 @@ function sealBox(
     y: (height - size * SEAL_HEIGHT_RATIO - marginBottom) * scale,
     size: size * scale,
   };
-}
-
-/** O modelo tem QR de validação (frente ou verso)? Vale o marcador já resolvido. */
-function hasQrPlaceholder(cert: CertificateRecord) {
-  const variables = parseCertificateVariables(cert.variableToReplace);
-  const has = (raw: unknown) => {
-    const json = parseJson(raw);
-    if (!json) return false;
-    return JSON.stringify(replaceInCanvasJSON(json, variables)).includes(
-      '"isQRCodePlaceholder":true',
-    );
-  };
-  return has(cert.fabricJsonFront) || has(cert.fabricJsonBack);
 }
 
 export type { CertificateVariables };
