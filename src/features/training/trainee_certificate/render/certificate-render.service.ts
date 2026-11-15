@@ -38,7 +38,7 @@ import { drawStaticFoil } from './highlight-static';
  */
 
 /** Suba quando o resultado do render mudar, para invalidar caches/URLs. */
-export const RENDER_VERSION = 1;
+export const RENDER_VERSION = 2;
 
 export type CertificateSide = 'front' | 'back';
 
@@ -81,6 +81,7 @@ export class CertificateRenderService {
       select: {
         key: true,
         updatedAt: true,
+        createdAt: true,
         fabricJsonFront: true,
         fabricJsonBack: true,
         canvasWidth: true,
@@ -276,6 +277,7 @@ export class CertificateRenderService {
           hasQrPlaceholder(cert)
             ? 'Selo digital: verifique pelo QR Code'
             : null,
+          new Date(cert.createdAt).getFullYear(),
         );
       }
       const tRender = Date.now();
@@ -612,11 +614,11 @@ function sealBox(
     };
   }
   const landscape = width >= height;
-  const size = (landscape ? 0.14 : 0.19) * width;
-  // a faixa passa ~25% do lado para fora da roseta: margem conta com isso
-  // para não encostar nas molduras (que costumam ocupar 3–6% da borda)
-  const marginX = 0.085 * width + size * 0.25;
-  const marginBottom = 0.075 * height;
+  // selo pequeno e discreto: o quadrado é a altura do mosquetão
+  const size = (landscape ? 0.125 : 0.16) * width;
+  // margem conta com as molduras (que costumam ocupar 3–6% da borda)
+  const marginX = 0.075 * width;
+  const marginBottom = 0.1 * height;
   return {
     x: marginX * scale,
     y: (height - size * SEAL_HEIGHT_RATIO - marginBottom) * scale,

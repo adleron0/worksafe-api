@@ -1,116 +1,192 @@
 import { CertificateHighlightTheme } from '@prisma/client';
+import { createCanvas } from 'canvas';
 
 /**
- * Selo de destaque estático — desenhado no canvas do render (node-canvas),
- * por cima do certificado, para PNG, PDF, miniatura e prévia de redes sociais.
- * É o "par" impresso do brilho animado da página pública: gradientes que
- * imitam metal (ouro/prata) e furta-cor (holográfico), pensados para sair bem
- * em impressora comum. Usa as fontes já registradas pelo fabric-setup.
+ * Selo de destaque estático — o mosquetão do logo WorkSafe como placa: corpo
+ * escuro, halo de listras diagonais e a trava na cor do tema (ouro, prata ou
+ * furta-cor). Desenhado no canvas do render (node-canvas) para PNG, PDF,
+ * miniatura e prévia de redes sociais. O texto usa as fontes já registradas
+ * pelo fabric-setup (Bebas Neue e Montserrat).
  */
 
 type Ctx = CanvasRenderingContext2D;
 
-interface Palette {
-  /** Gradiente do metal (claro no meio = reflexo). */
-  metal: string[];
-  /** Contorno e detalhes. */
-  dark: string;
-  /** Faixa. */
-  ribbon: string;
-  ribbonDark: string;
-  ribbonText: string;
-  /** Riscas finas de "foil" por cima (só holográfico). */
-  foil?: boolean;
-}
+/** Traçados do logo (viewBox 30.87 × 43.8). */
+const LOGO_OUTER =
+  'M26,5.82c-.08-.03-.16-.06-.24-.09-1.93-.68-3.83-1.46-5.77-2.13-2.4-.83-4.79-1.68-7.23-2.38C10.23.49,7.59-.26,4.94.09,1.84.51,0,3.68,0,6.75v31.64c0,.54.07,1.08.21,1.6.14.49.34.95.62,1.37.27.41.59.78.97,1.09,1.08.88,2.5,1.15,3.86,1.27.98.09,1.96.09,2.95.05.34-.01.68-.03,1.03-.04.37-.02.75-.04,1.12-.07.4-.03.8-.06,1.19-.1.42-.04.84-.08,1.25-.13.43-.05.86-.1,1.29-.16.44-.06.88-.12,1.32-.2.44-.07.89-.15,1.33-.23s.88-.17,1.32-.27c.43-.1.87-.2,1.3-.32.42-.11.84-.23,1.26-.36.4-.13.81-.26,1.2-.41.38-.14.76-.29,1.13-.46.35-.16.7-.33,1.04-.51.32-.17.63-.36.94-.56.28-.19.56-.4.81-.62.24-.21.47-.44.68-.68.2-.23.37-.48.52-.74.23-.41.39-.86.47-1.32.03-.19.05-.39.08-.58.03-.2.05-.4.08-.6.03-.27.07-.53.1-.8.04-.33.08-.65.12-.98.05-.38.1-.76.14-1.13.05-.42.11-.85.16-1.27.06-.46.12-.93.18-1.39.06-.5.13-.99.19-1.49.07-.52.13-1.05.2-1.57.07-.54.14-1.09.21-1.63.07-.56.14-1.11.21-1.67.07-.56.14-1.13.21-1.69.07-.56.14-1.13.21-1.69.07-.56.14-1.12.21-1.67.07-.55.14-1.09.21-1.64.19-1.54.43-3.07.54-4.61.09-1.33-.09-2.67-.86-3.8-.92-1.35-2.5-2.04-3.99-2.57';
+const LOGO_GATE =
+  'M30.16,18.02l-2.23,17.67-12.34-3.46s2.58-5.72,3.41-7.67c.68-1.6,2.65-6.54,2.65-6.54h8.52';
+const LOGO_W = 30.87;
+const LOGO_H = 43.8;
+/** Margem em volta do logo para o halo (unidades do logo). */
+const PAD = 3;
+const VIEW_W = LOGO_W + PAD * 2;
+const VIEW_H = LOGO_H + PAD * 2;
 
-const PALETTES: Record<CertificateHighlightTheme, Palette> = {
-  ouro: {
-    metal: ['#7a4a00', '#c99a2e', '#ffeaa8', '#d9a93c', '#8a5a00'],
-    dark: '#6b4300',
-    ribbon: '#a5740f',
-    ribbonDark: '#6b4300',
-    ribbonText: '#fff8e1',
-  },
-  prata: {
-    metal: ['#4a545c', '#9aa5ae', '#ffffff', '#b8c2ca', '#56616a'],
-    dark: '#3b444b',
-    ribbon: '#66737d',
-    ribbonDark: '#3b444b',
-    ribbonText: '#ffffff',
-  },
-  holografico: {
-    metal: ['#ff8ad8', '#8fd8ff', '#c4ffb3', '#ffe28f', '#c99cff'],
-    dark: '#5b3f93',
-    ribbon: '#7458bf',
-    ribbonDark: '#4a3282',
-    ribbonText: '#ffffff',
-    foil: true,
-  },
+const DARK = '#26282b';
+const PAPER = '#f7f3ee';
+
+const METAL: Record<CertificateHighlightTheme, string[]> = {
+  ouro: ['#8a5a12', '#d4a640', '#f7e3a3', '#c9952e', '#7d520f'],
+  prata: ['#5c666e', '#aab4bc', '#f4f7f9', '#9ea9b2', '#56616a'],
+  holografico: ['#f08ad0', '#8fc9ff', '#b9f5a8', '#ffe08a', '#c29cff'],
 };
 
 export interface SealBox {
-  /** Canto superior esquerdo e lado do quadrado da roseta, em px do canvas. */
+  /** Canto superior esquerdo e lado do quadrado reservado ao selo, em px do canvas. */
   x: number;
   y: number;
   size: number;
 }
 
+/** Altura total ocupada (selo + legenda), em múltiplos do lado. */
+export const SEAL_HEIGHT_RATIO = 1.12;
+
+/**
+ * Traça um caminho SVG (M, L, H, V, C, S, Z — absolutos e relativos) no
+ * contexto. O node-canvas não tem Path2D; o logo só usa esses comandos.
+ */
+export function tracePath(ctx: Ctx, d: string) {
+  const tokens = d.match(/[a-zA-Z]|-?(?:\d*\.\d+|\d+\.?)(?:e-?\d+)?/g) ?? [];
+  let i = 0;
+  let cmd = '';
+  let x = 0;
+  let y = 0;
+  let sx = 0;
+  let sy = 0;
+  let c2x = 0;
+  let c2y = 0;
+  let prev = '';
+  const num = () => parseFloat(tokens[i++]);
+  ctx.beginPath();
+  while (i < tokens.length) {
+    if (/[a-zA-Z]/.test(tokens[i])) cmd = tokens[i++];
+    const rel = cmd === cmd.toLowerCase();
+    const C = cmd.toUpperCase();
+    if (C === 'Z') {
+      ctx.closePath();
+      x = sx;
+      y = sy;
+      prev = 'Z';
+      continue;
+    }
+    if (C === 'M' || C === 'L') {
+      const nx = num() + (rel ? x : 0);
+      const ny = num() + (rel ? y : 0);
+      if (C === 'M') {
+        ctx.moveTo(nx, ny);
+        sx = nx;
+        sy = ny;
+        cmd = rel ? 'l' : 'L'; // pares seguintes são linhas
+      } else ctx.lineTo(nx, ny);
+      x = nx;
+      y = ny;
+    } else if (C === 'H') {
+      x = num() + (rel ? x : 0);
+      ctx.lineTo(x, y);
+    } else if (C === 'V') {
+      y = num() + (rel ? y : 0);
+      ctx.lineTo(x, y);
+    } else if (C === 'C' || C === 'S') {
+      let x1: number;
+      let y1: number;
+      if (C === 'C') {
+        x1 = num() + (rel ? x : 0);
+        y1 = num() + (rel ? y : 0);
+      } else {
+        const smooth = prev === 'C' || prev === 'S';
+        x1 = smooth ? 2 * x - c2x : x;
+        y1 = smooth ? 2 * y - c2y : y;
+      }
+      const x2 = num() + (rel ? x : 0);
+      const y2 = num() + (rel ? y : 0);
+      const ex = num() + (rel ? x : 0);
+      const ey = num() + (rel ? y : 0);
+      ctx.bezierCurveTo(x1, y1, x2, y2, ex, ey);
+      c2x = x2;
+      c2y = y2;
+      x = ex;
+      y = ey;
+    } else {
+      i++; // comando não usado pelo logo
+    }
+    prev = C;
+  }
+}
+
 const metalGradient = (
   ctx: Ctx,
-  cx: number,
-  cy: number,
-  r: number,
-  stops: string[],
-  reverse = false,
+  theme: CertificateHighlightTheme,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
 ) => {
-  const g = ctx.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
-  const list = reverse ? [...stops].reverse() : stops;
-  list.forEach((c, i) => g.addColorStop(i / (list.length - 1), c));
+  const stops = METAL[theme] ?? METAL.ouro;
+  const g = ctx.createLinearGradient(x0, y0, x1, y1);
+  stops.forEach((c, i) => g.addColorStop(i / (stops.length - 1), c));
   return g;
 };
 
-const starPath = (
-  ctx: Ctx,
-  cx: number,
-  cy: number,
-  outer: number,
-  inner: number,
-  points: number,
-  rotation = -Math.PI / 2,
-) => {
-  ctx.beginPath();
-  for (let i = 0; i < points * 2; i++) {
-    const r = i % 2 === 0 ? outer : inner;
-    const a = rotation + (i * Math.PI) / points;
-    const px = cx + Math.cos(a) * r;
-    const py = cy + Math.sin(a) * r;
-    if (i === 0) ctx.moveTo(px, py);
-    else ctx.lineTo(px, py);
-  }
-  ctx.closePath();
-};
-
-/** Ajusta o tamanho da fonte para o texto caber na largura. */
+/** Maior tamanho (até `max`) em que o texto cabe em `width`. */
 const fitFont = (
   ctx: Ctx,
   text: string,
-  maxWidth: number,
-  maxPx: number,
-  weight = 700,
-  family = 'Montserrat',
+  width: number,
+  max: number,
+  font: (px: number) => string,
 ) => {
-  let px = maxPx;
-  ctx.font = `${weight} ${px}px "${family}"`;
-  while (px > 6 && ctx.measureText(text).width > maxWidth) {
-    px -= 0.5;
-    ctx.font = `${weight} ${px}px "${family}"`;
+  let px = max;
+  ctx.font = font(px);
+  while (px > 0.5 && ctx.measureText(text).width > width) {
+    px *= 0.95;
+    ctx.font = font(px);
   }
   return px;
 };
 
+/** Texto com espaçamento entre letras (letterSpacing não é confiável no node-canvas). */
+const spacedText = (
+  ctx: Ctx,
+  text: string,
+  x: number,
+  y: number,
+  spacing: number,
+  align: 'left' | 'center' | 'right',
+) => {
+  const widths = [...text].map((ch) => ctx.measureText(ch).width);
+  const total = widths.reduce((a, b) => a + b, 0) + spacing * (text.length - 1);
+  let cx =
+    align === 'left' ? x : align === 'center' ? x - total / 2 : x - total;
+  ctx.textAlign = 'left';
+  [...text].forEach((ch, k) => {
+    ctx.fillText(ch, cx, y);
+    cx += widths[k] + spacing;
+  });
+};
+
+/** Divide o texto da faixa em duas linhas equilibradas. */
+const splitLabel = (label: string): [string, string] => {
+  const words = label.split(/\s+/).filter(Boolean);
+  if (words.length < 2) return [label, ''];
+  let best: [string, string] = [label, ''];
+  let diff = Infinity;
+  for (let k = 1; k < words.length; k++) {
+    const a = words.slice(0, k).join(' ');
+    const b = words.slice(k).join(' ');
+    const d = Math.abs(a.length - b.length);
+    if (d < diff) {
+      diff = d;
+      best = [a, b];
+    }
+  }
+  return best;
+};
+
 /**
- * Desenha a roseta + faixa. `box` é o quadrado da roseta; a faixa com o texto
- * desce um pouco abaixo dele (≈ 18% do lado) e a legenda opcional mais um tanto.
+ * Desenha o selo. `box` é o quadrado reservado (marcador do editor ou canto
+ * padrão); o selo ocupa a altura do quadrado, centralizado na largura, e a
+ * legenda opcional fica logo abaixo.
  */
 export function drawHighlightSeal(
   ctx: Ctx,
@@ -118,145 +194,100 @@ export function drawHighlightSeal(
   theme: CertificateHighlightTheme,
   label: string,
   caption?: string | null,
+  year?: string | number | null,
 ) {
-  const p = PALETTES[theme] ?? PALETTES.ouro;
-  const R = box.size / 2;
-  const cx = box.x + R;
-  const cy = box.y + R;
-  const lw = Math.max(1, R * 0.025);
+  const unit = box.size / VIEW_H; // px por unidade do logo
+  const sealW = VIEW_W * unit;
+  const ox = box.x + (box.size - sealW) / 2 + PAD * unit;
+  const oy = box.y + PAD * unit;
 
   ctx.save();
+  ctx.translate(ox, oy);
+  ctx.scale(unit, unit);
 
-  // sombra suave para "descolar" do papel
-  ctx.shadowColor = 'rgba(0,0,0,0.25)';
-  ctx.shadowBlur = R * 0.12;
-  ctx.shadowOffsetY = R * 0.04;
-
-  // rabos da fita, atrás da roseta
-  const tailW = R * 0.42;
-  const tailTop = cy + R * 0.35;
-  const tailBottom = cy + R * 1.25;
-  for (const dir of [-1, 1]) {
-    const x0 = cx + dir * R * 0.18;
-    ctx.beginPath();
-    ctx.moveTo(x0, tailTop);
-    ctx.lineTo(x0 + dir * tailW, tailTop + R * 0.12);
-    ctx.lineTo(x0 + dir * tailW * 0.9, tailBottom);
-    ctx.lineTo(x0 + dir * tailW * 0.45, tailBottom - R * 0.16);
-    ctx.lineTo(x0, tailBottom);
-    ctx.closePath();
-    ctx.fillStyle = dir < 0 ? p.ribbon : p.ribbonDark;
-    ctx.fill();
+  // halo: contorno grosso listrado, numa camada à parte (listras recortadas
+  // pelo traço) para a largura ser uniforme em volta do mosquetão
+  {
+    const scale = unit;
+    const w = Math.ceil(VIEW_W * scale);
+    const h = Math.ceil(VIEW_H * scale);
+    const layer = createCanvas(w, h);
+    const l = layer.getContext('2d') as unknown as Ctx;
+    l.translate(PAD * scale, PAD * scale);
+    l.scale(scale, scale);
+    tracePath(l, LOGO_OUTER);
+    l.lineWidth = 3.6;
+    l.lineJoin = 'round';
+    l.strokeStyle = '#000';
+    l.stroke();
+    // listras só onde há traço
+    l.setTransform(1, 0, 0, 1, 0, 0);
+    l.globalCompositeOperation = 'source-in';
+    l.translate(w / 2, h / 2);
+    l.rotate((-40 * Math.PI) / 180);
+    const gap = 1.25 * scale; // passo das listras
+    const R = Math.hypot(w, h);
+    l.fillStyle = '#2b2d31';
+    // um preenchimento só: com source-in, cada fill apagaria os anteriores
+    l.beginPath();
+    for (let v = -R; v < R; v += gap) l.rect(-R, v, R * 2, gap * 0.44);
+    l.fill();
+    ctx.drawImage(layer as any, -PAD, -PAD, VIEW_W, VIEW_H);
   }
 
-  // roseta serrilhada
-  starPath(ctx, cx, cy, R, R * 0.9, 28);
-  ctx.fillStyle = metalGradient(ctx, cx, cy, R, p.metal);
+  // corpo e trava
+  tracePath(ctx, LOGO_OUTER);
+  ctx.fillStyle = DARK;
   ctx.fill();
-  ctx.shadowColor = 'transparent';
-  ctx.lineWidth = lw;
-  ctx.strokeStyle = p.dark;
-  ctx.stroke();
-
-  // anel e disco interno (gradiente invertido dá o relevo)
-  ctx.beginPath();
-  ctx.arc(cx, cy, R * 0.78, 0, Math.PI * 2);
-  ctx.fillStyle = metalGradient(ctx, cx, cy, R * 0.78, p.metal, true);
+  tracePath(ctx, LOGO_GATE);
+  ctx.fillStyle = metalGradient(ctx, theme, 15.5, 18, 30.2, 35.7);
   ctx.fill();
-  ctx.lineWidth = lw * 1.4;
-  ctx.strokeStyle = p.dark;
-  ctx.stroke();
 
-  ctx.beginPath();
-  ctx.arc(cx, cy, R * 0.68, 0, Math.PI * 2);
-  ctx.lineWidth = lw;
-  ctx.strokeStyle = 'rgba(255,255,255,0.75)';
-  ctx.setLineDash([R * 0.04, R * 0.035]);
-  ctx.stroke();
-  ctx.setLineDash([]);
+  // textos
+  ctx.textBaseline = 'alphabetic';
+  const bebas = (px: number) => `${px}px "Bebas Neue"`;
+  const yearText = String(year ?? new Date().getFullYear());
+  ctx.font = bebas(8.2);
+  ctx.fillStyle = PAPER;
+  ctx.textAlign = 'right';
+  ctx.fillText(yearText, 26.5, 13.6);
 
-  // estrela central
-  starPath(ctx, cx, cy - R * 0.06, R * 0.36, R * 0.15, 5);
-  ctx.fillStyle = metalGradient(ctx, cx, cy, R * 0.36, p.metal);
-  ctx.fill();
-  ctx.lineWidth = lw * 1.2;
-  ctx.strokeStyle = p.dark;
-  ctx.stroke();
-
-  // "foil": riscas finas diagonais recortadas na roseta (holográfico)
-  if (p.foil) {
-    ctx.save();
-    starPath(ctx, cx, cy, R, R * 0.9, 28);
-    ctx.clip();
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-    ctx.lineWidth = Math.max(1, R * 0.012);
-    for (let k = -2 * R; k < 2 * R; k += R * 0.07) {
-      ctx.beginPath();
-      ctx.moveTo(cx + k - R, cy - R);
-      ctx.lineTo(cx + k + R, cy + R);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  // reflexo
-  const shine = ctx.createLinearGradient(
-    cx - R,
-    cy - R,
-    cx + R * 0.2,
-    cy + R * 0.2,
+  const [l1, l2] = splitLabel(label.toUpperCase());
+  // mesmo tamanho nas duas linhas: o da que precisar encolher mais
+  const size = Math.min(
+    fitFont(ctx, l1, 13.5, 5.2, bebas),
+    l2 ? fitFont(ctx, l2, 13.5, 5.2, bebas) : 5.2,
   );
-  shine.addColorStop(0, 'rgba(255,255,255,0.45)');
-  shine.addColorStop(0.5, 'rgba(255,255,255,0)');
-  ctx.beginPath();
-  ctx.arc(cx, cy, R * 0.9, 0, Math.PI * 2);
-  ctx.fillStyle = shine;
-  ctx.fill();
+  ctx.font = bebas(size);
+  ctx.fillStyle = metalGradient(ctx, theme, 2.6, 18, 16, 25);
+  spacedText(ctx, l1, 2.6, l2 ? 24 : 27, 0.1, 'left');
+  if (l2) {
+    ctx.fillStyle = PAPER;
+    spacedText(ctx, l2, 2.6, 24 + size * 1.08, 0.1, 'left');
+  }
 
-  // faixa com o texto, cruzando a parte de baixo da roseta
-  const text = label.toUpperCase();
-  const bandW = R * 2.15;
-  const bandH = R * 0.36;
-  const bandX = cx - bandW / 2;
-  const bandY = cy + R * 0.52;
-  const notch = bandH * 0.45;
-  ctx.shadowColor = 'rgba(0,0,0,0.2)';
-  ctx.shadowBlur = R * 0.06;
-  ctx.shadowOffsetY = R * 0.02;
-  ctx.beginPath();
-  ctx.moveTo(bandX - notch, bandY);
-  ctx.lineTo(bandX + bandW + notch, bandY);
-  ctx.lineTo(bandX + bandW + notch * 0.35, bandY + bandH / 2);
-  ctx.lineTo(bandX + bandW + notch, bandY + bandH);
-  ctx.lineTo(bandX - notch, bandY + bandH);
-  ctx.lineTo(bandX - notch * 0.35, bandY + bandH / 2);
-  ctx.closePath();
-  const band = ctx.createLinearGradient(0, bandY, 0, bandY + bandH);
-  band.addColorStop(0, p.ribbon);
-  band.addColorStop(1, p.ribbonDark);
-  ctx.fillStyle = band;
-  ctx.fill();
-  ctx.shadowColor = 'transparent';
-  ctx.lineWidth = lw;
-  ctx.strokeStyle = p.ribbonDark;
-  ctx.stroke();
+  ctx.font = '700 2px "Montserrat"';
+  ctx.fillStyle = 'rgba(247,243,238,0.85)';
+  spacedText(ctx, 'WORKSAFE BRASIL', 13, 40.4, 0.25, 'center');
 
-  fitFont(ctx, text, bandW * 0.92, bandH * 0.58);
-  ctx.fillStyle = p.ribbonText;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(text, cx, bandY + bandH / 2 + bandH * 0.03);
+  ctx.restore();
 
   // legenda pequena (ex.: convite a verificar o selo digital pelo QR)
   if (caption) {
-    const capY = tailBottom + R * 0.16;
-    fitFont(ctx, caption, R * 2.6, R * 0.12, 400);
+    ctx.save();
+    const capY = box.y + box.size + box.size * 0.06;
+    const px = fitFont(
+      ctx,
+      caption,
+      box.size * 1.25,
+      box.size * 0.07,
+      (p) => `400 ${p}px "Montserrat"`,
+    );
+    ctx.font = `400 ${px}px "Montserrat"`;
     ctx.fillStyle = 'rgba(60,60,60,0.85)';
-    ctx.fillText(caption, cx, capY);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(caption, box.x + box.size / 2, capY);
+    ctx.restore();
   }
-
-  ctx.restore();
 }
-
-/** Altura total ocupada (roseta + rabos + legenda), em múltiplos do lado. */
-export const SEAL_HEIGHT_RATIO = 1.32;
