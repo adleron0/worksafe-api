@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Q
 import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { permissionsOf } from 'src/features/commercial/proposal.controller';
+import { DOCUMENTS_VIEW_PERMISSION, EmployeeDocumentService } from './document.service';
 import { EmployeeActor, EmployeeService, OCCURRENCES_VIEW_PERMISSION, OCCURRENCES_WRITE_PERMISSION, PERSONAL_PERMISSION } from './employee.service';
 
 const actorOf = (req: Request): EmployeeActor => {
@@ -19,10 +20,18 @@ type Json = Record<string, unknown>;
 /** Funcionários (RH): cadastro, funções e histórico. */
 @Controller('employees')
 export class EmployeeController {
-  constructor(private readonly employees: EmployeeService) {}
+  constructor(private readonly employees: EmployeeService, private readonly documents: EmployeeDocumentService) {}
 
   @Permissions('list_funcionarios') @Get()
-  list(@Req() req: Request, @Query() query: Record<string, string>) { return this.employees.list(actorOf(req), query ?? {}); }
+  async list(@Req() req: Request, @Query() query: Record<string, string>) {
+    const actor = actorOf(req);
+    const result = await this.employees.list(actor, query ?? {});
+    // o sinal de documentos (em dia, a vencer, vencido, faltando) só vai para quem pode ver documentos
+    const user = (req as Request & { user?: { permissions?: unknown } }).user;
+    if (!permissionsOf(user?.permissions).includes(DOCUMENTS_VIEW_PERMISSION)) return { ...result, rows: result.rows.map((row) => ({ ...row, documents: null })) };
+    const signals = await this.documents.signals(actor.companyId, result.rows.map((row) => row.id));
+    return { ...result, rows: result.rows.map((row) => ({ ...row, documents: signals.get(row.id) ?? null })) };
+  }
 
   @Permissions('list_funcionarios') @Get('options')
   options(@Req() req: Request) { return this.employees.options(actorOf(req)); }

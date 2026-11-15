@@ -33,8 +33,9 @@ model Hr_Employee {
   userId Int?    @unique
   notes  String? @db.VarChar(1000)
 
-  roles  Hr_EmployeeRole[]
-  events Hr_EmployeeEvent[]
+  roles     Hr_EmployeeRole[]
+  events    Hr_EmployeeEvent[]
+  documents Hr_EmployeeDocument[]
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
@@ -80,4 +81,63 @@ model Hr_EmployeeEvent {
 
   @@index([employeeId, startDate])
   @@index([companyId, type, startDate])
+}
+
+// Tipos de documento do funcionário (ASO, NR-35, CNH...): em que pasta fica,
+// se vence, a validade sugerida e se é obrigatório ou entra na integração de obra.
+model Hr_DocumentType {
+  id        Int    @id @default(autoincrement())
+  companyId Int
+  name      String @db.VarChar(120)
+  // admissao | saude | treinamentos | pessoais | outros
+  folder    String @default("outros") @db.VarChar(20)
+
+  expires        Boolean @default(false)
+  // validade sugerida ao enviar (o vencimento pode ser corrigido)
+  validityMonths Int?
+  // com quantos dias de antecedência avisar
+  warnDays       Int     @default(30)
+  required       Boolean @default(false)
+  // funções para as quais é obrigatório: [professionalId]; vazio = todos
+  requiredProfessionalIds Json?
+  // entra no pacote de documentos para a integração de obra
+  inIntegration  Boolean @default(false)
+
+  documents Hr_EmployeeDocument[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([companyId, name])
+}
+
+// O arquivo de um documento. Fica no armazenamento privado: aqui só o caminho
+// (`fileKey`), nunca uma URL. Substituir guarda a versão anterior (`replacedAt`).
+model Hr_EmployeeDocument {
+  id         Int             @id @default(autoincrement())
+  companyId  Int
+  employeeId Int
+  employee   Hr_Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  typeId     Int
+  type       Hr_DocumentType @relation(fields: [typeId], references: [id], onDelete: Restrict)
+
+  issueDate  DateTime? @db.Date
+  expiryDate DateTime? @db.Date
+
+  fileKey  String  @db.VarChar(300)
+  fileName String  @db.VarChar(200)
+  mimeType String  @db.VarChar(100)
+  size     Int
+  notes    String? @db.VarChar(500)
+
+  uploadedByUserId Int?
+  // preenchido quando uma versão nova do mesmo tipo entra
+  replacedAt       DateTime?
+
+  createdAt  DateTime  @default(now())
+  inactiveAt DateTime?
+
+  @@index([companyId, expiryDate])
+  @@index([employeeId, typeId])
 }

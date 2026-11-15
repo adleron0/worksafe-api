@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ordersVisibleTo } from 'src/features/operations/service-order.service';
+import { DOCUMENTS_VIEW_PERMISSION, EmployeeDocumentService } from 'src/features/hr/document.service';
 import { ContractService } from './contract.service';
 
 /**
@@ -23,7 +24,7 @@ const today = () => new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0
 
 @Injectable()
 export class PipelineService {
-  constructor(private readonly prisma: PrismaService, private readonly contracts: ContractService) {}
+  constructor(private readonly prisma: PrismaService, private readonly contracts: ContractService, private readonly documents: EmployeeDocumentService) {}
 
   async mine(actor: PipelineActor): Promise<{ today: string; blocks: PipelineBlock[] }> {
     const can = (permission: string) => actor.permissions.includes(permission);
@@ -33,6 +34,8 @@ export class PipelineService {
     if (can('list_ordens_de_servico')) blocks.push(this.orders(actor, now, can('update_ordens_de_servico'), can('update_rdo')));
     if (can('list_pedidos_de_compra')) blocks.push(this.purchases(actor, can('approve_pedidos_de_compra'), can('update_pedidos_de_compra')));
     if (can('list_financeiro')) blocks.push(this.billing(actor), this.payables(actor, now));
+    // RH: documentos de funcionários vencidos, a vencer e obrigatórios faltando
+    if (can(DOCUMENTS_VIEW_PERMISSION)) blocks.push(this.documents.pipelineBlocks(actor.companyId));
     return { today: now, blocks: (await Promise.all(blocks)).flat() };
   }
 
