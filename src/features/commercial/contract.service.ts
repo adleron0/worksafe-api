@@ -5,11 +5,12 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { CacheService } from 'src/common/cache/cache.service';
 import { classificationDefaults } from 'src/features/financial/classification';
 import { installmentValues } from './installments';
+import { ownProposalIds } from './ownership';
 import { ServiceOrderService } from 'src/features/operations/service-order.service';
 
 type Body = Record<string, any>;
 type Tx = Prisma.TransactionClient;
-export interface ContractActor { userId: number; companyId: number }
+export interface ContractActor { userId: number; companyId: number; seesAll?: boolean }
 
 /** Dinheiro que já entrou. */
 const PAID: financialRecordsStatus[] = ['received'];
@@ -139,12 +140,14 @@ export class ContractService {
 
   async list(actor: ContractActor, query: Record<string, string>) {
     await this.backfill(actor.companyId);
+    // sem a permissão de ver todas, só as vendas das propostas da pessoa
+    const own = await ownProposalIds(this.prisma, { ...actor, seesAll: actor.seesAll !== false });
     const page = Math.max(0, Number(query.page) || 0);
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
     const term = clean(query.search, 80);
     const status = STATUSES.includes(query.status as CommercialContractStatus) ? (query.status as CommercialContractStatus) : undefined;
     const scope: Prisma.Commercial_ContractWhereInput = {
-      companyId: actor.companyId, inactiveAt: null,
+      companyId: actor.companyId, inactiveAt: null, ...(own ? { proposalId: { in: own } } : {}),
       ...(Number(query.customerId) > 0 ? { customerId: Number(query.customerId) } : {}),
       ...(term ? { OR: [
         { number: { contains: term, mode: 'insensitive' } }, { title: { contains: term, mode: 'insensitive' } },
@@ -225,7 +228,10 @@ export class ContractService {
   }
 
   async get(actor: ContractActor, id: number) {
-    return this.present(await this.byId(actor.companyId, id));
+    const row = await this.byId(actor.companyId, id);
+    const own = await ownProposalIds(this.prisma, { ...actor, seesAll: actor.seesAll !== false });
+    if (own && !own.includes(row.proposalId)) throw new NotFoundException('Contrato não encontrado');
+    return this.present(row);
   }
 
   async document(actor: ContractActor, id: number) {

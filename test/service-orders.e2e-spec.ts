@@ -17,8 +17,8 @@ import { blockRealNetwork, resetAsaasMock } from './setup/asaas-mock';
  * das parcelas "após a conclusão". Custos só para quem tem a permissão.
  */
 describe('Operação — ordem de serviço (e2e)', () => {
-  const COMMERCIAL = ['list_comercial', 'create_comercial', 'update_comercial'];
-  const ORDERS = ['list_ordens_de_servico', 'update_ordens_de_servico'];
+  const COMMERCIAL = ['list_comercial', 'create_comercial', 'update_comercial', 'all_propostas', 'update_acompanhamento'];
+  const ORDERS = ['list_ordens_de_servico', 'update_ordens_de_servico', 'all_ordens_de_servico', 'update_rdo'];
   const ALL = [...COMMERCIAL, ...ORDERS, 'view_custos_comercial', 'list_financeiro', 'create_financeiro'];
   const YEAR = new Date().getFullYear();
   const TODAY = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
@@ -204,7 +204,7 @@ describe('Operação — ordem de serviço (e2e)', () => {
 
     // quem é só do comercial não abre o quadro; quem só lista não altera
     await api().get('/service-orders').set(auth(company.id, COMMERCIAL)).expect(403);
-    const reader = auth(company.id, ['list_ordens_de_servico']);
+    const reader = auth(company.id, ['list_ordens_de_servico', 'all_ordens_de_servico']);
     expect((await listar(reader)).total).toBe(1);
     await api().put(`/service-orders/${id}`).set(reader).send({ notes: 'x' }).expect(403);
     await mover(reader, id, { status: 'a_mobilizar' }).expect(403);
@@ -337,7 +337,7 @@ describe('Operação — ordem de serviço (e2e)', () => {
     expect(recent.running[0]).toMatchObject({ number: `OS-${YEAR}-0001`, customer: 'Indústria Alfa', todayReports: [{ id: created.id, status: 'rascunho', shift: 'integral' }] });
     expect(recent.rows[0]).toMatchObject({ id: created.id, date: TODAY, people: 1, hours: 8, order: { number: `OS-${YEAR}-0001` } });
 
-    const reader = auth(company.id, ['list_ordens_de_servico']);
+    const reader = auth(company.id, ['list_ordens_de_servico', 'all_ordens_de_servico']);
     expect((await api().get(`/service-reports/${created.id}`).set(reader).expect(200)).body.id).toBe(created.id);
     await rdo(reader, id, { date: day(-1) }).expect(403);
     await api().put(`/service-reports/${created.id}`).set(reader).send({ notes: 'x' }).expect(403);

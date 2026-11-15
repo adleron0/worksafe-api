@@ -18,7 +18,7 @@ import { blockRealNetwork, resetAsaasMock } from './setup/asaas-mock';
  * próximo retorno; e nada vaza de uma empresa para outra.
  */
 describe('Comercial — acompanhamento (e2e)', () => {
-  const ALL = ['list_comercial', 'create_comercial', 'update_comercial'];
+  const ALL = ['list_comercial', 'create_comercial', 'update_comercial', 'all_propostas', 'update_acompanhamento'];
   let jwt: JwtService;
   let userId = 0;
   let cnpj = 0;
@@ -186,7 +186,7 @@ describe('Comercial — acompanhamento (e2e)', () => {
     // responsável de outra empresa não entra
     await api().post('/commercial/activities').set(h).send({ proposalId: proposal.id, type: 'ligacao', dueDate: day(1), userId: otherUser.id }).expect(400);
     // quem só lista não escreve
-    const reader = auth(company.id, ['list_comercial']);
+    const reader = auth(company.id, ['list_comercial', 'all_propostas']);
     expect((await listar(reader)).total).toBe(1);
     await api().post('/commercial/activities').set(reader).send({ proposalId: proposal.id, type: 'ligacao', dueDate: day(1) }).expect(403);
     await api().delete(`/commercial/activities/${mine.id}`).set(reader).expect(403);

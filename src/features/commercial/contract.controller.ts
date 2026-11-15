@@ -3,11 +3,13 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { getDocumentMulterOptions } from 'src/features/upload/upload.middleware';
 import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
+import { ALL_PROPOSALS_PERMISSION } from './ownership';
+import { permissionsOf } from './proposal.controller';
 import { ContractActor, ContractService } from './contract.service';
 
 const actorOf = (req: Request): ContractActor => {
-  const user = (req as Request & { user?: { sub?: number; companyId?: number } }).user;
-  return { userId: Number(user?.sub ?? 0), companyId: Number(user?.companyId ?? 0) };
+  const user = (req as Request & { user?: { sub?: number; companyId?: number; permissions?: unknown } }).user;
+  return { userId: Number(user?.sub ?? 0), companyId: Number(user?.companyId ?? 0), seesAll: permissionsOf(user?.permissions).includes(ALL_PROPOSALS_PERMISSION) };
 };
 type Json = Record<string, unknown>;
 

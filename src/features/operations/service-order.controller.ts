@@ -4,11 +4,12 @@ import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { COSTS_PERMISSION, permissionsOf } from 'src/features/commercial/proposal.controller';
 import { DailyReportService } from './daily-report.service';
 import { OrderResultService } from './order-result.service';
-import { OrderActor, ServiceOrderService } from './service-order.service';
+import { ALL_ORDERS_PERMISSION, OrderActor, ServiceOrderService } from './service-order.service';
 
 const actorOf = (req: Request): OrderActor => {
   const user = (req as Request & { user?: { sub?: number; companyId?: number; permissions?: unknown } }).user;
-  return { userId: Number(user?.sub ?? 0), companyId: Number(user?.companyId ?? 0), canSeeCosts: permissionsOf(user?.permissions).includes(COSTS_PERMISSION) };
+  const permissions = permissionsOf(user?.permissions);
+  return { userId: Number(user?.sub ?? 0), companyId: Number(user?.companyId ?? 0), canSeeCosts: permissions.includes(COSTS_PERMISSION), seesAll: permissions.includes(ALL_ORDERS_PERMISSION) };
 };
 type Json = Record<string, unknown>;
 
@@ -41,8 +42,9 @@ export class ServiceOrderController {
 }
 
 /**
- * RDO — relatório diário de obra. Quem vê as ordens de serviço vê os RDOs;
- * quem as altera lança e fecha RDO.
+ * RDO — relatório diário de obra. Quem vê as ordens de serviço vê os RDOs das
+ * que enxerga; lançar e fechar RDO pede a permissão própria (`update_rdo`), para
+ * o encarregado preencher o diário sem poder alterar a OS.
  */
 @Controller()
 export class DailyReportController {
@@ -57,21 +59,21 @@ export class DailyReportController {
   @Permissions('list_ordens_de_servico') @Get('service-orders/:orderId/reports/template')
   template(@Param('orderId', ParseIntPipe) orderId: number, @Req() req: Request, @Query() query: Record<string, string>) { return this.reports.template(actorOf(req), orderId, query ?? {}); }
 
-  @Permissions('update_ordens_de_servico') @Post('service-orders/:orderId/reports')
+  @Permissions('update_rdo') @Post('service-orders/:orderId/reports')
   create(@Param('orderId', ParseIntPipe) orderId: number, @Req() req: Request, @Body() body: Json) { return this.reports.create(actorOf(req), orderId, body ?? {}); }
 
   @Permissions('list_ordens_de_servico') @Get('service-reports/:id')
   get(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.reports.get(actorOf(req), id); }
 
-  @Permissions('update_ordens_de_servico') @Put('service-reports/:id')
+  @Permissions('update_rdo') @Put('service-reports/:id')
   update(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.reports.update(actorOf(req), id, body ?? {}); }
 
-  @Permissions('update_ordens_de_servico') @Patch('service-reports/:id/close')
+  @Permissions('update_rdo') @Patch('service-reports/:id/close')
   close(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.reports.close(actorOf(req), id); }
 
-  @Permissions('update_ordens_de_servico') @Patch('service-reports/:id/reopen')
+  @Permissions('update_rdo') @Patch('service-reports/:id/reopen')
   reopen(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.reports.reopen(actorOf(req), id, body ?? {}); }
 
-  @Permissions('update_ordens_de_servico') @Delete('service-reports/:id')
+  @Permissions('update_rdo') @Delete('service-reports/:id')
   remove(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.reports.remove(actorOf(req), id); }
 }

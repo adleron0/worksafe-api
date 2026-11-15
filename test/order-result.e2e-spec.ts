@@ -16,8 +16,8 @@ import { blockRealNetwork, resetAsaasMock } from './setup/asaas-mock';
  * avisa antes da obra acabar; encerrar congela; só vê quem tem a permissão de custos.
  */
 describe('Operação — resultado da OS (e2e)', () => {
-  const COMMERCIAL = ['list_comercial', 'create_comercial', 'update_comercial'];
-  const ORDERS = ['list_ordens_de_servico', 'update_ordens_de_servico'];
+  const COMMERCIAL = ['list_comercial', 'create_comercial', 'update_comercial', 'all_propostas', 'update_acompanhamento'];
+  const ORDERS = ['list_ordens_de_servico', 'update_ordens_de_servico', 'all_ordens_de_servico', 'update_rdo'];
   const PURCHASES = ['list_pedidos_de_compra', 'create_pedidos_de_compra', 'update_pedidos_de_compra', 'approve_pedidos_de_compra'];
   const ALL = [...COMMERCIAL, ...ORDERS, ...PURCHASES, 'view_custos_comercial', 'list_financeiro', 'create_financeiro', 'update_financeiro'];
   const YEAR = new Date().getFullYear();

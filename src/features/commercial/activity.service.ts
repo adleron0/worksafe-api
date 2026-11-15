@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Commercial_Activity, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { ownProposalIds } from './ownership';
 
 /**
  * Acompanhamento comercial: os contatos com o cliente (ligação, mensagem,
@@ -17,7 +18,7 @@ const TYPE_LABEL: Record<ActivityType, string> = {
   ligacao: 'Ligação', whatsapp: 'WhatsApp', email: 'E-mail', reuniao: 'Reunião', visita: 'Visita', tarefa: 'Tarefa', nota: 'Anotação',
 };
 
-export interface ActivityActor { userId: number; companyId: number }
+export interface ActivityActor { userId: number; companyId: number; seesAll: boolean }
 type Body = Record<string, unknown>;
 
 const clean = (value: unknown, max = 255) => String(value ?? '').trim().replace(/\s+/g, ' ').slice(0, max);
@@ -108,6 +109,13 @@ export class ActivityService {
     });
   }
 
+  /** Sem a permissão de ver tudo: os contatos da pessoa (dela ou criados por ela) e os das propostas dela. */
+  private async visibleTo(actor: ActivityActor): Promise<Prisma.Commercial_ActivityWhereInput> {
+    const own = await ownProposalIds(this.prisma, actor);
+    if (!own) return {};
+    return { OR: [{ userId: actor.userId }, { createdByUserId: actor.userId }, ...(own.length ? [{ proposalId: { in: own } }] : [])] };
+  }
+
   async list(actor: ActivityActor, query: Record<string, string>) {
     const page = Math.max(0, Number(query.page) || 0);
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 30));
@@ -115,7 +123,7 @@ export class ActivityService {
     const proposalId = Number(query.proposalId) || 0;
     const family = proposalId ? (await this.familyIds(actor.companyId, [proposalId])).get(proposalId) ?? [proposalId] : null;
     const scope: Prisma.Commercial_ActivityWhereInput = {
-      companyId: actor.companyId, inactiveAt: null,
+      companyId: actor.companyId, inactiveAt: null, AND: [await this.visibleTo(actor)],
       ...(family ? { proposalId: { in: family } } : {}),
       ...(Number(query.customerId) > 0 ? { customerId: Number(query.customerId) } : {}),
       ...(Number(query.userId) > 0 ? { userId: Number(query.userId) } : {}),
@@ -169,8 +177,8 @@ export class ActivityService {
 
   // ------------------------------------------------------------------ escrita
 
-  private async byId(companyId: number, id: number) {
-    const row = await this.prisma.commercial_Activity.findFirst({ where: { id, companyId, inactiveAt: null } });
+  private async byId(actor: ActivityActor, id: number) {
+    const row = await this.prisma.commercial_Activity.findFirst({ where: { id, companyId: actor.companyId, inactiveAt: null, AND: [await this.visibleTo(actor)] } });
     if (!row) throw new NotFoundException('Atividade não encontrada');
     return row;
   }
@@ -242,7 +250,7 @@ export class ActivityService {
   }
 
   async update(actor: ActivityActor, id: number, body: Body) {
-    const row = await this.byId(actor.companyId, id);
+    const row = await this.byId(actor, id);
     const data: Prisma.Commercial_ActivityUncheckedUpdateInput = {};
     if (body.type !== undefined) data.type = this.typeOf(body.type);
     if (body.subject !== undefined) {
@@ -265,7 +273,7 @@ export class ActivityService {
 
   /** Conclui o que estava marcado, com o que ficou combinado e, se houver, o próximo retorno. */
   async complete(actor: ActivityActor, id: number, body: Body) {
-    const row = await this.byId(actor.companyId, id);
+    const row = await this.byId(actor, id);
     if (row.doneAt) throw new ConflictException('Esta atividade já foi concluída');
     const next = this.nextOf(body.next, { companyId: row.companyId, customerId: row.customerId, proposalId: row.proposalId, userId: row.userId, contactName: row.contactName }, actor);
     const saved = await this.prisma.$transaction(async (tx) => {
@@ -282,7 +290,7 @@ export class ActivityService {
 
   /** Volta para pendente o que foi concluído por engano. */
   async reopen(actor: ActivityActor, id: number) {
-    const row = await this.byId(actor.companyId, id);
+    const row = await this.byId(actor, id);
     if (!row.doneAt) throw new ConflictException('Esta atividade ainda está pendente');
     if (!row.dueDate) throw new ConflictException('Este contato foi registrado depois de feito: não há o que reabrir. Se foi engano, exclua.');
     const saved = await this.prisma.commercial_Activity.update({ where: { id: row.id }, data: { doneAt: null, result: null } });
@@ -291,7 +299,7 @@ export class ActivityService {
 
   /** Cancela o que estava marcado, ou exclui um registro feito por engano. Fica guardado, só sai das listas. */
   async remove(actor: ActivityActor, id: number) {
-    const row = await this.byId(actor.companyId, id);
+    const row = await this.byId(actor, id);
     await this.prisma.commercial_Activity.update({ where: { id: row.id }, data: { inactiveAt: new Date() } });
     return { id: row.id };
   }

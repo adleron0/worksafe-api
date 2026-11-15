@@ -87,6 +87,7 @@ import { PayableController } from 'src/features/financial/payable.controller';
 import { CommercialController } from 'src/features/commercial/commercial.controller';
 import { ProposalController } from 'src/features/commercial/proposal.controller';
 import { ActivityController } from 'src/features/commercial/activity.controller';
+import { PipelineController } from 'src/features/commercial/pipeline.controller';
 import { DailyReportController, ServiceOrderController } from 'src/features/operations/service-order.controller';
 import { OperationsModule } from 'src/features/operations/module';
 import { PurchaseOrderController } from 'src/features/operations/purchase-order.controller';
@@ -252,6 +253,7 @@ export const crudExtraControllers = [
   CommercialController,
   ProposalController,
   ActivityController,
+  PipelineController,
   ServiceOrderController,
   DailyReportController,
   PurchaseOrderController,

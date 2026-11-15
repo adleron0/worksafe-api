@@ -3,6 +3,7 @@ import { Request } from 'express';
 import * as Zlib from 'zlib';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { Actor, ProposalService } from './proposal.service';
+import { ALL_PROPOSALS_PERMISSION } from './ownership';
 
 /** Quem vê custo, margem, lucro e comissão dentro da proposta. */
 export const COSTS_PERMISSION = 'view_custos_comercial';
@@ -27,6 +28,7 @@ const actorOf = (req: Request): Actor => {
   return {
     userId: Number(user?.sub ?? 0), companyId: Number(user?.companyId ?? 0),
     canSeeCosts: permissionsOf(user?.permissions).includes(COSTS_PERMISSION),
+    seesAll: permissionsOf(user?.permissions).includes(ALL_PROPOSALS_PERMISSION),
   };
 };
 type Json = Record<string, unknown>;

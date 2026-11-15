@@ -5,11 +5,12 @@ import { ActivityService } from './activity.service';
 import { CommercialService } from './commercial.service';
 import { ContractService } from './contract.service';
 import { DocumentService } from './document.service';
+import { PipelineService } from './pipeline.service';
 import { ProposalService } from './proposal.service';
 
 @Module({
   imports: [EmailModule, OperationsModule],
-  providers: [ActivityService, CommercialService, ContractService, DocumentService, ProposalService],
-  exports: [ActivityService, CommercialService, ContractService, DocumentService, ProposalService],
+  providers: [ActivityService, CommercialService, ContractService, DocumentService, ProposalService, PipelineService],
+  exports: [ActivityService, CommercialService, ContractService, DocumentService, ProposalService, PipelineService],
 })
 export class CommercialModule {}

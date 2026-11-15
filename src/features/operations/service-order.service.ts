@@ -13,7 +13,23 @@ import { OrderResultService } from './order-result.service';
  */
 type Tx = Prisma.TransactionClient;
 type Body = Record<string, any>;
-export interface OrderActor { userId: number; companyId: number; canSeeCosts: boolean }
+export interface OrderActor { userId: number; companyId: number; canSeeCosts: boolean; seesAll: boolean }
+/** Quem tem vê todas as OS; quem não tem vê só as suas. */
+export const ALL_ORDERS_PERMISSION = 'all_ordens_de_servico';
+
+/**
+ * "Só as minhas": sem a permissão de ver todas, a pessoa enxerga as OS em que é
+ * responsável, em que está escalada na equipe, ou que nasceram de uma venda sua.
+ */
+export async function ordersVisibleTo(prisma: PrismaService, actor: Pick<OrderActor, 'userId' | 'companyId' | 'seesAll'>): Promise<Prisma.Service_OrderWhereInput> {
+  if (actor.seesAll) return {};
+  const sold = await prisma.commercial_Contract.findMany({ where: { companyId: actor.companyId, sellerId: actor.userId }, select: { id: true }, take: 2000 });
+  return { OR: [
+    { responsibleUserId: actor.userId },
+    { team: { array_contains: [{ userId: actor.userId }] } },
+    ...(sold.length ? [{ contractId: { in: sold.map((contract) => contract.id) } }] : []),
+  ] };
+}
 
 export const SERVICE_ORDER_FLOW: FlowDefinition<ServiceOrderStatus> = {
   entity: 'service_order',
@@ -39,7 +55,7 @@ const DEFAULT_CHECKLIST = [
 const GROUP_LABEL: Record<string, string> = { mao_de_obra: 'Mão de obra', locacao: 'Locações', material: 'Materiais', avulso: 'Outros' };
 
 export interface ChecklistItem { id: string; title: string; done: boolean; doneAt: string | null; doneBy: string | null }
-export interface TeamMember { name: string; role: string }
+export interface TeamMember { name: string; role: string; userId?: number | null }
 
 const clean = (value: unknown, max = 255) => String(value ?? '').trim().replace(/\s+/g, ' ').slice(0, max);
 const text = (value: unknown, max = 10000) => String(value ?? '').trim().slice(0, max);
@@ -157,8 +173,8 @@ export class ServiceOrderService {
 
   // ------------------------------------------------------------------ leitura
 
-  private async byId(companyId: number, id: number): Promise<Service_Order> {
-    const row = await this.prisma.service_Order.findFirst({ where: { id, companyId } });
+  private async byId(actor: OrderActor, id: number): Promise<Service_Order> {
+    const row = await this.prisma.service_Order.findFirst({ where: { id, companyId: actor.companyId, AND: [await ordersVisibleTo(this.prisma, actor)] } });
     if (!row) throw new NotFoundException('Ordem de serviço não encontrada');
     return row;
   }
@@ -180,7 +196,7 @@ export class ServiceOrderService {
       where: { companyId: actor.companyId, OR: [{ name: { contains: term, mode: 'insensitive' } }, { corporateName: { contains: term, mode: 'insensitive' } }] }, select: { id: true }, take: 200,
     })).map((customer) => customer.id) : [];
     const scope: Prisma.Service_OrderWhereInput = {
-      companyId: actor.companyId, inactiveAt: null,
+      companyId: actor.companyId, inactiveAt: null, AND: [await ordersVisibleTo(this.prisma, actor)],
       ...(Number(query.responsibleUserId) > 0 ? { responsibleUserId: Number(query.responsibleUserId) } : {}),
       ...(term ? { OR: [{ number: { contains: term, mode: 'insensitive' } }, { title: { contains: term, mode: 'insensitive' } }, { customerId: { in: customerIds } }] } : {}),
     };
@@ -247,7 +263,7 @@ export class ServiceOrderService {
   }
 
   async get(actor: OrderActor, id: number) {
-    return this.present(await this.byId(actor.companyId, id), actor);
+    return this.present(await this.byId(actor, id), actor);
   }
 
   async options(actor: OrderActor) {
@@ -272,14 +288,23 @@ export class ServiceOrderService {
     });
   }
 
-  private teamOf(value: unknown): TeamMember[] {
+  /** Equipe escalada; quem tem usuário no sistema pode ser ligado a ele (é o que faz a OS aparecer para a pessoa). */
+  private async teamOf(companyId: number, value: unknown): Promise<TeamMember[]> {
     if (!Array.isArray(value)) throw new BadRequestException('Equipe inválida');
     if (value.length > 60) throw new BadRequestException('Pessoas demais na equipe');
-    return value.map((raw) => ({ name: clean((raw as Body)?.name, 120), role: clean((raw as Body)?.role, 80) })).filter((member) => member.name);
+    const team = value
+      .map((raw) => ({ name: clean((raw as Body)?.name, 120), role: clean((raw as Body)?.role, 80), userId: Number((raw as Body)?.userId) > 0 ? Number((raw as Body)?.userId) : null }))
+      .filter((member) => member.name);
+    const ids = [...new Set(team.map((member) => member.userId).filter((id): id is number => !!id))];
+    if (ids.length) {
+      const found = await this.prisma.user.count({ where: { id: { in: ids }, companyId } });
+      if (found !== ids.length) throw new BadRequestException('Pessoa da equipe ligada a um usuário que não existe');
+    }
+    return team;
   }
 
   async update(actor: OrderActor, id: number, body: Body) {
-    const row = await this.byId(actor.companyId, id);
+    const row = await this.byId(actor, id);
     if (row.status === 'cancelada' || row.status === 'encerrada') throw new ConflictException(`Ordem de serviço ${SERVICE_ORDER_FLOW.labels[row.status].toLowerCase()}: reabra para alterar`);
     const data: Prisma.Service_OrderUncheckedUpdateInput = {};
     const date = (key: 'plannedStart' | 'plannedEnd', label: string) => {
@@ -298,7 +323,7 @@ export class ServiceOrderService {
         data.responsibleUserId = user.id;
       }
     }
-    if ('team' in body) data.team = this.teamOf(body.team) as unknown as Prisma.InputJsonValue;
+    if ('team' in body) data.team = (await this.teamOf(actor.companyId, body.team)) as unknown as Prisma.InputJsonValue;
     if ('checklist' in body) {
       const me = actor.userId ? await this.prisma.user.findUnique({ where: { id: actor.userId }, select: { name: true } }) : null;
       data.checklist = this.checklistOf(body.checklist, (row.checklist as unknown as ChecklistItem[]) ?? [], me?.name ?? 'Usuário') as unknown as Prisma.InputJsonValue;
@@ -317,7 +342,7 @@ export class ServiceOrderService {
    * início; iniciar e concluir registram a data real; cancelar pede o motivo.
    */
   async move(actor: OrderActor, id: number, body: Body) {
-    const row = await this.byId(actor.companyId, id);
+    const row = await this.byId(actor, id);
     const target = String(body.status) as ServiceOrderStatus;
     if (!STATUSES.includes(target)) throw new BadRequestException('Etapa inválida');
     assertMove(SERVICE_ORDER_FLOW, row.status, target);

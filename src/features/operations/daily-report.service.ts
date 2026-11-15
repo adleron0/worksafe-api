@@ -4,7 +4,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { recordFlowEvent } from 'src/common/flow/flow';
 import type { PricingSnapshot } from 'src/features/commercial/commercial.service';
 import { computeBase, professionalCost } from 'src/features/commercial/pricing/engine';
-import { OrderActor } from './service-order.service';
+import { OrderActor, ordersVisibleTo } from './service-order.service';
 
 /**
  * RDO — relatório diário de obra.
@@ -54,8 +54,8 @@ function hoursOf(value: unknown, label: string, max = 24): number {
 export class DailyReportService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async orderOf(companyId: number, orderId: number): Promise<Service_Order> {
-    const order = await this.prisma.service_Order.findFirst({ where: { id: orderId, companyId } });
+  private async orderOf(actor: OrderActor, orderId: number): Promise<Service_Order> {
+    const order = await this.prisma.service_Order.findFirst({ where: { id: orderId, companyId: actor.companyId, AND: [await ordersVisibleTo(this.prisma, actor)] } });
     if (!order) throw new NotFoundException('Ordem de serviço não encontrada');
     return order;
   }
@@ -192,7 +192,7 @@ export class DailyReportService {
 
   /** Diário de uma OS: os RDOs e o que eles dizem da obra. */
   async list(actor: OrderActor, orderId: number) {
-    const order = await this.orderOf(actor.companyId, orderId);
+    const order = await this.orderOf(actor, orderId);
     const rows = await this.prisma.service_DailyReport.findMany({ where: { orderId, inactiveAt: null }, orderBy: [{ date: 'desc' }, { id: 'desc' }] });
     const names = await this.namesOf(rows.map((row) => row.createdByUserId));
     return {
@@ -204,9 +204,12 @@ export class DailyReportService {
   /** RDOs recentes de todas as obras e as obras em andamento (a tela do encarregado). */
   async recent(actor: OrderActor, query: Record<string, string>) {
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 30));
+    // sem a permissão de ver todas, só as obras e os RDOs das OS da pessoa
+    const visible = await ordersVisibleTo(this.prisma, actor);
+    const mine = actor.seesAll ? null : (await this.prisma.service_Order.findMany({ where: { companyId: actor.companyId, AND: [visible] }, select: { id: true }, take: 2000 })).map((order) => order.id);
     const [rows, running] = await Promise.all([
-      this.prisma.service_DailyReport.findMany({ where: { companyId: actor.companyId, inactiveAt: null }, orderBy: [{ date: 'desc' }, { id: 'desc' }], take: limit }),
-      this.prisma.service_Order.findMany({ where: { companyId: actor.companyId, status: 'em_execucao', inactiveAt: null }, orderBy: [{ startedAt: 'asc' }, { id: 'asc' }] }),
+      this.prisma.service_DailyReport.findMany({ where: { companyId: actor.companyId, inactiveAt: null, ...(mine ? { orderId: { in: mine } } : {}) }, orderBy: [{ date: 'desc' }, { id: 'desc' }], take: limit }),
+      this.prisma.service_Order.findMany({ where: { companyId: actor.companyId, status: 'em_execucao', inactiveAt: null, AND: [visible] }, orderBy: [{ startedAt: 'asc' }, { id: 'asc' }] }),
     ]);
     const orderIds = [...new Set([...rows.map((row) => row.orderId), ...running.map((order) => order.id)])];
     const orders = await this.prisma.service_Order.findMany({ where: { id: { in: orderIds } } });
@@ -239,12 +242,12 @@ export class DailyReportService {
 
   async get(actor: OrderActor, id: number) {
     const row = await this.byId(actor.companyId, id);
-    return this.present(row, await this.orderOf(actor.companyId, row.orderId));
+    return this.present(row, await this.orderOf(actor, row.orderId));
   }
 
   /** RDO em branco de um dia: a equipe escalada na OS e o avanço como estava no último RDO. */
   async template(actor: OrderActor, orderId: number, query: Record<string, string>) {
-    const order = await this.orderOf(actor.companyId, orderId);
+    const order = await this.orderOf(actor, orderId);
     const date = blank(query.date) ? today() : dateOf(query.date, 'Data');
     const [labor, previous] = await Promise.all([
       this.laborOf(order),
@@ -326,7 +329,7 @@ export class DailyReportService {
   }
 
   async create(actor: OrderActor, orderId: number, body: Body) {
-    const order = await this.orderOf(actor.companyId, orderId);
+    const order = await this.orderOf(actor, orderId);
     if (order.status !== 'em_execucao' && order.status !== 'concluida') {
       throw new ConflictException(order.status === 'encerrada' || order.status === 'cancelada' ? 'Esta ordem de serviço não recebe mais RDO' : 'A obra ainda não começou: inicie a execução da OS para lançar o RDO');
     }
@@ -341,7 +344,7 @@ export class DailyReportService {
   async update(actor: OrderActor, id: number, body: Body) {
     const row = await this.byId(actor.companyId, id);
     if (row.status === 'fechado') throw new ConflictException('RDO fechado: reabra, com o motivo, para corrigir');
-    const order = await this.orderOf(actor.companyId, row.orderId);
+    const order = await this.orderOf(actor, row.orderId);
     const date = blank(body.date) ? iso(row.date)! : dateOf(body.date, 'Data');
     this.assertDate(order, date);
     const saved = await this.prisma.service_DailyReport.update({ where: { id }, data: { date: asDate(date), ...this.dataOf(body, order) } }).catch((error) => this.duplicate(error));
@@ -351,18 +354,20 @@ export class DailyReportService {
   /** Fecha o RDO: a partir daqui ele não é editado. */
   async close(actor: OrderActor, id: number) {
     const row = await this.byId(actor.companyId, id);
+    await this.orderOf(actor, row.orderId);
     if (row.status === 'fechado') throw new ConflictException('Este RDO já está fechado');
     const crew = (row.crew as unknown as CrewMember[]) ?? [];
     // dia parado não tem equipe nem atividade: nesse caso a ocorrência ou o clima explicam
     const stopped = row.weather === 'impraticavel' || ((row.occurrences as unknown as Occurrence[]) ?? []).length > 0;
     if (!crew.length && !row.activities && !stopped) throw new BadRequestException('Informe a equipe do dia ou o que foi feito antes de fechar. Se o dia foi parado, registre a ocorrência ou o clima.');
     const saved = await this.prisma.service_DailyReport.update({ where: { id }, data: { status: 'fechado', closedAt: new Date(), closedByUserId: actor.userId || null } });
-    return this.present(saved, await this.orderOf(actor.companyId, row.orderId));
+    return this.present(saved, await this.orderOf(actor, row.orderId));
   }
 
   /** Reabre um RDO fechado para correção; o motivo fica no histórico. */
   async reopen(actor: OrderActor, id: number, body: Body) {
     const row = await this.byId(actor.companyId, id);
+    await this.orderOf(actor, row.orderId);
     if (row.status !== 'fechado') throw new ConflictException('Este RDO não está fechado');
     const note = clean(body.note, 500);
     if (!note) throw new BadRequestException('Informe o motivo da correção');
@@ -370,12 +375,13 @@ export class DailyReportService {
       await recordFlowEvent(tx, 'service_report', { companyId: row.companyId, entityId: row.id, type: 'reaberto', from: 'fechado', to: 'rascunho', userId: actor.userId, note });
       return tx.service_DailyReport.update({ where: { id }, data: { status: 'rascunho', closedAt: null, closedByUserId: null } });
     });
-    return this.present(saved, await this.orderOf(actor.companyId, row.orderId));
+    return this.present(saved, await this.orderOf(actor, row.orderId));
   }
 
   /** Apaga um rascunho (RDO fechado não é apagado). */
   async remove(actor: OrderActor, id: number) {
     const row = await this.byId(actor.companyId, id);
+    await this.orderOf(actor, row.orderId);
     if (row.status === 'fechado') throw new ConflictException('RDO fechado não é apagado: reabra para corrigir');
     await this.prisma.service_DailyReport.delete({ where: { id } });
     return { id };

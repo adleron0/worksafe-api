@@ -11,7 +11,9 @@ import { computeBase, price, PriceInput, PriceItemInput, PriceResult, PricingErr
 
 type Body = Record<string, any>;
 type Tx = Prisma.TransactionClient;
-export interface Actor { userId: number; companyId: number; canSeeCosts: boolean }
+import { proposalsVisibleTo } from './ownership';
+
+export interface Actor { userId: number; companyId: number; canSeeCosts: boolean; seesAll: boolean }
 
 const KINDS: CommercialProposalKind[] = ['servico', 'treinamento', 'misto'];
 const ITEM_TYPES: CommercialItemType[] = ['mao_de_obra', 'locacao', 'material', 'treinamento', 'avulso'];
@@ -331,8 +333,8 @@ export class ProposalService {
     if (draft.templateId && !(await this.prisma.commercial_ProposalTemplate.findFirst({ where: { id: draft.templateId, companyId }, select: { id: true } }))) draft.templateId = null;
   }
 
-  private async byId(companyId: number, id: number): Promise<ProposalRow> {
-    const row = await this.prisma.commercial_Proposal.findFirst({ where: { id, companyId }, include: FULL });
+  private async byId(actor: Actor, id: number): Promise<ProposalRow> {
+    const row = await this.prisma.commercial_Proposal.findFirst({ where: { id, companyId: actor.companyId, AND: [proposalsVisibleTo(actor)] }, include: FULL });
     if (!row) throw new NotFoundException('Proposta não encontrada');
     return row;
   }
@@ -524,7 +526,7 @@ export class ProposalService {
 
   /** Pré-visualização do documento com o rascunho da tela (nada é gravado). */
   async documentPreview(actor: Actor, id: number, body: Body) {
-    const existing = await this.byId(actor.companyId, id);
+    const existing = await this.byId(actor, id);
     // proposta já enviada mostra exatamente o que o cliente recebeu
     if (existing.frozenHtml && existing.status !== 'rascunho') return { html: existing.frozenHtml, frozen: true };
     const snapshot = await this.snapshotFor(actor, body, existing);
@@ -541,7 +543,7 @@ export class ProposalService {
    * registrado; a tela mostra a tarja de rascunho.
    */
   async clientView(actor: Actor, id: number) {
-    const row = await this.byId(actor.companyId, id);
+    const row = await this.byId(actor, id);
     const frozen = Boolean(row.frozenHtml) && row.status !== 'rascunho';
     const draft = this.draftOf(row);
     const html = frozen ? row.frozenHtml!
@@ -562,7 +564,7 @@ export class ProposalService {
   }
 
   async sendEmail(actor: Actor, id: number, body: Body) {
-    const row = await this.byId(actor.companyId, id);
+    const row = await this.byId(actor, id);
     if (row.status !== 'enviada' && row.status !== 'visualizada') throw new ConflictException('Só proposta enviada tem link para mandar por e-mail');
     return this.documents.sendLink(row, body, actor.userId);
   }
@@ -638,7 +640,7 @@ export class ProposalService {
     const status = query.status as CommercialProposalStatus | undefined;
     const term = clean(query.search, 80);
     const scope: Prisma.Commercial_ProposalWhereInput = {
-      companyId: actor.companyId,
+      companyId: actor.companyId, AND: [proposalsVisibleTo(actor)],
       ...(query.inactive === 'true' ? {} : { inactiveAt: null }),
       ...(KINDS.includes(query.kind as CommercialProposalKind) ? { kind: query.kind as CommercialProposalKind } : {}),
       ...(Number(query.customerId) > 0 ? { customerId: Number(query.customerId) } : {}),
@@ -676,12 +678,12 @@ export class ProposalService {
 
   async get(actor: Actor, id: number) {
     await this.documents.expireDue(actor.companyId);
-    return this.present(await this.byId(actor.companyId, id), actor);
+    return this.present(await this.byId(actor, id), actor);
   }
 
   /** Calcula o rascunho da tela sem gravar. Com `id`, usa a fotografia da proposta. */
   async preview(actor: Actor, body: Body) {
-    const existing = Number(body.id) > 0 ? await this.byId(actor.companyId, Number(body.id)) : undefined;
+    const existing = Number(body.id) > 0 ? await this.byId(actor, Number(body.id)) : undefined;
     const snapshot = await this.snapshotFor(actor, body, existing);
     const draft = this.parse({ ...body, title: clean(body.title) || 'Rascunho', customerId: body.customerId || existing?.customerId || 1 }, actor, snapshot, existing);
     await this.fill(actor.companyId, draft, snapshot);
@@ -730,7 +732,7 @@ export class ProposalService {
   }
 
   async update(actor: Actor, id: number, body: Body) {
-    const existing = await this.byId(actor.companyId, id);
+    const existing = await this.byId(actor, id);
     if (existing.inactiveAt) throw new ConflictException('Proposta inativa');
     if (existing.status !== 'rascunho') throw new ConflictException('Só rascunho pode ser editado. Para mudar uma proposta enviada, crie uma revisão.');
     const snapshot = await this.snapshotFor(actor, body, existing);
@@ -775,13 +777,13 @@ export class ProposalService {
   }
 
   async duplicate(actor: Actor, id: number) {
-    const source = await this.byId(actor.companyId, id);
+    const source = await this.byId(actor, id);
     return this.get(actor, await this.copy(actor, source));
   }
 
   /** Proposta enviada não é editada: nasce uma revisão em rascunho e a anterior fica como substituída. */
   async revise(actor: Actor, id: number) {
-    const source = await this.byId(actor.companyId, id);
+    const source = await this.byId(actor, id);
     if (source.inactiveAt) throw new ConflictException('Proposta inativa');
     if (![...SENT, 'recusada', 'expirada'].includes(source.status)) {
       throw new ConflictException(source.status === 'rascunho' ? 'Esta proposta ainda é um rascunho: edite direto' : 'Esta proposta não pode mais ser revisada');
@@ -790,7 +792,7 @@ export class ProposalService {
   }
 
   async setStatus(actor: Actor, id: number, body: Body) {
-    const row = await this.byId(actor.companyId, id);
+    const row = await this.byId(actor, id);
     if (row.inactiveAt) throw new ConflictException('Proposta inativa');
     const target = String(body.status) as CommercialProposalStatus;
     const allowed: Partial<Record<CommercialProposalStatus, CommercialProposalStatus[]>> = {
@@ -855,7 +857,7 @@ export class ProposalService {
   }
 
   async setActive(actor: Actor, id: number, active: boolean) {
-    const row = await this.byId(actor.companyId, id);
+    const row = await this.byId(actor, id);
     if (!active && !['rascunho', 'cancelada', 'recusada'].includes(row.status)) {
       throw new ConflictException('Só rascunho, cancelada ou recusada pode ser inativada');
     }
