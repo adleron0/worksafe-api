@@ -44,6 +44,19 @@ model File_Item {
   size     BigInt
   notes    String? @db.VarChar(500)
 
+  // vencimento (opcional): direto no arquivo ou sugerido pelo tipo de documento
+  typeId     Int?
+  type       File_DocumentType? @relation(fields: [typeId], references: [id], onDelete: SetNull)
+  issueDate  DateTime?          @db.Date
+  expiryDate DateTime?          @db.Date
+  // dias de aviso deste arquivo; vazio = o do tipo (ou 30)
+  warnDays   Int?
+
+  // versões: substituir cria uma linha nova e marca a anterior (`replacedAt`);
+  // todas as versões do mesmo arquivo levam o mesmo `versionGroup`
+  versionGroup String?   @db.VarChar(36)
+  replacedAt   DateTime?
+
   uploadedByUserId Int?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @default(now()) @updatedAt
@@ -52,4 +65,29 @@ model File_Item {
 
   @@index([companyId, folderId])
   @@index([companyId, trashedAt])
+  @@index([companyId, expiryDate])
+  @@index([versionGroup])
+}
+
+// Tipos de documento da empresa (alvará, PGR, certidões...): sugerem a validade
+// e, quando obrigatórios, acusam "faltando" enquanto não houver um arquivo vigente.
+model File_DocumentType {
+  id        Int    @id @default(autoincrement())
+  companyId Int
+  name      String @db.VarChar(120)
+
+  expires        Boolean @default(false)
+  // validade sugerida ao informar a emissão (o vencimento pode ser corrigido)
+  validityMonths Int?
+  // com quantos dias de antecedência avisar
+  warnDays       Int     @default(30)
+  required       Boolean @default(false)
+
+  files File_Item[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([companyId, name])
 }

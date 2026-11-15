@@ -39,3 +39,22 @@ export function downloadName(name: string, fileName: string): string {
   const extension = extensionOf(fileName);
   return extension && extensionOf(name) !== extension ? `${name}${extension}` : name;
 }
+
+/** Tipos de documento com que cada empresa começa. As validades são sugestão de partida: quem administra ajusta. */
+export const DEFAULT_FILE_TYPES: Array<{ name: string; expires?: boolean; validityMonths?: number }> = [
+  { name: 'Alvará de funcionamento', expires: true, validityMonths: 12 },
+  { name: 'AVCB / CLCB (bombeiros)', expires: true },
+  { name: 'Contrato social' },
+  { name: 'Cartão CNPJ' },
+  { name: 'PGR', expires: true, validityMonths: 24 },
+  { name: 'PCMSO', expires: true, validityMonths: 12 },
+  { name: 'LTCAT' },
+  { name: 'CND federal', expires: true, validityMonths: 6 },
+  { name: 'Certidão do FGTS (CRF)', expires: true, validityMonths: 1 },
+  { name: 'CNDT (débitos trabalhistas)', expires: true, validityMonths: 6 },
+  { name: 'Certidão estadual', expires: true },
+  { name: 'Certidão municipal', expires: true },
+  { name: 'Apólice de seguro', expires: true, validityMonths: 12 },
+  { name: 'Certificado digital', expires: true, validityMonths: 12 },
+  { name: 'Registro no conselho', expires: true, validityMonths: 12 },
+];

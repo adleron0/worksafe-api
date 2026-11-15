@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, Req, Res, UploadedFile as Uploaded, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req, Res, UploadedFile as Uploaded, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request, Response } from 'express';
 import * as multer from 'multer';
@@ -36,6 +36,24 @@ export class CompanyFileController {
   @Permissions('manage_arquivos') @Get('profiles')
   profiles(@Req() req: Request) { return this.files.profiles(actorOf(req)); }
 
+  @Permissions('view_arquivos') @Get('expiring')
+  expiring(@Req() req: Request, @Query() query: Record<string, string>) { return this.files.expiring(actorOf(req), query ?? {}); }
+
+  @Permissions('view_arquivos') @Get('types')
+  types(@Req() req: Request, @Query() query: Record<string, string>) { return this.files.types(actorOf(req), query ?? {}); }
+
+  @Permissions('manage_arquivos') @Post('types')
+  createType(@Req() req: Request, @Body() body: Json) { return this.files.createType(actorOf(req), body ?? {}); }
+
+  @Permissions('manage_arquivos') @Put('types/:id')
+  updateType(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.files.updateType(actorOf(req), id, body ?? {}); }
+
+  @Permissions('manage_arquivos') @Patch('types/:id/inactive')
+  inactivateType(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.files.setTypeActive(actorOf(req), id, false); }
+
+  @Permissions('manage_arquivos') @Patch('types/:id/active')
+  activateType(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.files.setTypeActive(actorOf(req), id, true); }
+
   @Permissions('update_arquivos') @Get('trash')
   trash(@Req() req: Request) { return this.files.trash(actorOf(req)); }
 
@@ -57,6 +75,14 @@ export class CompanyFileController {
   @Permissions('update_arquivos') @Post('files')
   @UseInterceptors(FileInterceptor('file', UPLOAD))
   upload(@Req() req: Request, @Body() body: Json, @Uploaded() file?: UploadedFile) { return this.files.upload(actorOf(req), file, body ?? {}); }
+
+  /** Substituir por uma versão nova: a anterior fica guardada. */
+  @Permissions('update_arquivos') @Post('files/:id/replace')
+  @UseInterceptors(FileInterceptor('file', UPLOAD))
+  replace(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json, @Uploaded() file?: UploadedFile) { return this.files.replace(actorOf(req), id, file, body ?? {}); }
+
+  @Permissions('manage_arquivos') @Delete('files/:id/version')
+  purgeVersion(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.files.purgeVersion(actorOf(req), id); }
 
   @Permissions('update_arquivos') @Put('files/:id')
   updateFile(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.files.updateFile(actorOf(req), id, body ?? {}); }

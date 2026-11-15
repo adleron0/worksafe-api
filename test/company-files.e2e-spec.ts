@@ -11,7 +11,8 @@ import { makeCompany, makeSeller } from './setup/factories';
 
 /**
  * Arquivos da empresa: pastas em árvore, envio para o armazenamento privado
- * (memória, na suíte), acesso por pasta, busca, lixeira e exclusão definitiva.
+ * (memória, na suíte), acesso por pasta, busca, lixeira e exclusão definitiva,
+ * tipos de documento, vencimento, versões e os blocos da Minha esteira.
  */
 describe('Arquivos da empresa (e2e)', () => {
   const VIEW = ['view_arquivos'];
@@ -279,5 +280,159 @@ describe('Arquivos da empresa (e2e)', () => {
     expect(await db.flow_Event.count({ where: { entity: 'company_file', type: 'excluido', entityId: { in: [dentro.id, antigo.id] } } })).toBe(2);
     const trash = (await api().get('/company-files/trash').set(auth(company.id, WRITE)).expect(200)).body;
     expect(trash.files.map((file: any) => [file.name, file.daysLeft])).toEqual([['recente.pdf', 1]]);
+  });
+
+  it('tipos de documento: nasce com a lista padrão e só quem administra cria, edita e inativa', async () => {
+    const { company } = await cenario();
+    const types = (await api().get('/company-files/types').set(auth(company.id, VIEW)).expect(200)).body.rows;
+    expect(types.map((type: any) => type.name)).toEqual(expect.arrayContaining(['Alvará de funcionamento', 'PGR', 'PCMSO', 'CND federal', 'Apólice de seguro']));
+    expect(types.find((type: any) => type.name === 'PGR')).toMatchObject({ expires: true, validityMonths: 24, warnDays: 30, required: false });
+    expect(types.find((type: any) => type.name === 'Contrato social')).toMatchObject({ expires: false, validityMonths: null });
+
+    const created = (await api().post('/company-files/types').set(auth(company.id)).send({ name: 'Licença ambiental', expires: true, validityMonths: 48, warnDays: 90, required: true }).expect(201)).body;
+    expect(created).toMatchObject({ validityMonths: 48, warnDays: 90, required: true });
+    await api().post('/company-files/types').set(auth(company.id)).send({ name: 'pgr' }).expect(409);
+    await api().post('/company-files/types').set(auth(company.id)).send({ name: 'X' }).expect(400);
+    await api().post('/company-files/types').set(auth(company.id)).send({ name: 'Outro', expires: true, validityMonths: 999 }).expect(400);
+    await api().post('/company-files/types').set(auth(company.id, WRITE)).send({ name: 'Sem permissão' }).expect(403);
+    const edited = (await api().put(`/company-files/types/${created.id}`).set(auth(company.id)).send({ expires: false }).expect(200)).body;
+    expect(edited).toMatchObject({ expires: false, validityMonths: null });
+    await api().patch(`/company-files/types/${created.id}/inactive`).set(auth(company.id)).expect(200);
+    expect((await api().get('/company-files/types').set(auth(company.id)).expect(200)).body.rows.some((type: any) => type.id === created.id)).toBe(false);
+    expect((await api().get('/company-files/types?inactive=true').set(auth(company.id)).expect(200)).body.rows.some((type: any) => type.id === created.id)).toBe(true);
+    const other = await makeCompany();
+    await api().put(`/company-files/types/${created.id}`).set(auth(other.id)).send({ name: 'Invasão' }).expect(404);
+  });
+
+  it('vencimento: sugerido pelo tipo, corrigível, pinta a pasta e aparece em Vencimentos e na Minha esteira', async () => {
+    const { company, folderId, db } = await cenario();
+    const day = (offset: number) => new Date(Date.now() - 3 * 3600 * 1000 + offset * 86400000).toISOString().slice(0, 10);
+    const types = (await api().get('/company-files/types').set(auth(company.id)).expect(200)).body.rows;
+    const typeId = (name: string) => types.find((type: any) => type.name === name).id as number;
+    const seguranca = folderId('Segurança do trabalho');
+    const fiscal = folderId('Societário e fiscal');
+    const campo = await db.profile.create({ data: { name: 'Operação - campo', companyId: company.id } });
+    const gestao = await db.profile.create({ data: { name: 'Gestão', companyId: company.id } });
+    const operador = await makeSeller(company.id, { profileId: campo.id, name: 'Operador' });
+    await api().put(`/company-files/folders/${fiscal}`).set(auth(company.id)).send({ restricted: true, profileIds: [gestao.id] }).expect(200);
+
+    // envio já com tipo e emissão: PCMSO vale 12 meses, emitido há 400 dias, nasce vencido
+    const pcmso = (await enviar(company.id, seguranca, WRITE).field('typeId', String(typeId('PCMSO'))).field('issueDate', day(-400)).expect(201)).body;
+    expect(pcmso).toMatchObject({ typeName: 'PCMSO', issueDate: day(-400), status: 'vencido', statusLabel: 'Vencido' });
+    // arquivo sem tipo: recebe o tipo e as datas depois; PGR vale 24 meses
+    const pgr = (await enviar(company.id, seguranca, WRITE, { content: PDF, name: 'pgr.pdf', type: 'application/pdf' }).expect(201)).body;
+    expect(pgr).toMatchObject({ typeId: null, expiryDate: null, status: 'sem_validade' });
+    await api().put(`/company-files/files/${pgr.id}`).set(auth(company.id, WRITE)).send({ typeId: typeId('PGR') }).expect(400); // tem validade e não veio data
+    await api().put(`/company-files/files/${pgr.id}`).set(auth(company.id, WRITE)).send({ typeId: typeId('PGR'), issueDate: day(5) }).expect(400); // emissão no futuro
+    await api().put(`/company-files/files/${pgr.id}`).set(auth(company.id, WRITE)).send({ typeId: 999999 }).expect(400);
+    const typed = (await api().put(`/company-files/files/${pgr.id}`).set(auth(company.id, WRITE)).send({ typeId: typeId('PGR'), issueDate: day(-710) }).expect(200)).body;
+    expect(typed).toMatchObject({ typeName: 'PGR', status: 'a_vencer' }); // vence em ~20 dias, aviso de 30
+    await api().put(`/company-files/files/${pgr.id}`).set(auth(company.id, WRITE)).send({ expiryDate: day(-720) }).expect(400); // antes da emissão
+    // aviso próprio do arquivo: com 10 dias de aviso, 20 dias ainda é "em dia"
+    expect((await api().put(`/company-files/files/${pgr.id}`).set(auth(company.id, WRITE)).send({ warnDays: 10 }).expect(200)).body.status).toBe('em_dia');
+    expect((await api().put(`/company-files/files/${pgr.id}`).set(auth(company.id, WRITE)).send({ warnDays: '' }).expect(200)).body.status).toBe('a_vencer');
+    // vencimento direto, sem tipo, numa pasta restrita
+    const apolice = (await enviar(company.id, fiscal, MANAGE, { content: PDF, name: 'apólice.pdf', type: 'application/pdf' }).field('expiryDate', day(-3)).expect(201)).body;
+    expect(apolice).toMatchObject({ typeId: null, status: 'vencido' });
+    await enviar(company.id, seguranca, WRITE, { content: PDF, name: 'ltcat.pdf', type: 'application/pdf' }).field('typeId', String(typeId('LTCAT'))).expect(201); // tipo sem validade
+
+    // a pasta leva o pior caso do que a pessoa vê dentro dela
+    const root = (await api().get('/company-files/browse').set(auth(company.id)).expect(200)).body;
+    const status = (name: string) => root.folders.find((folder: any) => folder.name === name).status;
+    expect(status('Segurança do trabalho')).toBe('vencido');
+    expect(status('Societário e fiscal')).toBe('vencido');
+    expect(status('Contratos')).toBe('vazia');
+    expect(root.types.length).toBeGreaterThan(10);
+
+    // obrigatório sem arquivo vigente acusa "faltando"; tipo com arquivo vigente não
+    await api().put(`/company-files/types/${typeId('Alvará de funcionamento')}`).set(auth(company.id)).send({ required: true }).expect(200);
+    await api().put(`/company-files/types/${typeId('PGR')}`).set(auth(company.id)).send({ required: true }).expect(200);
+    const list = (await api().get('/company-files/expiring').set(auth(company.id)).expect(200)).body;
+    expect(list.summary).toEqual({ vencido: 2, a_vencer: 1, faltando: 1 });
+    const of = (body: any, wanted: string) => body.rows.filter((row: any) => row.status === wanted).map((row: any) => row.name).sort();
+    expect(of(list, 'vencido')).toEqual(['alvara.pdf', 'apólice.pdf']);
+    expect(of(list, 'a_vencer')).toEqual(['pgr.pdf']);
+    expect(of(list, 'faltando')).toEqual(['Alvará de funcionamento']);
+    expect(list.rows.find((row: any) => row.name === 'alvara.pdf')).toMatchObject({ typeName: 'PCMSO', where: 'Segurança do trabalho', days: expect.any(Number) });
+    expect((await api().get('/company-files/expiring?status=vencido').set(auth(company.id)).expect(200)).body.total).toBe(2);
+    expect((await api().get(`/company-files/expiring?typeId=${typeId('PGR')}`).set(auth(company.id)).expect(200)).body.total).toBe(1);
+    expect((await api().get('/company-files/expiring?search=APOLICE').set(auth(company.id)).expect(200)).body.total).toBe(1);
+    // quem não entra na pasta restrita não vê o vencido de lá, mas vê o "faltando" (é da empresa)
+    const partial = (await api().get('/company-files/expiring').set(auth(company.id, VIEW, operador.id)).expect(200)).body;
+    expect(partial.summary).toEqual({ vencido: 1, a_vencer: 1, faltando: 1 });
+    expect(JSON.stringify(partial.rows)).not.toContain('apólice');
+
+    // Minha esteira: três blocos da Empresa para quem vê os arquivos; nenhum para quem não vê
+    const blocks = async (permissions: string[], sub?: number) => Object.fromEntries((await api().get('/my-pipeline').set(auth(company.id, permissions, sub)).expect(200)).body.blocks.filter((block: any) => block.area === 'Empresa').map((block: any) => [block.key, block.count]));
+    expect(await blocks(MANAGE)).toEqual({ arquivos_vencidos: 2, arquivos_vencer: 1, arquivos_faltando: 1 });
+    expect(await blocks(VIEW, operador.id)).toEqual({ arquivos_vencidos: 1, arquivos_vencer: 1, arquivos_faltando: 1 });
+    expect(await blocks([])).toEqual({});
+
+    // arquivo na lixeira deixa de contar; tipo inativo deixa de ser cobrado
+    await api().delete(`/company-files/files/${pcmso.id}`).set(auth(company.id, WRITE)).expect(200);
+    await api().delete(`/company-files/files/${pgr.id}`).set(auth(company.id, WRITE)).expect(200);
+    await api().patch(`/company-files/types/${typeId('Alvará de funcionamento')}/inactive`).set(auth(company.id)).expect(200);
+    const after = (await api().get('/company-files/expiring').set(auth(company.id)).expect(200)).body;
+    expect(after.summary).toEqual({ vencido: 1, a_vencer: 0, faltando: 1 });
+    expect(of(after, 'faltando')).toEqual(['PGR']);
+  });
+
+  it('versões: substituir guarda o anterior, que continua disponível e acompanha o arquivo', async () => {
+    const { company, folderId, db } = await cenario();
+    const day = (offset: number) => new Date(Date.now() - 3 * 3600 * 1000 + offset * 86400000).toISOString().slice(0, 10);
+    const types = (await api().get('/company-files/types').set(auth(company.id)).expect(200)).body.rows;
+    const pcmsoType = types.find((type: any) => type.name === 'PCMSO').id as number;
+    const pasta = folderId('Segurança do trabalho');
+    const trocar = (id: number, content: string, name: string, permissions?: string[]) =>
+      api().post(`/company-files/files/${id}/replace`).set(auth(company.id, permissions ?? WRITE)).attach('file', Buffer.from(content), { filename: name, contentType: 'application/pdf' });
+
+    const v1 = (await enviar(company.id, pasta, WRITE, { content: Buffer.from('v1'), name: 'pcmso 2025.pdf', type: 'application/pdf' }).field('typeId', String(pcmsoType)).field('issueDate', day(-400)).field('notes', 'Clínica X').expect(201)).body;
+    await api().put(`/company-files/files/${v1.id}`).set(auth(company.id, WRITE)).send({ name: 'PCMSO' }).expect(200);
+    await trocar(v1.id, 'v2', 'pcmso 2026.pdf', VIEW).field('issueDate', day(-10)).expect(403);
+    await trocar(v1.id, 'v2', 'pcmso 2026.pdf').expect(400); // PCMSO tem validade: o novo precisa de data
+    await api().post(`/company-files/files/${v1.id}/replace`).set(auth(company.id, WRITE)).field('issueDate', day(-10)).expect(400); // sem arquivo
+    const v2 = (await trocar(v1.id, 'v2', 'pcmso 2026.pdf').field('issueDate', day(-10)).expect(201)).body;
+    // herda o nome mostrado, o tipo e a observação; a validade é a do novo
+    expect(v2).toMatchObject({ name: 'PCMSO', fileName: 'pcmso 2026.pdf', typeName: 'PCMSO', notes: 'Clínica X', issueDate: day(-10), status: 'em_dia' });
+    const v3 = (await trocar(v2.id, 'v3', 'pcmso 2026 revisado.pdf').field('issueDate', day(-1)).expect(201)).body;
+
+    const listed = (await abrir(company.id, pasta)).files;
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).toMatchObject({ id: v3.id, name: 'PCMSO', status: 'em_dia' });
+    expect(listed[0].versions.map((version: any) => [version.id, version.fileName, version.status])).toEqual([[v2.id, 'pcmso 2026.pdf', 'em_dia'], [v1.id, 'pcmso 2025.pdf', 'vencido']]);
+    expect((await abrir(company.id, pasta)).folder.files).toBe(1); // versões não contam como arquivos
+    // o vencido que ficou para trás não aparece em Vencimentos
+    expect((await api().get('/company-files/expiring').set(auth(company.id)).expect(200)).body.summary.vencido).toBe(0);
+
+    // a versão anterior abre, mas não é alterada nem substituída
+    const old = await api().get(`/company-files/files/${v1.id}/file?download=1`).set(auth(company.id, VIEW)).buffer(true).parse(raw).expect(200);
+    expect((old.body as Buffer).toString()).toBe('v1');
+    await api().put(`/company-files/files/${v1.id}`).set(auth(company.id, WRITE)).send({ name: 'Outro' }).expect(404);
+    await api().delete(`/company-files/files/${v1.id}`).set(auth(company.id, WRITE)).expect(404);
+    await trocar(v1.id, 'x', 'x.pdf').field('issueDate', day(-1)).expect(404);
+
+    // mover leva as versões junto; o histórico junta tudo
+    await api().put(`/company-files/files/${v3.id}`).set(auth(company.id, WRITE)).send({ folderId: folderId('Outros') }).expect(200);
+    expect((await db.file_Item.findMany({ where: { companyId: company.id } })).every((row) => row.folderId === folderId('Outros'))).toBe(true);
+    const history = (await api().get(`/company-files/files/${v3.id}/history`).set(auth(company.id)).expect(200)).body.rows.map((event: any) => event.type);
+    expect(history).toEqual(expect.arrayContaining(['envio', 'renomeado', 'substituido', 'download', 'movido']));
+
+    // apagar uma versão anterior: só quem administra, e nunca o vigente
+    await api().delete(`/company-files/files/${v1.id}/version`).set(auth(company.id, WRITE)).expect(403);
+    await api().delete(`/company-files/files/${v3.id}/version`).set(auth(company.id)).expect(400);
+    const keyV1 = (await db.file_Item.findUniqueOrThrow({ where: { id: v1.id } })).fileKey;
+    await api().delete(`/company-files/files/${v1.id}/version`).set(auth(company.id)).expect(200);
+    await expect((files as any).storage.get(keyV1)).rejects.toThrow();
+    expect((await abrir(company.id, folderId('Outros'))).files[0].versions.map((version: any) => version.id)).toEqual([v2.id]);
+
+    // lixeira: o arquivo vai e volta com as versões; apagar de vez leva todas
+    await api().delete(`/company-files/files/${v3.id}`).set(auth(company.id, WRITE)).expect(200);
+    expect((await api().get('/company-files/trash').set(auth(company.id, WRITE)).expect(200)).body.files.map((file: any) => file.id)).toEqual([v3.id]);
+    await api().get(`/company-files/files/${v2.id}/file`).set(auth(company.id)).expect(200); // a versão segue guardada
+    await api().post(`/company-files/files/${v3.id}/restore`).set(auth(company.id, WRITE)).expect(201);
+    expect((await abrir(company.id, folderId('Outros'))).files[0].versions).toHaveLength(1);
+    await api().delete(`/company-files/files/${v3.id}`).set(auth(company.id, WRITE)).expect(200);
+    await api().delete(`/company-files/files/${v3.id}/purge`).set(auth(company.id)).expect(200);
+    expect(await db.file_Item.count({ where: { companyId: company.id } })).toBe(0);
   });
 });

@@ -5,6 +5,7 @@ import { ordersVisibleTo } from 'src/features/operations/service-order.service';
 import { TeamEntry, orderPeriod } from 'src/features/hr/allocation';
 import { documentIssues } from 'src/features/hr/document.queries';
 import { DOCUMENTS_VIEW_PERMISSION, EmployeeDocumentService } from 'src/features/hr/document.service';
+import { CompanyFileService, FILES_MANAGE_PERMISSION, FILES_VIEW_PERMISSION, FILES_WRITE_PERMISSION } from 'src/features/files/file.service';
 import { ContractService } from './contract.service';
 
 /**
@@ -26,7 +27,7 @@ const today = () => new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0
 
 @Injectable()
 export class PipelineService {
-  constructor(private readonly prisma: PrismaService, private readonly contracts: ContractService, private readonly documents: EmployeeDocumentService) {}
+  constructor(private readonly prisma: PrismaService, private readonly contracts: ContractService, private readonly documents: EmployeeDocumentService, private readonly files: CompanyFileService) {}
 
   async mine(actor: PipelineActor): Promise<{ today: string; blocks: PipelineBlock[] }> {
     const can = (permission: string) => actor.permissions.includes(permission);
@@ -39,6 +40,8 @@ export class PipelineService {
     if (can('list_financeiro')) blocks.push(this.billing(actor), this.payables(actor, now));
     // RH: documentos de funcionários vencidos, a vencer e obrigatórios faltando
     if (can(DOCUMENTS_VIEW_PERMISSION)) blocks.push(this.documents.pipelineBlocks(actor.companyId));
+    // Empresa: documentos da empresa vencidos, a vencer e obrigatórios faltando, só nas pastas que a pessoa vê
+    if (can(FILES_VIEW_PERMISSION)) blocks.push(this.files.pipelineBlocks({ userId: actor.userId, companyId: actor.companyId, canWrite: can(FILES_WRITE_PERMISSION), canManage: can(FILES_MANAGE_PERMISSION) }));
     return { today: now, blocks: (await Promise.all(blocks)).flat() };
   }
 
