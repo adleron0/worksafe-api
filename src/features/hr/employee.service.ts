@@ -230,6 +230,8 @@ export class EmployeeService {
       spans: window.spans.filter((span) => ids.has(span.employeeId)).map(present),
       // atividades fora de OS (aula, treinamento, atividade no CT...)
       activities: window.activities.filter((span) => ids.has(span.employeeId)),
+      // turmas em que a pessoa dá aula ou é aluna (pelo CPF, sem lançamento)
+      classes: window.classes.filter((span) => ids.has(span.employeeId)),
       undated: window.undated.filter((span) => ids.has(span.employeeId)).map(present),
       // o tipo (afastamento, suspensão) só para quem pode ver o histórico; férias todos veem
       unavailable: window.unavailable.filter((span) => ids.has(span.employeeId)).map((span) => ({

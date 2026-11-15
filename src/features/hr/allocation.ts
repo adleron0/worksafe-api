@@ -29,6 +29,11 @@ export interface ActivitySpan {
   employeeId: number; activityId: number; typeId: number; typeName: string; color: string; occupies: boolean; location: string | null; notes: string | null;
   start: string; end: string; shift: Shift;
 }
+/** Turma presencial em que o funcionário dá aula (instrutor) ou participa (aluno): sai do cadastro de turmas, pelo CPF. */
+export interface ClassSpan {
+  employeeId: number; classId: number; className: string; courseName: string | null; role: 'instrutor' | 'aluno'; location: string | null;
+  start: string; end: string; shift: Shift;
+}
 export interface UnavailableSpan { employeeId: number; type: string; label: string; start: string; end: string | null }
 
 const iso = (value: Date | null | undefined) => (value ? value.toISOString().slice(0, 10) : null);
@@ -72,9 +77,61 @@ export function spansOf(orders: OrderRow[], today: string): AllocationSpan[] {
 
 const ACTIVE_ORDER: Prisma.Service_OrderWhereInput = { inactiveAt: null, status: { not: 'cancelada' }, team: { not: Prisma.DbNull } };
 
+const digits = (value: string | null | undefined) => String(value ?? '').replace(/\D/g, '');
+/** A data no horário de Brasília de um instante gravado com hora (as turmas guardam data e hora). */
+const brDate = (value: Date) => new Date(value.getTime() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+/** Turma sem fim à vista (inscrição contínua) não é alocação: só entram as que têm começo e fim em até dois meses. */
+const MAX_CLASS_DAYS = 62;
+
+/**
+ * As turmas viram alocação sem ninguém lançar: o instrutor da turma e o aluno com
+ * inscrição confirmada são ligados ao funcionário pelo CPF. Mudou a data da turma,
+ * mudou a alocação.
+ */
+export async function classSpans(prisma: Db, companyId: number, from: string, to: string): Promise<ClassSpan[]> {
+  const employees = await prisma.hr_Employee.findMany({ where: { companyId, inactiveAt: null, cpf: { not: null } }, select: { id: true, cpf: true } });
+  if (!employees.length) return [];
+  const employeeOfCpf = new Map(employees.map((employee) => [employee.cpf as string, employee.id]));
+  const classes = await prisma.courseClass.findMany({
+    where: {
+      companyId, inactiveAt: null, active: true,
+      // um dia de folga de cada lado, por causa da hora: o corte certo é feito depois, pela data de Brasília
+      initialDate: { lte: new Date(asDate(to).getTime() + 2 * 86400000) }, finalDate: { gte: new Date(asDate(from).getTime() - 86400000) },
+    },
+    select: {
+      id: true, name: true, initialDate: true, finalDate: true, address: true, city: true, state: true, course: { select: { name: true } },
+      instructors: { where: { active: true, inactiveAt: null }, select: { instructor: { select: { cpf: true, active: true, inactiveAt: true } } } },
+      subscriptions: { where: { subscribeStatus: 'confirmed', inactiveAt: null }, select: { cpf: true } },
+    },
+    take: 2000,
+  });
+  const out: ClassSpan[] = [];
+  for (const row of classes) {
+    if (!row.initialDate || !row.finalDate) continue;
+    const start = brDate(row.initialDate);
+    const end = later(brDate(row.finalDate), start);
+    if (!overlaps(start, end, from, to)) continue;
+    if ((asDate(end).getTime() - asDate(start).getTime()) / 86400000 > MAX_CLASS_DAYS) continue;
+    const location = [row.address, [row.city, row.state].filter(Boolean).join('/')].filter(Boolean).join(' · ') || null;
+    const base = { classId: row.id, className: row.name, courseName: row.course?.name ?? null, location, start, end, shift: 'integral' as Shift };
+    const teaching = new Set<number>();
+    for (const link of row.instructors) {
+      const employeeId = link.instructor.active && !link.instructor.inactiveAt ? employeeOfCpf.get(digits(link.instructor.cpf)) : undefined;
+      if (employeeId && !teaching.has(employeeId)) { teaching.add(employeeId); out.push({ ...base, employeeId, role: 'instrutor' }); }
+    }
+    const attending = new Set<number>();
+    for (const subscription of row.subscriptions) {
+      const employeeId = employeeOfCpf.get(digits(subscription.cpf));
+      // quem dá a aula não aparece também como aluno da mesma turma
+      if (employeeId && !teaching.has(employeeId) && !attending.has(employeeId)) { attending.add(employeeId); out.push({ ...base, employeeId, role: 'aluno' }); }
+    }
+  }
+  return out;
+}
+
 /** Alocações e indisponibilidades que tocam uma janela de datas. */
 export async function allocationWindow(prisma: Db, companyId: number, from: string, to: string, today = allocationToday()) {
-  const [orders, events, activities] = await Promise.all([
+  const [orders, events, activities, classes] = await Promise.all([
     prisma.service_Order.findMany({
       where: { companyId, ...ACTIVE_ORDER, OR: [{ plannedStart: null, startedAt: null }, { plannedStart: { lte: asDate(to) } }, { startedAt: { lte: asDate(to) } }] },
       select: { id: true, number: true, title: true, status: true, team: true, plannedStart: true, plannedEnd: true, startedAt: true, finishedAt: true }, take: 3000,
@@ -87,6 +144,7 @@ export async function allocationWindow(prisma: Db, companyId: number, from: stri
       where: { companyId, inactiveAt: null, startDate: { lte: asDate(to) }, endDate: { gte: asDate(from) } },
       include: { type: true, employees: { select: { employeeId: true } } }, orderBy: [{ startDate: 'asc' }, { id: 'asc' }], take: 5000,
     }),
+    classSpans(prisma, companyId, from, to),
   ]);
   const all = spansOf(orders, today);
   return {
@@ -96,6 +154,7 @@ export async function allocationWindow(prisma: Db, companyId: number, from: stri
       employeeId: member.employeeId, activityId: activity.id, typeId: activity.typeId, typeName: activity.type.name, color: activity.type.color, occupies: activity.type.occupies,
       location: activity.location, notes: activity.notes, start: iso(activity.startDate)!, end: iso(activity.endDate)!, shift: shiftOf(activity.shift),
     }))),
+    classes,
     unavailable: events.map((event): UnavailableSpan => ({ employeeId: event.employeeId, type: event.type, label: UNAVAILABLE_LABEL[event.type] ?? STATUS_LABEL.indisponivel, start: iso(event.startDate)!, end: iso(event.endDate) })),
   };
 }
@@ -130,7 +189,11 @@ export async function teamOptions(prisma: Db, companyId: number, input: { from: 
   const [window, issues] = await Promise.all([allocationWindow(prisma, companyId, from, to, today), documentIssues(prisma, companyId, ids, today, to)]);
   return employees.map((employee) => {
     const busy = window.spans.filter((span) => span.employeeId === employee.id && span.orderId !== input.exceptOrderId).map(({ orderId, number, title, start, end, shift }) => ({ orderId, number, title, start, end, shift }));
-    const activities = window.activities.filter((span) => span.employeeId === employee.id && span.occupies).map(({ activityId, typeName, start, end, shift }) => ({ activityId, typeName, start, end, shift }));
+    const activities = [
+      ...window.activities.filter((span) => span.employeeId === employee.id && span.occupies).map(({ activityId, typeName, start, end, shift }) => ({ activityId, typeName, start, end, shift })),
+      // turmas em que a pessoa dá aula ou é aluna (id negativo: não é uma atividade lançada)
+      ...window.classes.filter((span) => span.employeeId === employee.id).map((span) => ({ activityId: -span.classId, typeName: `${span.role === 'instrutor' ? 'Aula' : 'Treinamento'}: ${span.className}`, start: span.start, end: span.end, shift: span.shift })),
+    ];
     const unavailable = window.unavailable.filter((span) => span.employeeId === employee.id && overlaps(span.start, span.end, from, to))
       // o tipo (suspensão, afastamento) só aparece para quem pode ver o histórico; férias todos veem
       .map((span) => ({ label: input.seesReason || span.type === 'ferias' ? span.label : STATUS_LABEL.indisponivel, start: span.start, end: span.end }));

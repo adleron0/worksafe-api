@@ -6,7 +6,7 @@ import { orderPeriod, overlaps, shiftsClash, spansOf } from 'src/features/hr/all
 import { encryptPayload } from 'src/utils/crypto';
 import { bootTestApp, httpServer, shutdownTestApp, flushCache } from './setup/app';
 import { resetDb, testDb } from './setup/db';
-import { makeCompany, makeSeller } from './setup/factories';
+import { makeCompany, makeCourse, makeCourseClass, makeSeller } from './setup/factories';
 
 /**
  * Equipe da OS e do RDO pelo cadastro de funcionários: a pessoa escalada aponta
@@ -258,6 +258,47 @@ describe('Equipe pelo cadastro de funcionários (e2e)', () => {
     await api().post('/hr-activities/types').set(auth(company.id, WRITE)).send({ name: 'Cor errada', color: 'azul' }).expect(400);
     await api().patch(`/hr-activities/types/${type.id}/inactive`).set(auth(company.id, WRITE)).expect(200);
     await novo({ typeId: type.id, employeeIds: [jose.id], startDate: day(2) }).expect(400); // tipo inativo
+  });
+
+  it('turmas viram alocação pelo CPF: quem dá aula e quem é aluno, sem lançamento', async () => {
+    const { company, db, os } = await cenario();
+    const PERSONAL = [...ALL, 'view_dados_pessoais_funcionarios'];
+    const cpfOf = async (name: string, cpf: string) => (await api().post('/employees').set(auth(company.id, PERSONAL)).send({ name, cpf }).expect(201)).body;
+    const instrutor = await cpfOf('Paulo Instrutor', '529.982.247-25');
+    const aluno = await cpfOf('Rita Aluna', '111.444.777-35');
+    const course = await makeCourse(company.id);
+    const at = (offset: number, hour: string) => new Date(`${day(offset)}T${hour}:00.000-03:00`);
+    const turma = await makeCourseClass(company.id, course.id, { name: 'NR-35 turma 12', initialDate: at(3, '08:00'), finalDate: at(4, '17:00'), address: 'Rua do CT, 100', city: 'Recife', state: 'PE' });
+    // instrutor cadastrado com o CPF formatado; aluno inscrito e confirmado com o CPF só em dígitos
+    const teacher = await db.instructor.create({ data: { name: 'Paulo Instrutor', companyId: company.id, email: 'paulo@teste.local', cpf: '529.982.247-25', curriculum: 'x', formation: 'x' } });
+    await db.courseClassInstructor.create({ data: { classId: turma.id, instructorId: teacher.id, companyId: company.id } });
+    await db.courseClassSubscription.create({ data: { name: 'Rita Aluna', cpf: '11144477735', email: 'rita@teste.local', phone: '81', companyId: company.id, classId: turma.id, subscribeStatus: 'confirmed' } });
+    // não contam: inscrição pendente, turma sem fim à vista, turma inativa, e quem não é funcionário
+    await db.courseClassSubscription.create({ data: { name: 'Paulo Instrutor', cpf: '52998224725', email: 'p@teste.local', phone: '81', companyId: company.id, classId: turma.id, subscribeStatus: 'confirmed' } }); // dá a aula: não vira aluno
+    await db.courseClassSubscription.create({ data: { name: 'De Fora', cpf: '39053344705', email: 'f@teste.local', phone: '81', companyId: company.id, classId: turma.id, subscribeStatus: 'confirmed' } });
+    const aberta = await makeCourseClass(company.id, course.id, { name: 'Turma aberta', initialDate: at(-100, '08:00'), finalDate: at(200, '17:00') });
+    await db.courseClassSubscription.create({ data: { name: 'Rita Aluna', cpf: '11144477735', email: 'rita@teste.local', phone: '81', companyId: company.id, classId: aberta.id, subscribeStatus: 'confirmed' } });
+    const pendente = await makeCourseClass(company.id, course.id, { name: 'Turma pendente', initialDate: at(3, '08:00'), finalDate: at(3, '17:00') });
+    await db.courseClassSubscription.create({ data: { name: 'Rita Aluna', cpf: '11144477735', email: 'rita@teste.local', phone: '81', companyId: company.id, classId: pendente.id, subscribeStatus: 'pending' } });
+
+    const map = (await api().get(`/employees/allocation?from=${day(0)}&to=${day(7)}`).set(auth(company.id, ['view_alocacao'])).expect(200)).body;
+    expect(map.classes.map((span: any) => [span.employeeId, span.className, span.role, span.start, span.end, span.location]).sort()).toEqual([
+      [instrutor.id, 'NR-35 turma 12', 'instrutor', day(3), day(4), 'Rua do CT, 100 · Recife/PE'],
+      [aluno.id, 'NR-35 turma 12', 'aluno', day(3), day(4), 'Rua do CT, 100 · Recife/PE'],
+    ].sort());
+    expect(map.classes[0].courseName).toBe('NR-35 Trabalho em Altura');
+    // fora da janela não aparece
+    expect((await api().get(`/employees/allocation?from=${day(10)}&to=${day(12)}`).set(auth(company.id, ['view_alocacao'])).expect(200)).body.classes).toEqual([]);
+
+    // para quem escala uma obra nesses dias, os dois aparecem ocupados com a turma
+    const order = await os(1, { plannedStart: date(2), plannedEnd: date(5) });
+    const options = (await api().get(`/service-orders/${order.id}/team-options`).set(auth(company.id, OS)).expect(200)).body;
+    const of = (name: string) => options.employees.find((employee: any) => employee.name === name);
+    expect(of('Paulo Instrutor')).toMatchObject({ free: false, activities: [{ typeName: 'Aula: NR-35 turma 12', start: day(3), end: day(4) }] });
+    expect(of('Rita Aluna')).toMatchObject({ free: false, activities: [{ typeName: 'Treinamento: NR-35 turma 12' }] });
+    // mudou a data da turma, mudou a alocação
+    await db.courseClass.update({ where: { id: turma.id }, data: { initialDate: at(20, '08:00'), finalDate: at(21, '17:00') } });
+    expect((await api().get(`/service-orders/${order.id}/team-options`).set(auth(company.id, OS)).expect(200)).body.employees.find((employee: any) => employee.name === 'Paulo Instrutor').free).toBe(true);
   });
 
   it('RDO: a equipe do dia vem do cadastro e a Minha esteira avisa de documento pendente na equipe', async () => {
