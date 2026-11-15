@@ -32,6 +32,8 @@ export interface ActivitySpan {
 /** Turma presencial em que o funcionário dá aula (instrutor) ou participa (aluno): sai do cadastro de turmas, pelo CPF. */
 export interface ClassSpan {
   employeeId: number; classId: number; className: string; courseName: string | null; role: 'instrutor' | 'aluno'; location: string | null;
+  /** Turma fechada de um cliente (in company): acontece no cliente. */
+  customerId: number | null;
   start: string; end: string; shift: Shift;
 }
 export interface UnavailableSpan { employeeId: number; type: string; label: string; start: string; end: string | null }
@@ -99,7 +101,7 @@ export async function classSpans(prisma: Db, companyId: number, from: string, to
       initialDate: { lte: new Date(asDate(to).getTime() + 2 * 86400000) }, finalDate: { gte: new Date(asDate(from).getTime() - 86400000) },
     },
     select: {
-      id: true, name: true, initialDate: true, finalDate: true, address: true, city: true, state: true, course: { select: { name: true } },
+      id: true, name: true, customerId: true, initialDate: true, finalDate: true, address: true, city: true, state: true, course: { select: { name: true } },
       instructors: { where: { active: true, inactiveAt: null }, select: { instructor: { select: { cpf: true, active: true, inactiveAt: true } } } },
       subscriptions: { where: { subscribeStatus: 'confirmed', inactiveAt: null }, select: { cpf: true } },
     },
@@ -113,7 +115,7 @@ export async function classSpans(prisma: Db, companyId: number, from: string, to
     if (!overlaps(start, end, from, to)) continue;
     if ((asDate(end).getTime() - asDate(start).getTime()) / 86400000 > MAX_CLASS_DAYS) continue;
     const location = [row.address, [row.city, row.state].filter(Boolean).join('/')].filter(Boolean).join(' · ') || null;
-    const base = { classId: row.id, className: row.name, courseName: row.course?.name ?? null, location, start, end, shift: 'integral' as Shift };
+    const base = { classId: row.id, className: row.name, courseName: row.course?.name ?? null, customerId: row.customerId ?? null, location, start, end, shift: 'integral' as Shift };
     const teaching = new Set<number>();
     for (const link of row.instructors) {
       const employeeId = link.instructor.active && !link.instructor.inactiveAt ? employeeOfCpf.get(digits(link.instructor.cpf)) : undefined;

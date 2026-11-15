@@ -141,4 +141,60 @@ describe('Locais e pontos no mapa (e2e)', () => {
     expect(activity).toMatchObject({ placeId: place.id, location: 'Base Suape' });
     await api().post('/hr-activities').set(auth(company.id, ['view_alocacao', 'update_alocacao'])).send({ typeId: types[0].id, employeeIds: [employee.id], startDate: '2026-11-20', placeId: 999999 }).expect(400);
   });
+  it('visão em mapa: quem está em cada ponto no dia, quem está livre, indisponível e o que não tem ponto', async () => {
+    const { company, db } = await cenario();
+    const today = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+    const day = (offset: number) => new Date(Date.now() - 3 * 3600 * 1000 + offset * 86400000).toISOString().slice(0, 10);
+    const date = (offset: number) => new Date(`${day(offset)}T00:00:00.000Z`);
+    const alfa = await makeCustomer(company.id, 'Indústria Alfa', { latitude: -8.39, longitude: -34.97 });
+    const beta = await makeCustomer(company.id, 'Indústria Beta', { latitude: -8.05, longitude: -34.9 }); // com ponto, sem ninguém hoje
+    const semPonto = await makeCustomer(company.id, 'Indústria Sem Ponto');
+    const ct = (await api().post('/places').set(auth(company.id)).send({ name: 'CT Recife', kind: 'ct', latitude: -8.06, longitude: -34.87 }).expect(201)).body;
+    await api().post('/places').set(auth(company.id)).send({ name: 'Base antiga', kind: 'base', latitude: -12.7, longitude: -38.3, startDate: '2020-01-01', endDate: '2020-02-01' }).expect(201);
+    const role = await db.commercial_Professional.create({ data: { companyId: company.id, name: 'Alpinista N2', salary: 4200 } });
+    const person = async (name: string, extra: Record<string, any> = {}) => db.hr_Employee.create({ data: { companyId: company.id, name, roles: { create: [{ professionalId: role.id, isPrimary: true }] }, ...extra } });
+    const [jose, ana, bruno, carla, diego, eva] = await Promise.all(['José', 'Ana', 'Bruno', 'Carla', 'Diego', 'Eva'].map((name) => person(name)));
+    const os = (number: number, customerId: number, team: any[], extra: Record<string, any> = {}) => db.service_Order.create({ data: {
+      companyId: company.id, number: `OS-2026-000${number}`, year: 2026, sequence: number, contractId: 9000 + number, proposalId: 9000 + number, customerId, title: `Obra ${number}`, status: 'em_execucao',
+      scope: [], checklist: [], plannedStart: date(-2), startedAt: date(-2), plannedEnd: date(5), team, ...extra,
+    } });
+    // duas obras no mesmo cliente (mesmo ponto), uma com ponto próprio, uma sem ponto nenhum
+    const a = await os(1, alfa.id, [{ name: 'José', role: 'Alpinista N2', employeeId: jose.id, shift: 'manha' }]);
+    await os(2, alfa.id, [{ name: 'Ana', role: 'Alpinista N2', employeeId: ana.id }]);
+    await os(3, alfa.id, [{ name: 'Bruno', role: 'Alpinista N2', employeeId: bruno.id }], { latitude: -7.5, longitude: -35.5 });
+    await os(4, semPonto.id, [{ name: 'Carla', role: 'Alpinista N2', employeeId: carla.id }]);
+    // o José, à tarde, numa atividade no CT; a Eva de férias; o Diego livre
+    const WRITE_ALL = ['view_alocacao', 'update_alocacao'];
+    const types = (await api().get('/hr-activities/types').set(auth(company.id, WRITE_ALL)).expect(200)).body.rows;
+    await api().post('/hr-activities').set(auth(company.id, WRITE_ALL)).send({ typeId: types[0].id, employeeIds: [jose.id], startDate: today, shift: 'tarde', placeId: ct.id }).expect(201);
+    await db.hr_EmployeeEvent.create({ data: { companyId: company.id, employeeId: eva.id, type: 'ferias', startDate: date(-1), endDate: date(3) } });
+
+    const map = (await api().get('/employees/allocation/map').set(auth(company.id, ['view_alocacao'])).expect(200)).body;
+    expect(map.date).toBe(today);
+    const site = (name: string) => map.sites.find((item: any) => item.name === name);
+    // as duas obras do mesmo cliente ficam num ponto só, cada uma no seu grupo
+    expect(site('Indústria Alfa')).toMatchObject({ kind: 'obra', latitude: -8.39, longitude: -34.97, people: 2 });
+    expect(site('Indústria Alfa').groups.map((group: any) => [group.label, group.people.map((item: any) => `${item.name} (${item.shiftName})`)]).sort()).toEqual([['OS-2026-0001', ['José (Manhã)']], ['OS-2026-0002', ['Ana (Dia inteiro)']]]);
+    expect(site('Indústria Alfa').groups[0].link).toBe(`/servicos/ordens-de-servico/${a.id}`);
+    // a obra com ponto próprio aparece no ponto dela
+    expect(map.sites.find((item: any) => item.latitude === -7.5)).toMatchObject({ kind: 'obra', people: 1 });
+    // o CT aparece com quem está lá; a base encerrada não aparece
+    expect(site('CT Recife')).toMatchObject({ kind: 'local', placeKind: 'ct', people: 1 });
+    expect(site('CT Recife').groups[0].people[0]).toMatchObject({ name: 'José', shiftName: 'Tarde' });
+    expect(site('Base antiga')).toBeUndefined();
+    // obra de cliente sem ponto fica à parte
+    expect(map.noPoint.map((group: any) => [group.label, group.people.map((item: any) => item.name)])).toEqual([['OS-2026-0004', ['Carla']]]);
+    expect(map.free.map((item: any) => item.name)).toEqual(['Diego']);
+    expect(map.unavailable.map((item: any) => [item.name, item.label])).toEqual([['Eva', 'Férias']]);
+    // clientes com ponto e sem ninguém hoje, para a tela mostrar discretos
+    expect(map.customers.map((item: any) => item.name)).toEqual(['Indústria Beta']);
+    expect(map.roles).toEqual([{ id: role.id, name: 'Alpinista N2' }]);
+    // outro dia: ninguém nas obras (começaram há dois dias), todos livres menos a Eva... que já voltou
+    const later = (await api().get(`/employees/allocation/map?date=${day(10)}`).set(auth(company.id, ['view_alocacao'])).expect(200)).body;
+    expect(later.free).toHaveLength(6);
+    expect(later.sites.map((item: any) => item.name)).toEqual(['CT Recife']);
+    await api().get('/employees/allocation/map').set(auth(company.id, ['list_funcionarios'])).expect(403);
+    await api().get('/employees/allocation/map?date=ontem').set(auth(company.id, ['view_alocacao'])).expect(400);
+    expect(beta.id).toBeGreaterThan(0);
+  });
 });

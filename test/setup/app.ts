@@ -26,6 +26,11 @@ export async function bootTestApp(): Promise<INestApplication> {
   app.use(cookieParser());
   app.use(legacyOrQuery); // como em main.ts
   await app.init();
+  // Escuta uma vez, só em 127.0.0.1. Sem isto o supertest abre uma porta nova em
+  // todos os endereços a cada requisição e conecta em 127.0.0.1: se outro programa
+  // da máquina estiver ouvindo aquela porta nesse endereço, a resposta vem dele
+  // (404 de rota que existe, "Parse Error: Expected HTTP/") e o teste falha sem motivo.
+  await app.listen(0, '127.0.0.1');
   return app;
 }
 

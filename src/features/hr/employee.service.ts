@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Hr_Employee, Hr_EmployeeEvent, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { allocationToday, allocationWindow, workedDays } from './allocation';
+import { SHIFTS, allocationToday, allocationWindow, overlaps, workedDays } from './allocation';
 
 /**
  * Funcionários: quem trabalha para a empresa, as funções que exerce e o
@@ -63,6 +63,11 @@ export function validCpf(value: string): boolean {
   };
   return digit(9) === Number(value[9]) && digit(10) === Number(value[10]);
 }
+
+/** A visão em mapa: uma pessoa num grupo (obra, turma, atividade) de um ponto. */
+export interface MapPerson { employeeId: number; name: string; role: string | null; shift: string; shiftName: string }
+export interface MapGroup { key: string; label: string; detail: string | null; link: string | null; people: MapPerson[] }
+export interface MapSite { key: string; kind: 'local' | 'obra' | 'cliente'; placeKind: string | null; name: string; latitude: number; longitude: number; groups: MapGroup[] }
 
 type EventRow = Pick<Hr_EmployeeEvent, 'type' | 'startDate' | 'endDate'>;
 /** Situação em um dia: desligado pela data; senão o registro de período que cobre o dia; senão ativo. */
@@ -238,6 +243,117 @@ export class EmployeeService {
         employeeId: span.employeeId, start: span.start, end: span.end, label: actor.seesOccurrences || span.type === 'ferias' ? span.label : STATUS_LABEL.indisponivel,
       })),
       worked: worked.filter((row) => ids.has(row.employeeId)),
+    };
+  }
+
+  /**
+   * A alocação de um dia, por lugar: em cada ponto do mapa (obra, cliente, CT,
+   * base), quem está lá e fazendo o quê; ao lado, quem está livre, quem está
+   * indisponível e o que não tem ponto no mapa.
+   *
+   * De onde vem o ponto: a OS usa o ponto próprio, o do local da empresa ou o do
+   * cliente; a atividade, o do local escolhido; a turma, o do cliente (turma
+   * fechada) ou o do centro de treinamento, quando a empresa tem um só.
+   */
+  async allocationMap(actor: EmployeeActor, query: Record<string, string>) {
+    const today = allocationToday();
+    const day = blank(query.date) ? today : dateOf(query.date, 'Data');
+    const employees = await this.prisma.hr_Employee.findMany({
+      where: { companyId: actor.companyId, inactiveAt: null, OR: [{ terminationDate: null }, { terminationDate: { gt: asDate(day) } }] },
+      include: INCLUDE, orderBy: [{ name: 'asc' }, { id: 'asc' }], take: 2000,
+    });
+    const employeeOf = new Map(employees.map((employee) => [employee.id, employee]));
+    const window = await allocationWindow(this.prisma, actor.companyId, day, day, today);
+    const spans = window.spans.filter((span) => employeeOf.has(span.employeeId) && span.start && overlaps(span.start, span.end, day, day));
+    const activities = window.activities.filter((span) => employeeOf.has(span.employeeId));
+    const classes = window.classes.filter((span) => employeeOf.has(span.employeeId));
+
+    const orderIds = [...new Set(spans.map((span) => span.orderId))];
+    const orders = orderIds.length ? await this.prisma.service_Order.findMany({ where: { id: { in: orderIds } }, select: { id: true, number: true, title: true, customerId: true, latitude: true, longitude: true, placeId: true } }) : [];
+    const [places, customers] = await Promise.all([
+      this.prisma.company_Place.findMany({ where: { companyId: actor.companyId, inactiveAt: null }, orderBy: [{ kind: 'asc' }, { name: 'asc' }] }),
+      this.prisma.customer.findMany({ where: { companyId: actor.companyId, inactiveAt: null, latitude: { not: null }, longitude: { not: null } }, select: { id: true, name: true, latitude: true, longitude: true }, orderBy: { name: 'asc' }, take: 5000 }),
+    ]);
+    const orderCustomers = orders.length ? await this.prisma.customer.findMany({ where: { id: { in: orders.map((order) => order.customerId) } }, select: { id: true, name: true } }) : [];
+    const customerName = new Map(orderCustomers.map((customer) => [customer.id, customer.name]));
+    const iso = (value: Date | null) => (value ? value.toISOString().slice(0, 10) : null);
+    // local em uso no dia: base temporária só conta dentro do período dela
+    const inUse = places.filter((place) => (!place.startDate || iso(place.startDate)! <= day) && (!place.endDate || iso(place.endDate)! >= day));
+    const placeOf = new Map(places.map((place) => [place.id, place]));
+    const customerOf = new Map(customers.map((customer) => [customer.id, customer]));
+    const onlyCt = inUse.filter((place) => place.kind === 'ct' && place.latitude !== null && place.longitude !== null);
+    const shiftName = (shift: string) => SHIFTS.find((item) => item.id === shift)?.name ?? 'Dia inteiro';
+
+    const sites = new Map<string, MapSite>();
+    const noPoint = new Map<string, MapGroup>();
+    const personOf = (employeeId: number, role: string | null, shift: string): MapPerson => ({ employeeId, name: employeeOf.get(employeeId)!.name, role, shift, shiftName: shiftName(shift) });
+    /** Põe a pessoa num grupo (uma obra, uma turma, uma atividade) de um ponto do mapa; sem ponto, na lista à parte. */
+    const put = (point: { latitude: number | null; longitude: number | null } | null | undefined, site: Pick<MapSite, 'kind' | 'placeKind' | 'name'>, group: Omit<MapGroup, 'people'>, person: MapPerson) => {
+      if (!point || point.latitude === null || point.longitude === null) {
+        const target = noPoint.get(group.key) ?? { ...group, people: [] };
+        target.people.push(person);
+        noPoint.set(group.key, target);
+        return;
+      }
+      const key = `${point.latitude.toFixed(5)},${point.longitude.toFixed(5)}`;
+      const existing = sites.get(key) ?? { key, ...site, latitude: point.latitude, longitude: point.longitude, groups: [] };
+      // um local da empresa no mesmo ponto dá o nome ao ponto
+      if (site.kind === 'local' && existing.kind !== 'local') Object.assign(existing, site);
+      sites.set(key, existing);
+      let target = existing.groups.find((item) => item.key === group.key);
+      if (!target) { target = { ...group, people: [] }; existing.groups.push(target); }
+      target.people.push(person);
+    };
+
+    // locais da empresa em uso aparecem sempre, mesmo vazios
+    for (const place of inUse) if (place.latitude !== null && place.longitude !== null) {
+      const key = `${place.latitude.toFixed(5)},${place.longitude.toFixed(5)}`;
+      if (!sites.has(key)) sites.set(key, { key, kind: 'local', placeKind: place.kind, name: place.name, latitude: place.latitude, longitude: place.longitude, groups: [] });
+    }
+    for (const span of spans) {
+      const order = orders.find((item) => item.id === span.orderId);
+      if (!order) continue;
+      const place = order.placeId ? placeOf.get(order.placeId) : null;
+      const customer = customerOf.get(order.customerId);
+      const own = order.latitude !== null && order.longitude !== null ? { latitude: order.latitude, longitude: order.longitude } : null;
+      const point = own ?? (place && place.latitude !== null ? place : null) ?? customer ?? null;
+      const name = customerName.get(order.customerId) ?? order.number;
+      put(point, !own && place && place.latitude !== null ? { kind: 'local', placeKind: place.kind, name: place.name } : { kind: 'obra', placeKind: null, name },
+        { key: `os${order.id}`, label: order.number, detail: [name, order.title].filter(Boolean).join(' · '), link: `/servicos/ordens-de-servico/${order.id}` }, personOf(span.employeeId, span.role || null, span.shift));
+    }
+    for (const span of activities) {
+      const place = span.placeId ? placeOf.get(span.placeId) : null;
+      put(place && place.latitude !== null ? place : null, { kind: 'local', placeKind: place?.kind ?? null, name: place?.name ?? '' },
+        { key: `a${span.activityId}`, label: span.typeName, detail: span.location, link: null }, personOf(span.employeeId, null, span.shift));
+    }
+    for (const span of classes) {
+      const customer = span.customerId ? customerOf.get(span.customerId) : null;
+      // turma aberta acontece no centro de treinamento: dá para saber qual quando a empresa tem um só
+      const ct = !span.customerId && onlyCt.length === 1 ? onlyCt[0] : null;
+      put(customer ?? ct, customer ? { kind: 'cliente', placeKind: null, name: customer.name } : { kind: 'local', placeKind: ct?.kind ?? null, name: ct?.name ?? '' },
+        { key: `c${span.classId}${span.role}`, label: `${span.role === 'instrutor' ? 'Aula' : 'Treinamento'}: ${span.className}`, detail: span.location, link: `/treinamentos/turmas/${span.classId}` }, personOf(span.employeeId, null, span.shift));
+    }
+
+    // quem não está em lugar nenhum: livre, ou indisponível (férias, afastamento, suspensão)
+    const busy = new Set<number>([...spans.map((span) => span.employeeId), ...activities.filter((span) => span.occupies).map((span) => span.employeeId), ...classes.map((span) => span.employeeId)]);
+    const away = new Map<number, string>();
+    for (const span of window.unavailable) if (employeeOf.has(span.employeeId) && overlaps(span.start, span.end, day, day)) {
+      away.set(span.employeeId, actor.seesOccurrences || span.type === 'ferias' ? span.label : STATUS_LABEL.indisponivel);
+    }
+    const brief = (employee: EmployeeFull) => ({
+      id: employee.id, name: employee.name, primaryRole: employee.roles.find((role) => role.isPrimary)?.professional.name ?? employee.roles[0]?.professional.name ?? null,
+      roles: employee.roles.map((role) => ({ id: role.professional.id, name: role.professional.name })),
+    });
+    const withPeople = new Set([...sites.values()].flatMap((site) => site.groups.map(() => site.key)));
+    return {
+      today, date: day,
+      sites: [...sites.values()].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')).map((site) => ({ ...site, people: new Set(site.groups.flatMap((group) => group.people.map((person) => person.employeeId))).size })),
+      // clientes com ponto e sem ninguém lá hoje: a tela mostra discretos, se pedido
+      customers: customers.filter((customer) => !withPeople.has(`${customer.latitude!.toFixed(5)},${customer.longitude!.toFixed(5)}`)).map((customer) => ({ id: customer.id, name: customer.name, latitude: customer.latitude, longitude: customer.longitude })),
+      free: employees.filter((employee) => !busy.has(employee.id) && !away.has(employee.id)).map(brief),
+      unavailable: employees.filter((employee) => away.has(employee.id)).map((employee) => ({ ...brief(employee), label: away.get(employee.id)! })),
+      noPoint: [...noPoint.values()],
+      roles: [...new Map(employees.flatMap((employee) => employee.roles.map((role): [number, string] => [role.professional.id, role.professional.name]))).entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
     };
   }
 

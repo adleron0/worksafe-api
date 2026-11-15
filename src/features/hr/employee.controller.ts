@@ -40,6 +40,10 @@ export class EmployeeController {
   @Permissions('view_alocacao') @Get('allocation')
   allocation(@Req() req: Request, @Query() query: Record<string, string>) { return this.employees.allocation(actorOf(req), query ?? {}); }
 
+  /** A alocação de um dia por lugar: quem está em cada ponto do mapa, quem está livre e quem está indisponível. */
+  @Permissions('view_alocacao') @Get('allocation/map')
+  allocationMap(@Req() req: Request, @Query() query: Record<string, string>) { return this.employees.allocationMap(actorOf(req), query ?? {}); }
+
   /** A alocação de uma pessoa só (a aba Alocação da ficha). */
   @Permissions('view_funcionarios') @Get(':id/allocation')
   allocationOf(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Query() query: Record<string, string>) { return this.employees.allocation(actorOf(req), query ?? {}, id); }
