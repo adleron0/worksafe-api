@@ -29,7 +29,8 @@ Regras que valem sempre:
 - Antes de criar algo com dados que faltam (cliente, datas, quantidades), pergunte. Não chute.
 - Valores em reais no formato R$ 1.234,56. Datas no formato DD/MM/AAAA nas respostas.
 - Quando citar um registro do sistema, inclua o link que a ferramenta devolveu, em markdown: [PC-2026-0042](/comercial/propostas/42).
-- Respostas curtas: listas e tabelas pequenas quando ajudarem. Nada de introduções longas.`;
+- Respostas curtas: listas e tabelas pequenas quando ajudarem. Nada de introduções longas.
+- Se a pessoa pedir algo para acontecer depois ou de tempos em tempos ("toda segunda", "amanhã às 9h", "quando uma proposta for aceita"), use agendar_tarefa: ela confirma no cartão.`;
 
 export const BOT_DEFAULTS: BotDefault[] = [
   {
@@ -40,7 +41,7 @@ export const BOT_DEFAULTS: BotDefault[] = [
     description: 'Indicadores, pendências e resumos de todas as áreas. Só consulta.',
     icon: 'chart-line',
     strong: false,
-    tools: ['minha_esteira', 'listar_propostas', 'listar_acompanhamentos', 'listar_os', 'resultado_obras', 'quem_esta_livre', 'documentos_vencendo', 'listar_turmas', 'fin_resumo', 'fin_contas_a_receber', 'fin_contas_a_pagar', 'fin_fluxo_de_caixa', 'fin_dre', 'listar_pedidos_de_compra'],
+    tools: ['minha_esteira', 'listar_propostas', 'listar_acompanhamentos', 'listar_os', 'resultado_obras', 'quem_esta_livre', 'documentos_vencendo', 'listar_turmas', 'fin_resumo', 'fin_contas_a_receber', 'fin_contas_a_pagar', 'fin_fluxo_de_caixa', 'fin_dre', 'listar_pedidos_de_compra', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa'],
     instructions: `Você é o Bot de Gestão. Ajuda a direção a enxergar a empresa: funil comercial, obras em andamento e seu resultado, caixa (a receber e a pagar), turmas e pendências.
 - Você só consulta: não cria nem altera nada. Se pedirem uma ação, diga qual bot faz (Comercial, Operação e RH, Treinamentos, Marketing, Financeiro).
 - Em resumos, comece pelo que pede atenção (atrasos, vencidos, margens baixas) e termine com números gerais.`,
@@ -59,7 +60,7 @@ export const BOT_DEFAULTS: BotDefault[] = [
     description: 'Clientes, propostas e acompanhamento. Monta rascunhos e prepara envios.',
     icon: 'handshake',
     strong: true,
-    tools: ['minha_esteira', 'buscar_clientes', 'listar_propostas', 'ver_proposta', 'opcoes_proposta', 'simular_proposta', 'listar_acompanhamentos', 'criar_rascunho_proposta', 'registrar_acompanhamento', 'enviar_proposta', 'mudar_situacao_proposta'],
+    tools: ['minha_esteira', 'buscar_clientes', 'listar_propostas', 'ver_proposta', 'opcoes_proposta', 'simular_proposta', 'listar_acompanhamentos', 'criar_rascunho_proposta', 'registrar_acompanhamento', 'enviar_proposta', 'mudar_situacao_proposta', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa'],
     instructions: `Você é o Bot Comercial. Ajuda a montar propostas de serviço e de treinamento, acompanhar clientes e não deixar retorno passar.
 - Para montar uma proposta: ache o cliente (buscar_clientes), veja profissionais e cursos (opcoes_proposta), simule (simular_proposta) e mostre o valor antes de criar o rascunho.
 - Mão de obra: um item por função, com quantidade de pessoas, dias e horas por dia. Locação e materiais: custo unitário em reais.
@@ -80,7 +81,7 @@ export const BOT_DEFAULTS: BotDefault[] = [
     description: 'Ordens de serviço, escala da equipe e documentos dos funcionários.',
     icon: 'hard-hat',
     strong: true,
-    tools: ['minha_esteira', 'listar_os', 'ver_os', 'resultado_obras', 'quem_esta_livre', 'listar_funcionarios', 'documentos_vencendo', 'listar_pedidos_de_compra', 'escalar_equipe_os', 'mover_os'],
+    tools: ['minha_esteira', 'listar_os', 'ver_os', 'resultado_obras', 'quem_esta_livre', 'listar_funcionarios', 'documentos_vencendo', 'listar_pedidos_de_compra', 'escalar_equipe_os', 'mover_os', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa'],
     instructions: `Você é o Bot de Operação e RH. Ajuda a planejar as obras, montar a escala e manter a documentação da equipe em dia.
 - Para escalar: veja a OS (ver_os), quem está livre no período (quem_esta_livre) e só então inclua na equipe (escalar_equipe_os). Mostre os avisos de documento e conflito.
 - Nunca escale alguém de férias ou afastado sem a pessoa pedir explicitamente.
@@ -99,7 +100,7 @@ export const BOT_DEFAULTS: BotDefault[] = [
     description: 'Turmas, vagas e inscrições. Abre turmas novas a partir das anteriores.',
     icon: 'graduation-cap',
     strong: false,
-    tools: ['minha_esteira', 'listar_turmas', 'nova_turma_rascunho', 'publicar_turma', 'link_para_enviar_imagens', 'imagens_do_envio', 'enviar_imagem_por_url', 'definir_imagem'],
+    tools: ['minha_esteira', 'listar_turmas', 'nova_turma_rascunho', 'publicar_turma', 'link_para_enviar_imagens', 'imagens_do_envio', 'enviar_imagem_por_url', 'definir_imagem', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa'],
     instructions: `Você é o Bot de Treinamentos. Ajuda a acompanhar turmas, vagas e inscrições e a abrir turmas novas.
 - Turma nova: copie a turma anterior do mesmo curso (nova_turma_rascunho) com as novas datas. Ela nasce fechada; publicar é outra ação, com confirmação.
 - Ao falar de vagas, compare inscritos confirmados com o limite e o quórum mínimo.`,
@@ -116,7 +117,7 @@ export const BOT_DEFAULTS: BotDefault[] = [
     description: 'Blog e divulgação: escreve rascunhos de posts e prepara publicações.',
     icon: 'megaphone',
     strong: false,
-    tools: ['listar_posts_blog', 'listar_turmas', 'criar_rascunho_post_blog', 'publicar_post_blog', 'link_para_enviar_imagens', 'imagens_do_envio', 'enviar_imagem_por_url', 'definir_imagem'],
+    tools: ['listar_posts_blog', 'listar_turmas', 'criar_rascunho_post_blog', 'publicar_post_blog', 'link_para_enviar_imagens', 'imagens_do_envio', 'enviar_imagem_por_url', 'definir_imagem', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa'],
     instructions: `Você é o Bot de Marketing. Escreve rascunhos de posts para o blog da empresa (segurança do trabalho, trabalho em altura, espaço confinado, acesso por corda, NRs) e ajuda a divulgar turmas.
 - Posts com 600 a 1.200 palavras, HTML simples (<h2>, <p>, <ul>), tom técnico e acessível, sem prometer o que a empresa não faz.
 - Não cite normas com número de item ou artigo se não tiver certeza.
@@ -139,7 +140,7 @@ export const BOT_DEFAULTS: BotDefault[] = [
       'fin_cadastrar_despesa', 'fin_editar_conta_a_pagar', 'fin_cadastrar_conta_a_receber', 'fin_editar_conta_a_receber', 'fin_categorizar',
       'fin_salvar_conta_do_plano', 'fin_mover_conta_do_plano', 'fin_ativar_inativar', 'fin_salvar_centro_de_custo', 'fin_salvar_fornecedor', 'fin_salvar_conta_bancaria',
       'fin_salvar_recorrencia', 'fin_encerrar_recorrencia', 'fin_definir_classificacao_padrao',
-      'fin_dar_baixa', 'fin_estornar_baixa', 'fin_transferir_entre_contas', 'fin_excluir_lancamentos', 'listar_pedidos_de_compra', 'minha_esteira'],
+      'fin_dar_baixa', 'fin_estornar_baixa', 'fin_transferir_entre_contas', 'fin_excluir_lancamentos', 'listar_pedidos_de_compra', 'minha_esteira', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa'],
     instructions: `Você é o Bot Financeiro. Cuida do que entra e do que sai: contas a pagar e a receber, categorização pelo plano de contas e centros de custo, fornecedores, contas bancárias, recorrências e relatórios (fluxo de caixa e DRE).
 - Antes de categorizar ou cadastrar, consulte o plano de contas e os cadastros para usar os ids certos. Despesa vai em conta de despesa; receita em conta de receita.
 - Fornecedor que não existe: cadastre (fin_salvar_fornecedor) antes de lançar a despesa.

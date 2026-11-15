@@ -11,19 +11,26 @@ type Json = Record<string, any>;
 export class ReportController {
   constructor(private readonly reports: ReportService) {}
 
-  @Permissions('update_bots') @Get('schedules')
+  // a agenda é de quem usa os bots (cada um vê as próprias tarefas); quem configura os bots vê todas
+  @Permissions('usar_bots') @Get('schedules')
   schedules(@Req() req: Request) { return this.reports.list(actorOf(req)); }
 
-  @Permissions('update_bots') @Post('schedules')
+  @Permissions('usar_bots') @Post('schedules')
   create(@Req() req: Request, @Body() body: Json) { return this.reports.create(actorOf(req), body ?? {}); }
 
-  @Permissions('update_bots') @Put('schedules/:id')
+  @Permissions('usar_bots') @Put('schedules/:id')
   update(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.reports.update(actorOf(req), id, body ?? {}); }
 
-  @Permissions('update_bots') @Patch('schedules/:id/remove')
+  @Permissions('usar_bots') @Patch('schedules/:id/remove')
   remove(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.reports.remove(actorOf(req), id); }
 
-  @Permissions('update_bots') @Post('schedules/:id/run') @HttpCode(200)
+  @Permissions('usar_bots') @Patch('schedules/:id/pause')
+  pause(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.reports.setActive(actorOf(req), id, false); }
+
+  @Permissions('usar_bots') @Patch('schedules/:id/resume')
+  resume(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.reports.setActive(actorOf(req), id, true); }
+
+  @Permissions('usar_bots') @Post('schedules/:id/run') @HttpCode(200)
   run(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.reports.runNow(actorOf(req), id); }
 
   @Permissions('usar_bots') @Get('reports')

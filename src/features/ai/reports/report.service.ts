@@ -8,6 +8,7 @@ import { frontUrl } from '../mcp/mcp-oauth.service';
 import { ToolCatalogService } from '../tools/tool-catalog.service';
 import { ToolContext } from '../tools/tool.types';
 import { Delivery, NotifyService } from './notify.service';
+import { EVENT_DETECTORS, EventOccurrence } from './events';
 
 export interface ReportActor { userId: number; companyId: number; permissions: string[] }
 
@@ -19,23 +20,43 @@ export const DATA_REPORTS: Record<string, { name: string; description: string }>
   resultado_obras: { name: 'Resultado das obras', description: 'Orçado × realizado das obras em execução e concluídas.' },
 };
 
-const FREQUENCIES = ['daily', 'weekly', 'monthly'];
+const FREQUENCIES = ['once', 'hourly', 'daily', 'weekly', 'monthly', 'event'];
+/** Quantas tarefas ativas cada pessoa pode ter (quem configura os bots não tem limite). */
+const MAX_OWN_TASKS = 15;
 const CHANNELS = ['system', 'email', 'whatsapp'];
 const brl = (value: unknown) => Number(value ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const br = (value: unknown) => (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10).split('-').reverse().join('/') : '—');
 
 /**
  * Próxima execução no horário de Brasília (UTC-3, sem horário de verão).
- * daily: todo dia na hora; weekly: no dia da semana (1 = segunda); monthly: no dia do mês (1–28).
+ * once: no runAt; hourly: a cada N horas entre 08:00 e 18:00 de segunda a sexta;
+ * daily: todo dia na hora; weekly: nos dias da semana (1 = segunda); monthly:
+ * no dia do mês (1–28); event: o detector roda a cada minuto (nextRunAt = agora).
  */
-export function nextRun(schedule: Pick<Ai_Schedule, 'frequency' | 'time' | 'dayOfWeek' | 'dayOfMonth'>, after = new Date()): Date {
+export function nextRun(schedule: Pick<Ai_Schedule, 'frequency' | 'time' | 'dayOfWeek' | 'dayOfMonth'> & Partial<Pick<Ai_Schedule, 'runAt' | 'daysOfWeek' | 'everyHours'>>, after = new Date()): Date | null {
+  if (schedule.frequency === 'once') return schedule.runAt && schedule.runAt > after ? schedule.runAt : null;
+  if (schedule.frequency === 'event') return after;
+  const local = new Date(after.getTime() - 3 * 3600000);
+  if (schedule.frequency === 'hourly') {
+    const every = Math.min(10, Math.max(1, Number(schedule.everyHours) || 2));
+    for (let add = 0; add <= 8; add++) {
+      const day = new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + add));
+      const weekday = day.getUTCDay();
+      if (weekday === 0 || weekday === 6) continue;
+      for (let hour = 8; hour <= 18; hour += every) {
+        const utc = new Date(day.getTime() + (hour + 3) * 3600000);
+        if (utc > after) return utc;
+      }
+    }
+    return null;
+  }
   const [hour, minute] = schedule.time.split(':').map(Number);
-  const local = new Date(after.getTime() - 3 * 3600000); // "relógio" de Brasília em UTC
+  const days = Array.isArray(schedule.daysOfWeek) && (schedule.daysOfWeek as number[]).length ? (schedule.daysOfWeek as number[]) : [schedule.dayOfWeek ?? 1];
   for (let add = 0; add <= 62; add++) {
     const day = new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + add, hour, minute));
     const weekday = day.getUTCDay() === 0 ? 7 : day.getUTCDay();
     const fits = schedule.frequency === 'daily'
-      || (schedule.frequency === 'weekly' && weekday === (schedule.dayOfWeek ?? 1))
+      || (schedule.frequency === 'weekly' && days.includes(weekday))
       || (schedule.frequency === 'monthly' && day.getUTCDate() === (schedule.dayOfMonth ?? 1));
     const utc = new Date(day.getTime() + 3 * 3600000);
     if (fits && utc > after) return utc;
@@ -55,80 +76,144 @@ export class ReportService {
 
   // ---------------------------------------------------------------- cadastro
 
+  /** Quem configura os bots vê a agenda da empresa toda; os demais, só as tarefas que criaram. */
+  private admin(actor: ReportActor) { return actor.permissions.includes('update_bots'); }
+
   async list(actor: ReportActor) {
-    const rows = await this.prisma.ai_Schedule.findMany({ where: { companyId: actor.companyId, inactiveAt: null }, orderBy: { id: 'asc' } });
-    const users = await this.prisma.user.findMany({ where: { companyId: actor.companyId, inactiveAt: null }, select: { id: true, name: true, phone: true, email: true }, orderBy: { name: 'asc' } });
-    const bots = await this.prisma.ai_Bot.findMany({ where: { companyId: actor.companyId, inactiveAt: null }, select: { id: true, name: true }, orderBy: { id: 'asc' } });
+    const rows = await this.prisma.ai_Schedule.findMany({ where: { companyId: actor.companyId, inactiveAt: null, ...(this.admin(actor) ? {} : { ownerUserId: actor.userId }) }, orderBy: { id: 'asc' } });
+    const users = this.admin(actor)
+      ? await this.prisma.user.findMany({ where: { companyId: actor.companyId, inactiveAt: null }, select: { id: true, name: true, phone: true, email: true }, orderBy: { name: 'asc' } })
+      : await this.prisma.user.findMany({ where: { id: actor.userId }, select: { id: true, name: true, phone: true, email: true } });
+    const bots = await this.prisma.ai_Bot.findMany({ where: { companyId: actor.companyId, inactiveAt: null }, select: { id: true, name: true, persona: true, role: true, avatar: true, key: true, permissionKey: true }, orderBy: { id: 'asc' } });
+    const owners = new Map((await this.prisma.user.findMany({ where: { id: { in: [...new Set(rows.map((row) => row.ownerUserId))] } }, select: { id: true, name: true } })).map((user) => [user.id, user.name]));
     return {
-      schedules: rows.map((row) => this.present(row)),
+      schedules: rows.map((row) => ({ ...this.present(row), owner: owners.get(row.ownerUserId) ?? null, mine: row.ownerUserId === actor.userId })),
       reports: Object.entries(DATA_REPORTS).map(([key, value]) => ({ key, ...value })),
+      events: Object.entries(EVENT_DETECTORS).map(([key, value]) => ({ key, label: value.label, description: value.description, params: value.params ?? [] })),
       users: users.map((user) => ({ id: user.id, name: user.name, hasPhone: !!user.phone, hasEmail: !!user.email })),
-      bots,
+      bots: bots.filter((bot) => actor.permissions.includes(bot.permissionKey)).map((bot) => ({ id: bot.id, name: bot.persona ? `${bot.persona} · ${bot.name}` : bot.name, persona: bot.persona ?? bot.name, role: bot.role, avatar: bot.avatar ?? bot.key })),
       channels: { system: true, email: this.notify.emailReady(), whatsapp: this.notify.whatsappReady() },
+      admin: this.admin(actor),
     };
   }
 
   private present(row: Ai_Schedule) {
     return {
       id: row.id, name: row.name, kind: row.kind, report: row.report, botId: row.botId, prompt: row.prompt, frequency: row.frequency, time: row.time,
-      dayOfWeek: row.dayOfWeek, dayOfMonth: row.dayOfMonth, channels: row.channels, recipients: row.recipients, active: row.active, lastRunAt: row.lastRunAt, nextRunAt: row.nextRunAt,
+      dayOfWeek: row.dayOfWeek, dayOfMonth: row.dayOfMonth, daysOfWeek: row.daysOfWeek ?? [], everyHours: row.everyHours, runAt: row.runAt,
+      eventType: row.eventType, eventParams: row.eventParams ?? {}, eventLabel: row.eventType ? EVENT_DETECTORS[row.eventType]?.label ?? row.eventType : null,
+      channels: row.channels, recipients: row.recipients, active: row.active, lastRunAt: row.lastRunAt, nextRunAt: row.nextRunAt,
+      lastStatus: row.lastStatus, lastReportId: row.lastReportId, failures: row.failures, pausedReason: row.pausedReason, maxRunsPerDay: row.maxRunsPerDay, ownerUserId: row.ownerUserId,
     };
   }
 
-  private parse(actor: ReportActor, body: Record<string, any>, current?: Ai_Schedule) {
+  parse(actor: ReportActor, body: Record<string, any>, current?: Ai_Schedule) {
     const merged = { ...(current ?? {}), ...body } as Record<string, any>;
     const name = String(merged.name ?? '').trim().slice(0, 120);
-    if (name.length < 3) throw new BadRequestException('Informe o nome do relatório');
+    if (name.length < 3) throw new BadRequestException('Dê um nome para a tarefa');
     const kind = merged.kind === 'ai' ? 'ai' : 'data';
     if (kind === 'data' && !DATA_REPORTS[merged.report]) throw new BadRequestException('Escolha o relatório');
     const prompt = kind === 'ai' ? String(merged.prompt ?? '').trim().slice(0, 4000) : null;
-    if (kind === 'ai' && (!prompt || prompt.length < 10)) throw new BadRequestException('Escreva o pedido para o bot');
-    if (kind === 'ai' && !(Number(merged.botId) > 0)) throw new BadRequestException('Escolha o bot');
-    if (!FREQUENCIES.includes(merged.frequency)) throw new BadRequestException('Escolha a frequência');
+    if (kind === 'ai' && (!prompt || prompt.length < 10)) throw new BadRequestException('Escreva o que o assistente deve fazer');
+    if (kind === 'ai' && !(Number(merged.botId) > 0)) throw new BadRequestException('Escolha o assistente');
+    const frequency = String(merged.frequency);
+    if (!FREQUENCIES.includes(frequency)) throw new BadRequestException('Escolha quando a tarefa roda');
+    if (frequency === 'event' && kind !== 'ai') throw new BadRequestException('Gatilho por evento só para tarefa de assistente');
     const time = String(merged.time ?? '07:00');
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new BadRequestException('Horário inválido');
-    const dayOfWeek = merged.frequency === 'weekly' ? Number(merged.dayOfWeek) : null;
-    if (merged.frequency === 'weekly' && !(dayOfWeek! >= 1 && dayOfWeek! <= 7)) throw new BadRequestException('Escolha o dia da semana');
-    const dayOfMonth = merged.frequency === 'monthly' ? Number(merged.dayOfMonth) : null;
-    if (merged.frequency === 'monthly' && !(dayOfMonth! >= 1 && dayOfMonth! <= 28)) throw new BadRequestException('Escolha o dia do mês (1 a 28)');
+    let runAt: Date | null = null;
+    if (frequency === 'once') {
+      runAt = merged.runAt ? new Date(merged.runAt) : null;
+      if (!runAt || Number.isNaN(runAt.getTime())) throw new BadRequestException('Informe a data e a hora');
+      if (runAt <= new Date()) throw new BadRequestException('A data e a hora precisam estar no futuro');
+    }
+    const daysOfWeek = frequency === 'weekly'
+      ? [...new Set((Array.isArray(merged.daysOfWeek) && merged.daysOfWeek.length ? merged.daysOfWeek : [merged.dayOfWeek]).map(Number).filter((day: number) => day >= 1 && day <= 7))].sort()
+      : null;
+    if (frequency === 'weekly' && !daysOfWeek!.length) throw new BadRequestException('Escolha os dias da semana');
+    const dayOfMonth = frequency === 'monthly' ? Number(merged.dayOfMonth) : null;
+    if (frequency === 'monthly' && !(dayOfMonth! >= 1 && dayOfMonth! <= 28)) throw new BadRequestException('Escolha o dia do mês (1 a 28)');
+    const everyHours = frequency === 'hourly' ? Number(merged.everyHours) : null;
+    if (frequency === 'hourly' && !(everyHours! >= 1 && everyHours! <= 10)) throw new BadRequestException('A cada quantas horas? (1 a 10)');
+    const eventType = frequency === 'event' ? String(merged.eventType ?? '') : null;
+    if (frequency === 'event' && !EVENT_DETECTORS[eventType!]) throw new BadRequestException('Escolha o evento');
+    const eventParams = frequency === 'event' && merged.eventParams && typeof merged.eventParams === 'object' ? merged.eventParams : null;
     const channels = (Array.isArray(merged.channels) ? merged.channels : ['system']).filter((channel: string) => CHANNELS.includes(channel));
     if (!channels.length) throw new BadRequestException('Escolha ao menos um canal');
-    // sem ninguém escolhido, quem configura recebe
-    const recipients = [...new Set((Array.isArray(merged.recipients) && merged.recipients.length ? merged.recipients : [actor.userId]).map(Number).filter((id: number) => id > 0))].slice(0, 30);
-    if (!recipients.length) throw new BadRequestException('Escolha quem recebe');
+    // sem ninguém escolhido, quem configura recebe; quem não configura bots só agenda para si
+    let recipients = [...new Set((Array.isArray(merged.recipients) && merged.recipients.length ? merged.recipients : [actor.userId]).map(Number).filter((id: number) => id > 0))].slice(0, 30);
+    if (!this.admin(actor)) recipients = [actor.userId];
+    const maxRunsPerDay = Math.min(48, Math.max(1, Number(merged.maxRunsPerDay) || 12));
     return {
       name, kind, report: kind === 'data' ? merged.report : null, botId: kind === 'ai' ? Number(merged.botId) : null, prompt,
-      frequency: merged.frequency, time, dayOfWeek, dayOfMonth, channels, recipients, active: merged.active !== false && merged.active !== 'false',
+      frequency, time, runAt, daysOfWeek, dayOfWeek: daysOfWeek?.[0] ?? null, dayOfMonth, everyHours, eventType, eventParams, maxRunsPerDay,
+      channels, recipients, active: merged.active !== false && merged.active !== 'false',
     };
   }
 
   private async assertRefs(actor: ReportActor, data: { botId: number | null; recipients: number[] }) {
-    if (data.botId && !(await this.prisma.ai_Bot.findFirst({ where: { id: data.botId, companyId: actor.companyId, inactiveAt: null }, select: { id: true } }))) throw new BadRequestException('Bot não encontrado');
+    if (data.botId) {
+      const bot = await this.prisma.ai_Bot.findFirst({ where: { id: data.botId, companyId: actor.companyId, inactiveAt: null }, select: { permissionKey: true } });
+      if (!bot) throw new BadRequestException('Assistente não encontrado');
+      if (!actor.permissions.includes(bot.permissionKey)) throw new BadRequestException('Você não tem acesso a este assistente');
+    }
     const found = await this.prisma.user.count({ where: { id: { in: data.recipients }, companyId: actor.companyId, inactiveAt: null } });
     if (found !== data.recipients.length) throw new BadRequestException('Destinatário não encontrado');
+  }
+
+  private async owned(actor: ReportActor, id: number) {
+    const row = await this.prisma.ai_Schedule.findFirst({ where: { id, companyId: actor.companyId, inactiveAt: null, ...(this.admin(actor) ? {} : { ownerUserId: actor.userId }) } });
+    if (!row) throw new NotFoundException('Tarefa não encontrada');
+    return row;
+  }
+
+  private dataFor(data: ReturnType<ReportService['parse']>) {
+    return {
+      ...data, daysOfWeek: data.daysOfWeek ?? Prisma.DbNull, eventParams: data.eventParams ?? Prisma.DbNull,
+      nextRunAt: data.active ? nextRun(data as unknown as Ai_Schedule) : null,
+    };
   }
 
   async create(actor: ReportActor, body: Record<string, any>) {
     const data = this.parse(actor, body);
     await this.assertRefs(actor, data);
-    const row = await this.prisma.ai_Schedule.create({ data: { ...data, companyId: actor.companyId, ownerUserId: actor.userId, nextRunAt: nextRun(data as Ai_Schedule) } as Prisma.Ai_ScheduleUncheckedCreateInput });
+    if (!this.admin(actor)) {
+      const mine = await this.prisma.ai_Schedule.count({ where: { companyId: actor.companyId, ownerUserId: actor.userId, inactiveAt: null, active: true } });
+      if (mine >= MAX_OWN_TASKS) throw new BadRequestException(`Você já tem ${MAX_OWN_TASKS} tarefas ativas: pause ou remova alguma`);
+    }
+    const row = await this.prisma.ai_Schedule.create({
+      data: { ...this.dataFor(data), companyId: actor.companyId, ownerUserId: actor.userId, eventCursor: data.frequency === 'event' ? new Date() : null } as Prisma.Ai_ScheduleUncheckedCreateInput,
+    });
     return this.present(row);
   }
 
   async update(actor: ReportActor, id: number, body: Record<string, any>) {
-    const current = await this.prisma.ai_Schedule.findFirst({ where: { id, companyId: actor.companyId, inactiveAt: null } });
-    if (!current) throw new NotFoundException('Agendamento não encontrado');
+    const current = await this.owned(actor, id);
     const data = this.parse(actor, body, current);
     await this.assertRefs(actor, data);
-    // quem altera passa a ser o dono: o relatório usa as permissões dele
-    const row = await this.prisma.ai_Schedule.update({ where: { id }, data: { ...data, ownerUserId: actor.userId, nextRunAt: nextRun(data as Ai_Schedule) } as Prisma.Ai_ScheduleUncheckedUpdateInput });
+    // quem altera passa a ser o dono: a tarefa usa as permissões dele; reativar zera as falhas
+    const row = await this.prisma.ai_Schedule.update({
+      where: { id },
+      data: {
+        ...this.dataFor(data), ownerUserId: actor.userId, failures: 0, pausedReason: null,
+        ...(data.frequency === 'event' && current.frequency !== 'event' ? { eventCursor: new Date(), firedKeys: [] } : {}),
+      } as Prisma.Ai_ScheduleUncheckedUpdateInput,
+    });
+    return this.present(row);
+  }
+
+  async setActive(actor: ReportActor, id: number, active: boolean) {
+    const current = await this.owned(actor, id);
+    const row = await this.prisma.ai_Schedule.update({
+      where: { id },
+      data: { active, failures: active ? 0 : current.failures, pausedReason: active ? null : 'Pausada por você', nextRunAt: active ? nextRun(current) : null, ...(active && current.frequency === 'event' ? { eventCursor: new Date() } : {}) },
+    });
     return this.present(row);
   }
 
   async remove(actor: ReportActor, id: number) {
-    const current = await this.prisma.ai_Schedule.findFirst({ where: { id, companyId: actor.companyId, inactiveAt: null } });
-    if (!current) throw new NotFoundException('Agendamento não encontrado');
-    await this.prisma.ai_Schedule.update({ where: { id }, data: { inactiveAt: new Date(), active: false } });
+    await this.owned(actor, id);
+    await this.prisma.ai_Schedule.update({ where: { id }, data: { inactiveAt: new Date(), active: false, nextRunAt: null } });
     return { removed: true };
   }
 
@@ -161,28 +246,70 @@ export class ReportService {
   }
 
   async runDue(now = new Date()): Promise<number> {
-    const due = await this.prisma.ai_Schedule.findMany({ where: { active: true, inactiveAt: null, nextRunAt: { lte: now } }, take: 20 });
+    const due = await this.prisma.ai_Schedule.findMany({ where: { active: true, inactiveAt: null, nextRunAt: { lte: now } }, take: 30, orderBy: { nextRunAt: 'asc' } });
     let ran = 0;
     for (const schedule of due) {
+      const next = schedule.frequency === 'event' ? new Date(now.getTime() + 60000) : nextRun(schedule, now);
       // trava pelo próprio nextRunAt: duas instâncias não rodam o mesmo agendamento
-      const claimed = await this.prisma.ai_Schedule.updateMany({ where: { id: schedule.id, nextRunAt: schedule.nextRunAt }, data: { nextRunAt: nextRun(schedule, now), lastRunAt: now } });
+      const claimed = await this.prisma.ai_Schedule.updateMany({ where: { id: schedule.id, nextRunAt: schedule.nextRunAt }, data: { nextRunAt: next, ...(schedule.frequency === 'once' ? { active: false } : {}) } });
       if (!claimed.count) continue;
-      await this.execute(schedule).catch((error) => console.error(`[ai] agendamento ${schedule.id} falhou`, error));
-      ran++;
+      try {
+        if (schedule.frequency === 'event') {
+          if (await this.runEvent(schedule, now)) ran++;
+        } else if (await this.guard(schedule, now)) {
+          await this.execute(schedule);
+          ran++;
+        }
+      } catch (error) {
+        console.error(`[ai] tarefa ${schedule.id} falhou`, error);
+      }
     }
     return ran;
   }
 
-  /** Roda um agendamento agora (botão "Gerar agora"). */
+  /** Limite por dia: passou, pula até amanhã. */
+  private async guard(schedule: Ai_Schedule, now: Date): Promise<boolean> {
+    const day = new Date(now.getTime() - 3 * 3600000).toISOString().slice(0, 10);
+    const today = schedule.runsDay === day ? schedule.runsToday : 0;
+    if (today >= schedule.maxRunsPerDay) return false;
+    await this.prisma.ai_Schedule.update({ where: { id: schedule.id }, data: { runsDay: day, runsToday: today + 1 } });
+    return true;
+  }
+
+  /** Gatilho por evento: o que aconteceu desde o cursor e ainda não disparou vai num pedido só. */
+  private async runEvent(schedule: Ai_Schedule, now: Date): Promise<boolean> {
+    const detector = EVENT_DETECTORS[schedule.eventType ?? ''];
+    if (!detector) return false;
+    const since = schedule.eventCursor ?? new Date(now.getTime() - 3600000);
+    const fired = new Set(((schedule.firedKeys as string[]) ?? []));
+    const found = await detector.detect(this.prisma, schedule.companyId, since, (schedule.eventParams as Record<string, any>) ?? {});
+    const fresh = found.filter((item) => !fired.has(item.key));
+    const cursor = found.reduce((max, item) => (item.at > max && item.at <= now ? item.at : max), since);
+    if (!fresh.length) {
+      if (cursor > since) await this.prisma.ai_Schedule.update({ where: { id: schedule.id }, data: { eventCursor: cursor } });
+      return false;
+    }
+    if (!(await this.guard(schedule, now))) return false;
+    const keys = [...fired, ...fresh.map((item) => item.key)].slice(-500);
+    await this.prisma.ai_Schedule.update({ where: { id: schedule.id }, data: { eventCursor: cursor, firedKeys: keys } });
+    await this.execute(schedule, fresh);
+    return true;
+  }
+
+  /** Roda uma tarefa agora (botão "Rodar agora"). */
   async runNow(actor: ReportActor, id: number) {
-    const schedule = await this.prisma.ai_Schedule.findFirst({ where: { id, companyId: actor.companyId, inactiveAt: null } });
-    if (!schedule) throw new NotFoundException('Agendamento não encontrado');
+    const schedule = await this.owned(actor, id);
+    if (schedule.frequency === 'event') {
+      const detector = EVENT_DETECTORS[schedule.eventType ?? ''];
+      const sample = detector ? (await detector.detect(this.prisma, schedule.companyId, new Date(Date.now() - 7 * 86400000), (schedule.eventParams as Record<string, any>) ?? {})).slice(0, 5) : [];
+      const report = await this.execute(schedule, sample.length ? sample : [{ key: 'teste', at: new Date(), text: 'Teste manual: nenhum evento recente encontrado. Diga o que você faria quando o evento acontecer.' }]);
+      return { id: report.id, title: report.title };
+    }
     const report = await this.execute(schedule);
-    await this.prisma.ai_Schedule.update({ where: { id }, data: { lastRunAt: new Date() } });
     return { id: report.id, title: report.title };
   }
 
-  private async execute(schedule: Ai_Schedule) {
+  private async execute(schedule: Ai_Schedule, events?: EventOccurrence[]) {
     const owner = await this.prisma.user.findFirst({
       where: { id: schedule.ownerUserId, companyId: schedule.companyId, inactiveAt: null, active: true },
       select: { id: true, permissions: { where: { inactiveAt: null }, select: { permission: { select: { name: true } } } }, profile: { select: { permissions: { where: { inactiveAt: null }, select: { permission: { select: { name: true } } } } } } },
@@ -191,23 +318,34 @@ export class ReportService {
     const title = `${schedule.name} — ${br(date)}`;
     let body: string;
     let cost = 0;
+    let status: 'ok' | 'falhou' = 'ok';
+    let pendingCount = 0;
     if (!owner) {
-      body = 'O usuário dono deste agendamento não está mais ativo. Um administrador precisa salvar o agendamento de novo.';
+      body = 'O usuário dono desta tarefa não está mais ativo. Alguém precisa salvar a tarefa de novo.';
+      status = 'falhou';
     } else {
       const permissions = [...new Set([...owner.permissions.map((item) => item.permission.name), ...(owner.profile?.permissions ?? []).map((item) => item.permission.name)])];
       const ctx: ToolContext = { userId: owner.id, companyId: schedule.companyId, permissions, origin: 'schedule' };
       if (schedule.kind === 'ai') {
         const bot = await this.prisma.ai_Bot.findFirst({ where: { id: schedule.botId ?? 0, companyId: schedule.companyId, inactiveAt: null } });
-        if (!bot) body = 'O bot deste agendamento não existe mais.';
-        else if (await this.usage.overBudget(schedule.companyId)) body = 'Relatório não gerado: o teto mensal de gasto com IA foi atingido.';
+        if (!bot) { body = 'O assistente desta tarefa não existe mais.'; status = 'falhou'; }
+        else if (!permissions.includes(bot.permissionKey)) { body = `O dono da tarefa não tem mais acesso a ${bot.persona ?? bot.name}.`; status = 'falhou'; }
+        else if (await this.usage.overBudget(schedule.companyId)) { body = 'Tarefa não executada: o teto mensal de gasto com IA foi atingido.'; status = 'falhou'; }
         else {
           const conversation = await this.prisma.ai_Conversation.create({ data: { companyId: schedule.companyId, userId: owner.id, botId: bot.id, title, origin: 'schedule' } });
+          const context = events?.length
+            ? `\n\nO que aconteceu (gatilho "${EVENT_DETECTORS[schedule.eventType ?? '']?.label ?? schedule.eventType}"):\n${events.map((item) => `- ${item.text}`).join('\n')}`
+            : '';
           try {
-            const out = await this.agent.sendAndWait(ctx, bot, conversation.id, `${schedule.prompt}\n\n(Relatório agendado: responda com o relatório completo em markdown, sem perguntas.)`);
-            body = out.text || 'O bot não devolveu texto.';
+            const out = await this.agent.sendAndWait(ctx, bot, conversation.id,
+              `${schedule.prompt}${context}\n\n(Tarefa agendada, sem ninguém acompanhando agora: faça o que der com as ferramentas, não faça perguntas, e termine com um resumo curto em markdown do que foi feito e do que ficou esperando confirmação.)`);
+            body = out.text || 'O assistente não devolveu texto.';
             cost = out.costUsd;
+            pendingCount = await this.prisma.ai_PendingAction.count({ where: { conversationId: conversation.id, confirmedAt: null, cancelledAt: null } });
+            if (pendingCount) body += `\n\n**${pendingCount} ação(ões) esperando a sua confirmação** em [Ações pendentes](/bots/acoes).`;
           } catch (error) {
-            body = `Não foi possível gerar o relatório: ${(error as Error).message}`;
+            body = `Não foi possível concluir a tarefa: ${(error as Error).message}`;
+            status = 'falhou';
           }
         }
       } else {
@@ -217,6 +355,15 @@ export class ReportService {
     const report = await this.prisma.ai_Report.create({ data: { companyId: schedule.companyId, scheduleId: schedule.id, title, body, costUsd: cost } });
     const deliveries = await this.deliver(schedule, report.id, title, body);
     await this.prisma.ai_Report.update({ where: { id: report.id }, data: { deliveries: deliveries as unknown as Prisma.InputJsonValue } });
+    // três falhas seguidas: pausa e avisa no próprio cadastro
+    const failures = status === 'falhou' ? schedule.failures + 1 : 0;
+    await this.prisma.ai_Schedule.update({
+      where: { id: schedule.id },
+      data: {
+        lastRunAt: new Date(), lastStatus: status, lastReportId: report.id, failures,
+        ...(failures >= 3 ? { active: false, nextRunAt: null, pausedReason: 'Pausada depois de 3 falhas seguidas. Veja o último relatório e reative.' } : {}),
+      },
+    });
     return report;
   }
 

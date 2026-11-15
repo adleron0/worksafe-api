@@ -8,6 +8,7 @@ import { ActionResult, ToolContext, ToolDefinition, ToolRefusal } from './tool.t
 import { WRITE_TOOLS } from './write.tools';
 import { IMAGE_TOOLS } from './image.tools';
 import { FINANCE_TOOLS } from './finance.tools';
+import { SCHEDULE_TOOLS } from './schedule.tools';
 
 /** Resultado de uma chamada, como volta para o modelo. */
 export interface ToolOutcome {
@@ -58,7 +59,7 @@ export class ToolCatalogService {
   private readonly tools = new Map<string, ToolDefinition>();
 
   constructor(private readonly prisma: PrismaService, private readonly deps: ToolDeps) {
-    for (const tool of [...READ_TOOLS, ...WRITE_TOOLS, ...IMAGE_TOOLS, ...FINANCE_TOOLS]) this.tools.set(tool.name, tool);
+    for (const tool of [...READ_TOOLS, ...WRITE_TOOLS, ...IMAGE_TOOLS, ...FINANCE_TOOLS, ...SCHEDULE_TOOLS]) this.tools.set(tool.name, tool);
   }
 
   all(): ToolDefinition[] {
@@ -118,7 +119,8 @@ export class ToolCatalogService {
           data: {
             companyId: ctx.companyId, userId: ctx.userId, toolCallId: row.id, conversationId: ctx.conversationId ?? null, tool: tool.name,
             payload: prepared.payload as Prisma.InputJsonValue, summary: prepared.summary.slice(0, 1000), details: (prepared.details ?? []) as Prisma.InputJsonValue,
-            expiresAt: new Date(Date.now() + PENDING_MINUTES * 60000),
+            // tarefa agendada roda sem ninguém olhando: a confirmação vale 24 horas
+            expiresAt: new Date(Date.now() + (ctx.origin === 'schedule' ? 24 * 60 : PENDING_MINUTES) * 60000),
           },
         });
         return {

@@ -56,6 +56,11 @@ export class AgentService {
     const ids = bots.map((bot) => bot.id);
     const dayStart = new Date(`${nowBr().toISOString().slice(0, 10)}T03:00:00.000Z`);
     const seesAll = actor.permissions.includes('view_auditoria_bots');
+    const admin = actor.permissions.includes('update_bots');
+    const schedules = await this.prisma.ai_Schedule.findMany({
+      where: { companyId: actor.companyId, inactiveAt: null, active: true, kind: 'ai', botId: { in: ids }, ...(admin ? {} : { ownerUserId: actor.userId }) },
+      orderBy: { nextRunAt: 'asc' }, select: { id: true, botId: true, name: true, nextRunAt: true, frequency: true, eventType: true },
+    });
     const [running, mineRunning, pending, todayRuns, todayCalls, lastCalls, lastMine, activity, users] = await Promise.all([
       this.prisma.ai_Run.findMany({ where: { status: 'running', conversation: { companyId: actor.companyId, botId: { in: ids } } }, select: { userId: true, conversation: { select: { botId: true } } } }),
       this.prisma.ai_Run.findMany({ where: { status: 'running', userId: actor.userId, conversation: { companyId: actor.companyId, botId: { in: ids } } }, select: { conversation: { select: { id: true, botId: true, title: true } } } }),
@@ -88,6 +93,15 @@ export class AgentService {
           today: { conversations: runsBy.get(bot.id) ?? 0, actions: callsBy.get(bot.id) ?? 0 },
           lastActivityAt: lastBy.get(bot.id) ?? null,
           lastConversation: recent ? { id: recent.id, title: recent.title, at: recent.lastMessageAt } : null,
+          agenda: (() => {
+            const mine = schedules.filter((row) => row.botId === bot.id);
+            const timed = mine.filter((row) => row.frequency !== 'event' && row.nextRunAt);
+            return {
+              count: mine.length,
+              watching: mine.filter((row) => row.frequency === 'event').length,
+              next: timed[0] ? { id: timed[0].id, name: timed[0].name, at: timed[0].nextRunAt } : null,
+            };
+          })(),
         };
       }),
       activity: activity.map((row) => ({
