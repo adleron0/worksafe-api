@@ -29,41 +29,52 @@ model FinancialRecords {
   key            String                   @default(uuid()) // Definindo o campo 'key' como UUID auto gerado
 
   // Relacionamento com cupom
-  couponId        Int?
-  coupon          Coupon?   @relation(fields: [couponId], references: [id])
+  couponId Int?
+  coupon   Coupon? @relation(fields: [couponId], references: [id])
 
   // Valores aplicados (snapshot no momento do uso)
-  originalValue       Decimal?  @db.Decimal(18, 2)  // Valor original antes do desconto
-  discount            Decimal?  @db.Decimal(18, 2)  // Valor do desconto aplicado
-  discountApplied     Decimal?  @db.Decimal(18, 2)  // Desconto aplicado (legado)
-  commissionPercentage Decimal? @db.Decimal(5, 2)   // Percentual de comissão
-  commissionValue     Decimal?  @db.Decimal(18, 2)  // Comissão calculada
+  originalValue        Decimal? @db.Decimal(18, 2) // Valor original antes do desconto
+  discount             Decimal? @db.Decimal(18, 2) // Valor do desconto aplicado
+  discountApplied      Decimal? @db.Decimal(18, 2) // Desconto aplicado (legado)
+  commissionPercentage Decimal? @db.Decimal(5, 2) // Percentual de comissão
+  commissionValue      Decimal? @db.Decimal(18, 2) // Comissão calculada
 
   // Seller beneficiado (pode vir do cupom ou de outra fonte)
-  sellerId        Int?
-  seller          User?     @relation(fields: [sellerId], references: [id])
+  sellerId Int?
+  seller   User? @relation(fields: [sellerId], references: [id])
 
   // Nota fiscal emitida FORA do sistema: só o registro (número, data, arquivo)
-  invoiceNumber     String?   @db.VarChar(60)
-  invoiceIssuedAt   DateTime?
-  invoiceUrl        String?   @db.Text
+  invoiceNumber   String?   @db.VarChar(60)
+  invoiceIssuedAt DateTime?
+  invoiceUrl      String?   @db.Text
 
   // Parcela (ex.: 2/3) quando o recebível vem de um parcelamento combinado
   installmentNumber Int?
   installmentTotal  Int?
 
   // Valor líquido esperado (NF com retenções) e o que de fato entrou na baixa
-  netValue          Decimal?  @db.Decimal(18, 2)
-  receivedValue     Decimal?  @db.Decimal(18, 2)
-  settledByUserId   Int?      // quem deu a baixa manual
+  netValue        Decimal?              @db.Decimal(18, 2)
+  receivedValue   Decimal?              @db.Decimal(18, 2)
+  settledByUserId Int? // quem deu a baixa manual
+  // juros, multa e desconto informados na baixa manual
+  interestValue   Decimal?              @db.Decimal(18, 2)
+  fineValue       Decimal?              @db.Decimal(18, 2)
+  discountValue   Decimal?              @db.Decimal(18, 2)
+  // comprovante anexado na baixa manual
+  receiptUrl      String?               @db.Text
+  // gerado por um lançamento recorrente
+  recurrenceId    Int?
+  recurrence      Financial_Recurrence? @relation(fields: [recurrenceId], references: [id], onDelete: SetNull)
+  // identificador da linha do extrato (OFX) que conciliou esta baixa
+  statementRef    String?               @db.VarChar(80)
 
   // Classificação gerencial (todas opcionais: recebível antigo fica sem)
-  chartAccountId    Int?
-  chartAccount      Financial_ChartAccount? @relation(fields: [chartAccountId], references: [id], onDelete: Restrict)
-  costCenterId      Int?
-  costCenter        Financial_CostCenter?   @relation(fields: [costCenterId], references: [id], onDelete: Restrict)
-  bankAccountId     Int?      // onde o dinheiro entrou (informado na baixa)
-  bankAccount       Financial_BankAccount?  @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+  chartAccountId Int?
+  chartAccount   Financial_ChartAccount? @relation(fields: [chartAccountId], references: [id], onDelete: Restrict)
+  costCenterId   Int?
+  costCenter     Financial_CostCenter?   @relation(fields: [costCenterId], references: [id], onDelete: Restrict)
+  bankAccountId  Int? // onde o dinheiro entrou (informado na baixa)
+  bankAccount    Financial_BankAccount?  @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
 
   // Contrato comercial e parcela que originaram este recebível
   contractId            Int?
@@ -77,20 +88,22 @@ model FinancialRecords {
   inactiveAt DateTime?
 
   // ÍNDICES ESSENCIAIS
-  @@index([companyId, status])           // Dashboard financeiro por empresa
-  @@index([status, paidAt])               // Relatórios de pagamentos
-  @@index([traineeId])                    // Histórico do aluno
-  @@index([subscriptionId])               // Pagamentos por inscrição
-  @@index([externalId])                   // Busca por ID do gateway
-  @@index([accrualDate, companyId])       // Relatórios mensais
-  @@index([couponId, status])             // Performance de cupons
-  @@index([sellerId, status])             // Comissões de sellers
-  @@index([gateway, status])              // Análise por gateway
-  @@index([createdAt])                    // Ordenação temporal
-  @@index([customerId])                   // Recebíveis por cliente
-  @@index([companyId, invoiceNumber])     // Busca por NF
+  @@index([companyId, status]) // Dashboard financeiro por empresa
+  @@index([status, paidAt]) // Relatórios de pagamentos
+  @@index([traineeId]) // Histórico do aluno
+  @@index([subscriptionId]) // Pagamentos por inscrição
+  @@index([externalId]) // Busca por ID do gateway
+  @@index([accrualDate, companyId]) // Relatórios mensais
+  @@index([couponId, status]) // Performance de cupons
+  @@index([sellerId, status]) // Comissões de sellers
+  @@index([gateway, status]) // Análise por gateway
+  @@index([createdAt]) // Ordenação temporal
+  @@index([customerId]) // Recebíveis por cliente
+  @@index([companyId, invoiceNumber]) // Busca por NF
   @@index([chartAccountId])
   @@index([costCenterId])
   @@index([bankAccountId])
   @@index([contractId])
+  @@index([companyId, dueDate])
+  @@index([recurrenceId])
 }

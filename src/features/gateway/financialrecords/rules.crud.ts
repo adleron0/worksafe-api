@@ -64,7 +64,7 @@ export const financialRecordEntity: EntityRules = {
     update: 'update_financeiro', archive: 'inactive_financeiro', restore: 'activate_financeiro' },
   filterable: ['contractId', 'accrualDate', 'gateway', 'status', 'paymentMethod', 'subscriptionId', 'traineeId', 'customerId', 'sellerId', 'couponId',
     'dueDate', 'paidAt', 'externalId', 'createdAt', 'invoiceNumber', 'invoiceIssuedAt',
-    'chartAccountId', 'costCenterId', 'bankAccountId', 'trainee.name', 'customer.name', 'seller.name'],
+    'chartAccountId', 'costCenterId', 'bankAccountId', 'trainee.name', 'customer.name', 'seller.name', 'value', 'description', 'recurrenceId'],
   sortable: ['id', 'dueDate', 'paidAt', 'value', 'createdAt', 'invoiceIssuedAt'],
   includable: ['subscription', 'trainee', 'customer', 'seller', 'coupon', 'splitTransactions', 'chartAccount', 'costCenter', 'bankAccount'],
   includes: { trainee: { select: { id: true, name: true, cpf: true } }, customer: { select: { id: true, name: true, cnpj: true } },
@@ -78,7 +78,8 @@ export const financialRecordEntity: EntityRules = {
   // (e pelo webhook do gateway) — nunca por um PUT genérico.
   // contrato e parcela só são gravados pelo faturamento do contrato
   neverWritable: ['contractId', 'contractInstallmentId', 'key', 'externalId', 'requestData', 'responseData', 'errorData',
-    'paidAt', 'receivedValue', 'settledByUserId', 'bankAccountId', 'billUrl', 'billNumber', 'pixUrl', 'pixNumber'],
+    'paidAt', 'receivedValue', 'settledByUserId', 'bankAccountId', 'billUrl', 'billNumber', 'pixUrl', 'pixNumber',
+    'interestValue', 'fineValue', 'discountValue', 'receiptUrl', 'recurrenceId', 'statementRef'],
   softDelete: { field: 'inactiveAt' },
   hooks: composeHooks<Request>(parseJsonFields(), fileUpload({ invoiceFile: 'invoiceUrl' }), {
     // vendedor, comissão ou situação mudaram por aqui: a carteira do vendedor acompanha
@@ -88,6 +89,9 @@ export const financialRecordEntity: EntityRules = {
     },
   }, {
     preWrite: async ({ op, data, existing, scopeId, deps }) => {
+      if (op === 'archive' && existing?.status === 'received') {
+        throw new CrudError('CONFLICT', 'Conta já recebida: estorne a baixa antes de inativar');
+      }
       if (op !== 'create' && op !== 'update') return undefined;
       const prisma = deps.prisma as PrismaService;
       const companyId = Number(scopeId);

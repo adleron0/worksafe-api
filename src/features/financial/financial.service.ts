@@ -15,7 +15,7 @@ export class FinancialService {
    */
   async bankBalances(companyId: number) {
     const accounts = await this.prisma.financial_BankAccount.findMany({ where: { companyId } });
-    const out: Array<{ id: number; balance: number; received: number; paid: number }> = [];
+    const out: Array<{ id: number; balance: number; received: number; paid: number; transfers: number }> = [];
     for (const account of accounts) {
       const since = account.openingBalanceDate ? { paidAt: { gte: account.openingBalanceDate } } : {};
       const base = { companyId, status: 'received' as const, inactiveAt: null, ...since };
@@ -34,11 +34,19 @@ export class FinancialService {
         where: { companyId, status: 'paga', inactiveAt: null, bankAccountId: account.id, ...since }, _sum: { paidValue: true },
       });
       const paid = Number(outflow._sum.paidValue ?? 0);
+      // transferências entre contas: entram numa e saem da outra
+      const sinceDate = account.openingBalanceDate ? { date: { gte: account.openingBalanceDate } } : {};
+      const [transferIn, transferOut] = await Promise.all([
+        this.prisma.financial_Transfer.aggregate({ where: { companyId, inactiveAt: null, toBankAccountId: account.id, ...sinceDate }, _sum: { value: true } }),
+        this.prisma.financial_Transfer.aggregate({ where: { companyId, inactiveAt: null, fromBankAccountId: account.id, ...sinceDate }, _sum: { value: true } }),
+      ]);
+      const transfers = Number(transferIn._sum.value ?? 0) - Number(transferOut._sum.value ?? 0);
       out.push({
         id: account.id,
         received: Math.round(received * 100) / 100,
         paid: Math.round(paid * 100) / 100,
-        balance: Math.round((Number(account.openingBalance) + received - paid) * 100) / 100,
+        transfers: Math.round(transfers * 100) / 100,
+        balance: Math.round((Number(account.openingBalance) + received - paid + transfers) * 100) / 100,
       });
     }
     return out;

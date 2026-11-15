@@ -131,6 +131,13 @@ export async function normalizePayable(
     next.paymentMethod = blank(input.paymentMethod) ? null : String(input.paymentMethod);
   }
   if (has('documentNumber')) next.documentNumber = clean(input.documentNumber).slice(0, 60) || null;
+  if (has('barcode')) {
+    // linha digitável: guarda só os dígitos (47 do boleto bancário, 48 da conta de consumo)
+    const code = digits(input.barcode);
+    if (code && (code.length < 44 || code.length > 48)) fail('Linha digitável deve ter de 44 a 48 dígitos', 'barcode');
+    next.barcode = code || null;
+  }
+  if (has('pixCode')) next.pixCode = String(input.pixCode ?? '').trim().slice(0, 600) || null;
   if (has('observations')) next.observations = String(input.observations ?? '').trim().slice(0, 500) || null;
 
   for (const field of ['installmentNumber', 'installmentTotal'] as const) {
@@ -175,7 +182,7 @@ export async function normalizePayable(
   return next;
 }
 
-const PAYABLE_FIELDS = ['description', 'value', 'dueDate', 'accrualDate', 'paymentMethod', 'documentNumber', 'observations',
+const PAYABLE_FIELDS = ['description', 'value', 'dueDate', 'accrualDate', 'paymentMethod', 'documentNumber', 'observations', 'barcode', 'pixCode',
   'installmentNumber', 'installmentTotal', 'supplierId', 'serviceOrderId', 'chartAccountId', 'costCenterId'];
 
 /**
@@ -187,7 +194,7 @@ export const payableEntity: EntityRules = {
   expose: ['list', 'getById', 'create', 'update', 'archive', 'restore'], restorePermission: 'own',
   permissions: PERMISSIONS,
   filterable: ['status', 'accrualDate', 'dueDate', 'paidAt', 'supplierId', 'serviceOrderId', 'chartAccountId', 'costCenterId', 'bankAccountId',
-    'origin', 'groupKey', 'description', 'documentNumber', 'createdAt', 'supplier.name'],
+    'origin', 'groupKey', 'description', 'documentNumber', 'createdAt', 'supplier.name', 'value', 'recurrenceId'],
   sortable: ['id', 'dueDate', 'paidAt', 'value', 'createdAt'],
   includable: ['supplier', 'serviceOrder', 'chartAccount', 'costCenter', 'bankAccount'],
   includes: {
@@ -197,7 +204,8 @@ export const payableEntity: EntityRules = {
     bankAccount: { select: { id: true, name: true, type: true } },
   },
   aggregatable: ['status', 'value'],
-  neverWritable: ['status', 'paidAt', 'paidValue', 'bankAccountId', 'settledByUserId', 'origin', 'purchaseOrderId', 'groupKey', 'createdByUserId'],
+  neverWritable: ['status', 'paidAt', 'paidValue', 'bankAccountId', 'settledByUserId', 'origin', 'purchaseOrderId', 'groupKey', 'createdByUserId',
+    'interestValue', 'fineValue', 'discountValue', 'recurrenceId', 'statementRef'],
   softDelete: { field: 'inactiveAt' },
   hooks: composeHooks<Request>(fileUpload({ billFile: 'billUrl', invoiceFile: 'invoiceUrl', receiptFile: 'receiptUrl' }), {
     preWrite: async ({ op, data, existing, scopeId, deps, context }) => {

@@ -24,6 +24,41 @@ export function addMonths(date: Date, months: number): Date {
   return new Date(Date.UTC(year, month, Math.min(day, last), 12));
 }
 
+const GROUP_FIELDS = ['description', 'value', 'supplierId', 'chartAccountId', 'costCenterId', 'paymentMethod', 'serviceOrderId', 'observations', 'documentNumber'];
+
+export function idList(value: unknown): number[] {
+  const list = (Array.isArray(value) ? value : String(value ?? '').split(',')).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  if (!list.length) fail('Selecione ao menos uma conta');
+  if (list.length > 500) fail('Selecione no máximo 500 contas por vez');
+  return [...new Set(list)];
+}
+
+const extra = (value: unknown, label: string) => {
+  if (blank(value)) return 0;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) fail(`${label} não pode ser negativo`);
+  return round(n);
+};
+
+/** Valor pago, juros, multa e desconto de uma baixa (a pagar ou a receber). */
+export function settleExtras(value: number, body: Body, valueField = 'paidValue') {
+  let interest = extra(body.interestValue, 'Juros');
+  const fine = extra(body.fineValue, 'Multa');
+  let discount = extra(body.discountValue, 'Desconto');
+  const detailed = interest + fine + discount > 0;
+  let paidValue: number;
+  if (blank(body[valueField])) {
+    paidValue = round(value + interest + fine - discount);
+  } else {
+    paidValue = payableMoney(body[valueField], 'Valor pago', valueField, fail);
+    if (!detailed && paidValue !== round(value)) {
+      if (paidValue > value) interest = round(paidValue - value); else discount = round(value - paidValue);
+    }
+  }
+  if (paidValue <= 0) fail('O valor pago deve ser maior que zero');
+  return { paidValue, interest: interest || null, fine: fine || null, discount: discount || null };
+}
+
 @Injectable()
 export class PayableService {
   constructor(private readonly prisma: PrismaService) {}
@@ -37,7 +72,7 @@ export class PayableService {
     const count = Number(body.count);
     if (!Number.isInteger(count) || count < 2 || count > MAX_INSTALLMENTS) fail(`Informe de 2 a ${MAX_INSTALLMENTS} parcelas`);
     const mode = body.mode === 'repetir' ? 'repetir' : 'dividir';
-    const { count: _count, mode: _mode, accrualDate: _accrual, installmentNumber: _n, installmentTotal: _t, ...input } = body;
+    const { count: _count, mode: _mode, accrualDate: _accrual, installmentNumber: _n, installmentTotal: _t, barcode: _b, pixCode: _p, ...input } = body;
 
     return this.prisma.$transaction(async (tx) => {
       const base = await normalizePayable(tx, actor.companyId, input, null, (message) => fail(message));
@@ -67,15 +102,21 @@ export class PayableService {
     return payable;
   }
 
-  /** Baixa: o pagamento saiu. Guarda data, valor pago, conta de saída e, se vier, o comprovante. */
-  async settle(id: number, body: Body, actor: PayableActor, receiptUrl?: string | null) {
+  /**
+   * Baixa: o pagamento saiu. Guarda data, valor pago, conta de saída e, se vier,
+   * o comprovante. Juros, multa e desconto ficam separados (vão para o
+   * resultado financeiro da DRE): sem valor pago informado, ele é calculado;
+   * com valor pago diferente e sem detalhar, a diferença vira juros (pagou a
+   * mais) ou desconto (pagou a menos).
+   */
+  async settle(id: number, body: Body, actor: PayableActor, receiptUrl?: string | null, statementRef?: string | null) {
     const payable = await this.owned(id, actor.companyId);
     if (payable.inactiveAt) throw new ConflictException('Conta excluída: restaure antes de dar baixa');
     if (payable.status !== 'aberta') throw new ConflictException('Esta conta já está paga');
 
     const paidAt = blank(body.paidAt) ? payableDay(today(), 'Data do pagamento', 'paidAt', fail) : payableDay(body.paidAt, 'Data do pagamento', 'paidAt', fail);
     if (paidAt.toISOString().slice(0, 10) > today()) fail('A data do pagamento não pode ser futura');
-    const paidValue = blank(body.paidValue) ? Number(payable.value) : payableMoney(body.paidValue, 'Valor pago', 'paidValue', fail);
+    const extras = settleExtras(Number(payable.value), body);
     if (!blank(body.paymentMethod) && !PAYABLE_METHODS.includes(String(body.paymentMethod))) fail('Forma de pagamento inválida');
     let bankAccountId: number | null = null;
     if (!blank(body.bankAccountId)) {
@@ -87,12 +128,14 @@ export class PayableService {
     return this.prisma.$transaction(async (tx) => {
       // só baixa se ainda estiver aberta: dois cliques não pagam duas vezes
       const changed = await tx.financial_Payable.updateMany({
-        where: { id, companyId: actor.companyId, status: 'aberta' },
+        where: { id, companyId: actor.companyId, status: 'aberta', inactiveAt: null },
         data: {
-          status: 'paga', paidAt, paidValue: round(paidValue), bankAccountId, settledByUserId: actor.userId || null,
+          status: 'paga', paidAt, paidValue: extras.paidValue, interestValue: extras.interest, fineValue: extras.fine, discountValue: extras.discount,
+          bankAccountId, settledByUserId: actor.userId || null,
           ...(blank(body.paymentMethod) ? {} : { paymentMethod: String(body.paymentMethod) }),
           ...(note ? { observations: note } : {}),
           ...(receiptUrl ? { receiptUrl } : {}),
+          ...(statementRef ? { statementRef } : {}),
         },
       });
       if (changed.count === 0) throw new ConflictException('Esta conta já está paga');
@@ -101,12 +144,70 @@ export class PayableService {
     });
   }
 
+  /**
+   * Baixa várias de uma vez (os pagamentos da semana): mesma data, conta e
+   * forma; cada uma pelo próprio valor. O que não puder ser baixado volta na
+   * lista de ignoradas com o motivo, sem impedir as demais.
+   */
+  async bulkSettle(actor: PayableActor, body: Body) {
+    const ids = idList(body.ids);
+    const settled: number[] = [];
+    const skipped: Array<{ id: number; reason: string }> = [];
+    for (const id of ids) {
+      try {
+        await this.settle(id, { paidAt: body.paidAt, bankAccountId: body.bankAccountId, paymentMethod: body.paymentMethod }, actor);
+        settled.push(id);
+      } catch (error) {
+        if (error instanceof BadRequestException && !settled.length && !skipped.length) throw error;
+        skipped.push({ id, reason: (error as Error).message });
+      }
+    }
+    return { settled: settled.length, skipped };
+  }
+
+  /** Exclui (lógico) várias contas em aberto. Conta paga é ignorada: precisa estornar antes. */
+  async bulkArchive(actor: PayableActor, body: Body) {
+    const ids = idList(body.ids);
+    const rows = await this.prisma.financial_Payable.findMany({ where: { id: { in: ids }, companyId: actor.companyId }, select: { id: true, status: true, inactiveAt: true } });
+    const archivable = rows.filter((r) => r.status === 'aberta' && !r.inactiveAt).map((r) => r.id);
+    if (archivable.length) await this.prisma.financial_Payable.updateMany({ where: { id: { in: archivable }, companyId: actor.companyId, status: 'aberta' }, data: { inactiveAt: new Date() } });
+    const skipped = ids.filter((id) => !archivable.includes(id)).map((id) => {
+      const row = rows.find((r) => r.id === id);
+      return { id, reason: !row ? 'Não encontrada' : row.inactiveAt ? 'Já excluída' : 'Já paga: estorne antes de excluir' };
+    });
+    return { archived: archivable.length, skipped };
+  }
+
+  /**
+   * Altera as parcelas de um mesmo lançamento: `scope: proximas` muda esta e
+   * as seguintes; `todas`, todas as que estão em aberto. Parcela paga não muda.
+   */
+  async updateGroup(actor: PayableActor, groupKey: string, body: Body) {
+    const fromId = Number(body.fromId);
+    const scope = body.scope === 'todas' ? 'todas' : 'proximas';
+    const group = await this.prisma.financial_Payable.findMany({ where: { companyId: actor.companyId, groupKey }, orderBy: { dueDate: 'asc' } });
+    if (!group.length) throw new NotFoundException('Parcelamento não encontrado');
+    const start = group.find((row) => row.id === fromId);
+    if (scope === 'proximas' && !start) fail('Informe a parcela de onde a alteração começa');
+    const targets = group.filter((row) => row.status === 'aberta' && !row.inactiveAt && (scope === 'todas' || row.dueDate >= start!.dueDate));
+    if (!targets.length) fail('Nenhuma parcela em aberto para alterar');
+    const input: Body = {};
+    for (const field of GROUP_FIELDS) if (field in body) input[field] = body[field];
+    if (!Object.keys(input).length) fail('Nada para alterar');
+    const normalized = await normalizePayable(this.prisma, actor.companyId, input, targets[0], fail);
+    const { count } = await this.prisma.financial_Payable.updateMany({ where: { id: { in: targets.map((t) => t.id) }, status: 'aberta' }, data: normalized });
+    return { updated: count };
+  }
+
   /** Estorno da baixa: volta a ficar aberta. O comprovante anexado continua guardado. */
   async unsettle(id: number, body: Body, actor: PayableActor) {
     const payable = await this.owned(id, actor.companyId);
     if (payable.status !== 'paga') throw new ConflictException('Esta conta não está paga');
     return this.prisma.$transaction(async (tx) => {
-      await tx.financial_Payable.update({ where: { id }, data: { status: 'aberta', paidAt: null, paidValue: null, bankAccountId: null, settledByUserId: null } });
+      await tx.financial_Payable.update({
+        where: { id },
+        data: { status: 'aberta', paidAt: null, paidValue: null, interestValue: null, fineValue: null, discountValue: null, bankAccountId: null, settledByUserId: null, statementRef: null },
+      });
       await recordFlowEvent(tx, FLOW_ENTITY, {
         companyId: actor.companyId, entityId: id, type: 'estorno', from: 'paga', to: 'aberta', userId: actor.userId, note: String(body?.reason ?? '').trim() || null,
       });

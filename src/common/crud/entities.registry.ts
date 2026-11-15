@@ -87,6 +87,7 @@ import { FinancialModule } from 'src/features/financial/module';
 import { bankAccountEntity, costCenterEntity } from 'src/features/financial/rules.crud';
 import { payableEntity, supplierEntity } from 'src/features/financial/payable.rules';
 import { PayableController } from 'src/features/financial/payable.controller';
+import { LedgerController } from 'src/features/financial/ledger.controller';
 import { CommercialController } from 'src/features/commercial/commercial.controller';
 import { ProposalController } from 'src/features/commercial/proposal.controller';
 import { ActivityController } from 'src/features/commercial/activity.controller';
@@ -267,6 +268,7 @@ export const crudExtraControllers = [
   FinancialRecordsCustomController,
   FinancialController,
   PayableController,
+  LedgerController,
   CommercialController,
   ProposalController,
   ActivityController,

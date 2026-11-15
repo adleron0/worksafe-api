@@ -87,6 +87,9 @@ model Financial_BankAccount {
 
   payables Financial_Payable[]
 
+  transfersOut Financial_Transfer[] @relation("TransferFrom")
+  transfersIn  Financial_Transfer[] @relation("TransferTo")
+
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
@@ -185,10 +188,25 @@ model Financial_Payable {
   bankAccount     Financial_BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
   settledByUserId Int?
 
+  // juros, multa e desconto informados na baixa (valor pago = valor + juros + multa − desconto)
+  interestValue Decimal? @db.Decimal(18, 2)
+  fineValue     Decimal? @db.Decimal(18, 2)
+  discountValue Decimal? @db.Decimal(18, 2)
+
+  // para pagar sem abrir o PDF: linha digitável do boleto e PIX copia e cola
+  barcode String? @db.VarChar(60)
+  pixCode String? @db.Text
+
   // anexos
   billUrl    String? @db.Text
   invoiceUrl String? @db.Text
   receiptUrl String? @db.Text
+
+  // gerada por uma despesa recorrente
+  recurrenceId Int?
+  recurrence   Financial_Recurrence? @relation(fields: [recurrenceId], references: [id], onDelete: SetNull)
+  // identificador da linha do extrato (OFX) que conciliou esta baixa
+  statementRef String?               @db.VarChar(80)
 
   observations    String? @db.VarChar(500)
   createdByUserId Int?
@@ -203,4 +221,64 @@ model Financial_Payable {
   @@index([companyId, serviceOrderId])
   @@index([companyId, purchaseOrderId])
   @@index([groupKey])
+  @@index([companyId, recurrenceId])
+}
+
+// Lançamento que se repete todo mês (aluguel, internet, contador; ou uma
+// mensalidade a receber). Gera as próximas ocorrências em aberto, sempre
+// cobrindo os próximos `horizonMonths` meses, até ser encerrado.
+model Financial_Recurrence {
+  id             Int       @id @default(autoincrement())
+  companyId      Int
+  // payable | receivable
+  kind           String    @db.VarChar(12)
+  description    String    @db.VarChar(255)
+  value          Decimal   @db.Decimal(18, 2)
+  // dia do vencimento (1 a 31; em mês curto cai no último dia)
+  dayOfMonth     Int
+  // primeiro vencimento e, se houver, o último
+  startDate      DateTime
+  endDate        DateTime?
+  // até quando já foram geradas ocorrências
+  generatedUntil DateTime?
+
+  supplierId      Int?
+  customerId      Int?
+  chartAccountId  Int?
+  costCenterId    Int?
+  serviceOrderId  Int?
+  paymentMethod   String? @db.VarChar(20)
+  observations    String? @db.VarChar(500)
+  createdByUserId Int?
+
+  payables    Financial_Payable[]
+  receivables FinancialRecords[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@index([companyId, kind])
+}
+
+// Transferência entre contas da empresa (caixa → banco, banco → banco).
+// Mexe no saldo das duas contas e não é receita nem despesa.
+model Financial_Transfer {
+  id                Int                   @id @default(autoincrement())
+  companyId         Int
+  fromBankAccountId Int
+  fromBankAccount   Financial_BankAccount @relation("TransferFrom", fields: [fromBankAccountId], references: [id], onDelete: Restrict)
+  toBankAccountId   Int
+  toBankAccount     Financial_BankAccount @relation("TransferTo", fields: [toBankAccountId], references: [id], onDelete: Restrict)
+  value             Decimal               @db.Decimal(18, 2)
+  date              DateTime
+  description       String?               @db.VarChar(255)
+  statementRef      String?               @db.VarChar(80)
+  createdByUserId   Int?
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@index([companyId, date])
 }

@@ -11,6 +11,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { UploadService } from 'src/features/upload/upload.service';
 import { financialRecordsStatus, paymentMethods } from '@prisma/client';
 import { assertClassification } from 'src/features/financial/classification';
+import { idList, settleExtras } from 'src/features/financial/payable.service';
 
 export interface SettleInput {
   /** Data em que o dinheiro entrou (YYYY-MM-DD ou ISO). Padrão: agora. */
@@ -21,6 +22,9 @@ export interface SettleInput {
   observations?: string;
   /** Conta bancária/caixa em que o dinheiro entrou. */
   bankAccountId?: number | string | null;
+  interestValue?: number | string | null;
+  fineValue?: number | string | null;
+  discountValue?: number | string | null;
 }
 
 export interface Actor {
@@ -151,7 +155,7 @@ export class FinancialrecordsService {
    * webhook do provedor — baixar à mão criaria um "recebido" que o provedor
    * não reconhece (e, no Asaas, não dispararia split nem confirmação).
    */
-  async settle(id: number, input: SettleInput, actor: Actor) {
+  async settle(id: number, input: SettleInput, actor: Actor, receiptUrl?: string | null, statementRef?: string | null) {
     const record = await this.findOwned(id, actor.companyId);
     if (record.gateway !== 'manual') {
       throw new ConflictException(
@@ -166,21 +170,21 @@ export class FinancialrecordsService {
     }
 
     const paidAt = this.parsePaidAt(input.paidAt);
+    // juros/multa/desconto sobre o valor esperado (líquido, se houver); sem valor recebido, ele é calculado
     const expected = Number(record.netValue ?? record.value ?? 0);
-    const receivedValue =
-      input.receivedValue === undefined || input.receivedValue === null || input.receivedValue === ''
-        ? expected
-        : Number(input.receivedValue);
-    if (Number.isNaN(receivedValue) || receivedValue <= 0) {
-      throw new BadRequestException('Valor recebido deve ser maior que zero');
-    }
+    const extras = settleExtras(expected, input as Record<string, unknown>, 'receivedValue');
 
     const data: Record<string, any> = {
       status: financialRecordsStatus.received,
       paidAt,
-      receivedValue: Math.round(receivedValue * 100) / 100,
+      receivedValue: extras.paidValue,
+      interestValue: extras.interest,
+      fineValue: extras.fine,
+      discountValue: extras.discount,
       settledByUserId: actor.userId || null,
     };
+    if (receiptUrl) data.receiptUrl = receiptUrl;
+    if (statementRef) data.statementRef = statementRef;
     if (input.paymentMethod) {
       if (!(input.paymentMethod in paymentMethods)) {
         throw new BadRequestException('Forma de pagamento inválida');
@@ -194,7 +198,13 @@ export class FinancialrecordsService {
     const note = input.observations?.trim();
     if (note) data.observations = note.slice(0, 255);
 
-    const updated = await this.prisma.update('financialRecords', data, actor, null, id);
+    // só baixa se ainda estiver em aberto: dois cliques não recebem duas vezes
+    const changed = await this.prisma.financialRecords.updateMany({
+      where: { id, companyId: actor.companyId, status: { in: OPEN_STATUSES }, inactiveAt: null },
+      data,
+    });
+    if (changed.count === 0) throw new ConflictException('Esta conta a receber não está em aberto');
+    const updated = await this.prisma.financialRecords.findUnique({ where: { id } });
     // o cliente pagou: a comissão do vendedor, se houver, é liberada na carteira
     await this.wallet.syncRecordSafe(id);
     return updated;
@@ -215,6 +225,10 @@ export class FinancialrecordsService {
         status: financialRecordsStatus.waiting,
         paidAt: null,
         receivedValue: null,
+        interestValue: null,
+        fineValue: null,
+        discountValue: null,
+        statementRef: null,
         settledByUserId: null,
         bankAccountId: null,
       },
@@ -225,6 +239,38 @@ export class FinancialrecordsService {
     // baixa desfeita: a comissão volta a ficar prevista
     await this.wallet.syncRecordSafe(id);
     return updated;
+  }
+
+  /** Baixa várias de uma vez (só recebíveis manuais em aberto), cada uma pelo valor esperado. */
+  async bulkSettle(actor: Actor, body: Record<string, any>) {
+    const ids = idList(body.ids);
+    const settled: number[] = [];
+    const skipped: Array<{ id: number; reason: string }> = [];
+    for (const id of ids) {
+      try {
+        await this.settle(id, { paidAt: body.paidAt, bankAccountId: body.bankAccountId, paymentMethod: body.paymentMethod }, actor);
+        settled.push(id);
+      } catch (error) {
+        if (error instanceof BadRequestException && !settled.length && !skipped.length) throw error;
+        skipped.push({ id, reason: (error as Error).message });
+      }
+    }
+    return { settled: settled.length, skipped };
+  }
+
+  /** Inativa vários recebíveis manuais ainda não recebidos. Cobrança do gateway é cancelada no provedor. */
+  async bulkArchive(actor: Actor, body: Record<string, any>) {
+    const ids = idList(body.ids);
+    const rows = await this.prisma.financialRecords.findMany({ where: { id: { in: ids }, companyId: actor.companyId }, select: { id: true, status: true, gateway: true, inactiveAt: true } });
+    const ok = rows.filter((r) => !r.inactiveAt && r.gateway === 'manual' && r.status !== 'received').map((r) => r.id);
+    if (ok.length) await this.prisma.financialRecords.updateMany({ where: { id: { in: ok }, companyId: actor.companyId, status: { not: 'received' } }, data: { inactiveAt: new Date() } });
+    for (const id of ok) await this.wallet.syncRecordSafe(id);
+    const skipped = ids.filter((id) => !ok.includes(id)).map((id) => {
+      const row = rows.find((r) => r.id === id);
+      const reason = !row ? 'Não encontrada' : row.inactiveAt ? 'Já inativa' : row.status === 'received' ? 'Já recebida: estorne antes' : 'Cobrança do gateway: cancele no provedor';
+      return { id, reason };
+    });
+    return { archived: ok.length, skipped };
   }
 
   private parsePaidAt(value?: string): Date {

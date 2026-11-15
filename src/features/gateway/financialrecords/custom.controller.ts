@@ -1,4 +1,6 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { getDocumentMulterOptions } from 'src/features/upload/upload.middleware';
 import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { Public } from 'src/auth/decorators/public.decorator';
@@ -21,8 +23,9 @@ export class FinancialRecordsCustomController {
 
   /** Baixa manual de um recebível manual em aberto. */
   @Permissions('update_financeiro') @Patch('settle/:id')
-  settle(@Param('id', ParseIntPipe) id: number, @Body() body: SettleInput, @Req() req: Request) {
-    return this.records.settle(id, body ?? {}, actorOf(req));
+  @UseInterceptors(FileInterceptor('receiptFile', getDocumentMulterOptions('financial-records')))
+  settle(@Param('id', ParseIntPipe) id: number, @Body() body: SettleInput, @Req() req: Request, @UploadedFile() file?: Express.MulterS3.File) {
+    return this.records.settle(id, body ?? {}, actorOf(req), file?.location ?? null);
   }
 
   /** Estorno da baixa manual. */
