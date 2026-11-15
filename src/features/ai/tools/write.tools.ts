@@ -174,7 +174,7 @@ export const WRITE_TOOLS: ToolDefinition[] = [
       for (let n = 2; await deps.prisma.blog_Post.findFirst({ where: { companyId: ctx.companyId, slug }, select: { id: true } }); n++) slug = `${base}-${n}`;
       const row = await deps.prisma.blog_Post.create({ data: { companyId: ctx.companyId, authorId: ctx.userId, title, slug, excerpt: text(input.resumo, 500) || null, content, status: 'draft' } });
       await evict(BLOG_CACHE);
-      return { id: row.id, titulo: row.title, situacao: 'rascunho', link: `/blog/posts/${row.id}` };
+      return { id: row.id, titulo: row.title, situacao: 'rascunho', link: "/blog/posts" };
     },
   },
   {
@@ -334,7 +334,7 @@ export const WRITE_TOOLS: ToolDefinition[] = [
       if (!row) throw new ToolRefusal('Post não encontrado');
       await deps.prisma.blog_Post.update({ where: { id: row.id }, data: { status: 'published', publishedAt: row.publishedAt ?? new Date() } });
       await evict(BLOG_CACHE);
-      return { message: `Post "${row.title}" publicado.`, link: `/blog/posts/${row.id}` };
+      return { message: `Post "${row.title}" publicado.`, link: "/blog/posts" };
     },
   },
 ];

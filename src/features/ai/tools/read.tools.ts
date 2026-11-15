@@ -421,7 +421,7 @@ export const READ_TOOLS: ToolDefinition[] = [
         orderBy: [{ updatedAt: 'desc' }], take: 30,
         select: { id: true, title: true, slug: true, status: true, publishedAt: true, viewCount: true, category: { select: { name: true } } },
       });
-      return { posts: rows.map((row) => ({ id: row.id, titulo: row.title, situacao: row.status, categoria: row.category?.name ?? null, publicadoEm: iso(row.publishedAt), visualizacoes: row.viewCount, link: `/blog/posts/${row.id}` })) };
+      return { posts: rows.map((row) => ({ id: row.id, titulo: row.title, situacao: row.status, categoria: row.category?.name ?? null, publicadoEm: iso(row.publishedAt), visualizacoes: row.viewCount, link: "/blog/posts" })) };
     },
   },
 ];
