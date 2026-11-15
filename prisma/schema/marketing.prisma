@@ -1,0 +1,30 @@
+// Divulgação de turmas (artes e legendas para Instagram/WhatsApp).
+//
+// A arte é desenhada no navegador a partir dos dados da turma; aqui ficam só
+// os modelos de legenda (texto com variáveis {{curso}}, {{datas}} …) e as
+// configurações da empresa (contatos, horário padrão, incluso, hashtags,
+// selos, tema). Sem relação Prisma com Company, como os módulos novos.
+
+model Marketing_CaptionTemplate {
+  id         Int       @id @default(autoincrement())
+  companyId  Int
+  name       String    @db.VarChar(80)
+  // turma_nova | ultimas_vagas | promocao | curso_rapido | story | outro
+  kind       String    @default("outro") @db.VarChar(30)
+  body       String
+  sortOrder  Int       @default(0)
+  active     Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@index([companyId, active])
+}
+
+model Marketing_Setting {
+  id        Int      @id @default(autoincrement())
+  companyId Int      @unique
+  data      Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}

@@ -56,6 +56,9 @@ import { examEntity } from 'src/features/training/exames/rules.crud';
 import { ExamesCustomController } from 'src/features/training/exames/custom.controller';
 import { ExamesModule } from 'src/features/training/exames/module';
 import { certificateTemplateEntity } from 'src/features/training/certificate/rules.crud';
+import { marketingCaptionEntity } from 'src/features/marketing/rules.crud';
+import { MarketingController } from 'src/features/marketing/marketing.controller';
+import { MarketingModule } from 'src/features/marketing/marketing.module';
 import { attendanceEntity } from 'src/features/training/class_attendance_list/rules.crud';
 import { AttendanceCustomController } from 'src/features/training/class_attendance_list/custom.controller';
 import { onlineCourseModelEntity } from 'src/features/training/onlinecourses/rules.crud';
@@ -213,6 +216,7 @@ export const crudEntities: CrudEntity[] = [
   { rules: traineeEntity },
   { rules: examEntity },
   { rules: certificateTemplateEntity },
+  { rules: marketingCaptionEntity },
   { rules: attendanceEntity },
   { rules: onlineCourseModelEntity },
   { rules: onlineLessonEntity },
@@ -244,6 +248,7 @@ export const crudEntities: CrudEntity[] = [
 
 /** Rotas custom que reusam o CrudService (fora da fábrica, explícitas). */
 export const crudExtraControllers = [
+  MarketingController,
   InstructorSignatureController,
   ImageCustomController,
   CompanyCustomController,
@@ -284,4 +289,4 @@ export const crudExtraControllers = [
 ];
 
 /** Módulos que os controllers custom precisam (services de domínio, IA). */
-export const crudExtraImports = [PostModule, CommentModule, AIModule, UploadModule, ImageModule, CompanyModule, ReviewsModule, CourseModule, ExamesModule, ClassesModule, SubscriptionModule, TraineeCertificateModule, StudentModule, StudentCoursesModule, StudentCertificatesModule, FinancialrecordsModule, FinancialModule, CommercialModule, OperationsModule, HrModule, FilesModule, PlacesModule];
+export const crudExtraImports = [PostModule, CommentModule, AIModule, UploadModule, ImageModule, CompanyModule, ReviewsModule, CourseModule, ExamesModule, ClassesModule, SubscriptionModule, TraineeCertificateModule, StudentModule, StudentCoursesModule, StudentCertificatesModule, FinancialrecordsModule, FinancialModule, CommercialModule, OperationsModule, HrModule, FilesModule, PlacesModule, MarketingModule];

@@ -10,7 +10,9 @@ import {
 @Injectable()
 export class GroqSupplier implements IAISupplier {
   private client: OpenAI;
-  private model = 'llama-3.3-70b-versatile';
+  // O llama-3.3-70b-versatile saiu do catálogo da Groq (404 em nov/2026).
+  // AI_MODEL permite trocar sem novo deploy de código.
+  private model = process.env.AI_MODEL || 'openai/gpt-oss-120b';
 
   constructor() {
     this.client = new OpenAI({
