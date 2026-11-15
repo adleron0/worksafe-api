@@ -16,6 +16,13 @@ import {
   parseCertificateVariables,
   replaceInCanvasJSON,
 } from './variable-replacer';
+import { createHash } from 'crypto';
+import { resolveHighlight } from '../highlight';
+import {
+  drawHighlightSeal,
+  SEAL_HEIGHT_RATIO,
+  SealBox,
+} from './highlight-seal';
 
 /**
  * Render do certificado na API (mesmo JSON do Fabric que o visualizador do
@@ -80,6 +87,10 @@ export class CertificateRenderService {
         variableToReplace: true,
         trainee: { select: { name: true } },
         course: { select: { name: true } },
+        highlightStudent: true,
+        highlightTheme: true,
+        highlightLabel: true,
+        class: { select: { highlightTheme: true, highlightLabel: true } },
       },
     });
     if (!cert) throw new NotFoundException('Certificado não encontrado');
@@ -87,8 +98,13 @@ export class CertificateRenderService {
   }
 
   /** Versão para compor URLs cacheáveis (`?v=`). */
-  version(cert: { updatedAt: Date | string }) {
-    return `${new Date(cert.updatedAt).getTime()}-${RENDER_VERSION}`;
+  version(
+    cert: { updatedAt: Date | string } & Parameters<typeof resolveHighlight>[0],
+  ) {
+    const base = `${new Date(cert.updatedAt).getTime()}-${RENDER_VERSION}`;
+    // o destaque da turma muda sem tocar no certificado: entra na versão
+    const h = resolveHighlight(cert);
+    return h ? `${base}-${highlightSignature(h)}` : base;
   }
 
   hasBack(cert: CertificateRecord) {
@@ -190,6 +206,14 @@ export class CertificateRenderService {
       cert.canvasHeight,
     );
     json.objects = json.objects || [];
+    // Marcador "selo de destaque" do editor: guarda a posição e sai do
+    // desenho (com ou sem destaque — sem destaque o espaço fica livre).
+    const sealMarker = json.objects.find(
+      (o: any) => o?.isHighlightSealPlaceholder,
+    );
+    json.objects = json.objects.filter(
+      (o: any) => !o?.isHighlightSealPlaceholder,
+    );
     if (!json.objects.some((o: any) => o.name === 'backgroundRect')) {
       json.objects.unshift({
         type: 'Rect',
@@ -221,6 +245,19 @@ export class CertificateRenderService {
       }
       const tLoad = Date.now();
       canvas.renderAll();
+      const highlight = side === 'front' ? resolveHighlight(cert) : null;
+      if (highlight) {
+        const node = (canvas as any).getNodeCanvas();
+        drawHighlightSeal(
+          node.getContext('2d'),
+          sealBox(sealMarker, width, height, scale),
+          highlight.theme,
+          highlight.label,
+          hasQrPlaceholder(cert)
+            ? 'Selo digital: verifique pelo QR Code'
+            : null,
+        );
+      }
       const tRender = Date.now();
       // Em fabric/node o StaticCanvas expõe o canvas nativo (node-canvas)
       const png: Buffer = (canvas as any)
@@ -518,6 +555,61 @@ function parseJson(raw: unknown): any {
     }
   }
   return null;
+}
+
+/** Assinatura curta do destaque para compor a versão de cache. */
+function highlightSignature(h: { kind: string; theme: string; label: string }) {
+  return createHash('sha1')
+    .update(`${h.kind}|${h.theme}|${h.label}`)
+    .digest('hex')
+    .slice(0, 8);
+}
+
+/**
+ * Onde vai o selo, em px do canvas. Com marcador no modelo, o quadrado do
+ * marcador (lado = menor medida); sem marcador, canto inferior esquerdo —
+ * nos modelos atuais o QR costuma ficar à direita e as assinaturas no centro.
+ */
+function sealBox(
+  marker: any,
+  width: number,
+  height: number,
+  scale: number,
+): SealBox {
+  if (marker) {
+    const w = (marker.width || 120) * (marker.scaleX || 1);
+    const h = (marker.height || 120) * (marker.scaleY || 1);
+    const size = Math.min(w, h);
+    return {
+      x: ((marker.left || 0) + (w - size) / 2) * scale,
+      y: (marker.top || 0) * scale,
+      size: size * scale,
+    };
+  }
+  const landscape = width >= height;
+  const size = (landscape ? 0.14 : 0.19) * width;
+  // a faixa passa ~25% do lado para fora da roseta: margem conta com isso
+  // para não encostar nas molduras (que costumam ocupar 3–6% da borda)
+  const marginX = 0.085 * width + size * 0.25;
+  const marginBottom = 0.075 * height;
+  return {
+    x: marginX * scale,
+    y: (height - size * SEAL_HEIGHT_RATIO - marginBottom) * scale,
+    size: size * scale,
+  };
+}
+
+/** O modelo tem QR de validação (frente ou verso)? Vale o marcador já resolvido. */
+function hasQrPlaceholder(cert: CertificateRecord) {
+  const variables = parseCertificateVariables(cert.variableToReplace);
+  const has = (raw: unknown) => {
+    const json = parseJson(raw);
+    if (!json) return false;
+    return JSON.stringify(replaceInCanvasJSON(json, variables)).includes(
+      '"isQRCodePlaceholder":true',
+    );
+  };
+  return has(cert.fabricJsonFront) || has(cert.fabricJsonBack);
 }
 
 export type { CertificateVariables };

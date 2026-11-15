@@ -4,10 +4,7 @@ import { join } from 'path';
 import * as sharp from 'sharp';
 import satori from 'satori';
 import { PrismaService } from 'src/prisma/prisma.service';
-import {
-  CertificateRenderService,
-  RENDER_VERSION,
-} from './render/certificate-render.service';
+import { CertificateRenderService } from './render/certificate-render.service';
 import { parseCertificateVariables } from './render/variable-replacer';
 
 /**
@@ -79,7 +76,8 @@ export class ShareCardService {
   ): Promise<CertificateShareMeta> {
     const cert = await this.findPublic(key);
     const info = this.extractInfo(cert);
-    const version = `${new Date(cert.updatedAt).getTime()}-${RENDER_VERSION}`;
+    // mesma versão do render: inclui o destaque (selo) da turma/aluno
+    const version = this.renderer.version(cert);
 
     const details = [
       info.hours && `carga horária de ${info.hours}`,
@@ -103,7 +101,7 @@ export class ShareCardService {
 
   async getCard(key: string): Promise<Buffer> {
     const cert = await this.findPublic(key);
-    const cacheKey = `${cert.key}:${new Date(cert.updatedAt).getTime()}:${RENDER_VERSION}`;
+    const cacheKey = `${cert.key}:${this.renderer.version(cert)}`;
     const cached = this.cache.get(cacheKey);
     if (cached) return cached;
 
@@ -173,6 +171,10 @@ export class ShareCardService {
         variableToReplace: true,
         trainee: { select: { name: true } },
         course: { select: { name: true } },
+        highlightStudent: true,
+        highlightTheme: true,
+        highlightLabel: true,
+        class: { select: { highlightTheme: true, highlightLabel: true } },
         company: {
           select: { comercial_name: true, corporate_name: true, logoUrl: true },
         },

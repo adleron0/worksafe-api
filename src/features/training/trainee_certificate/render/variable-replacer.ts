@@ -5,6 +5,7 @@
  *   URL da variável, centrado no placeholder (`targetWidth/Height` para o
  *   ajuste de escala depois que a imagem é baixada);
  * - placeholder de QR Code → marcador `isQRCodePlaceholder`.
+ * - placeholder do selo de destaque → marcador `isHighlightSealPlaceholder`.
  * Manter em sincronia com o front.
  */
 import { isTextType } from './fabric-setup';
@@ -83,6 +84,16 @@ function processObject(obj: any, variables: CertificateVariables): any {
         isQRCodePlaceholder: true,
         qrCodeName: name || 'certificado_qrcode',
       };
+    }
+
+    // Marcador do selo de destaque: o render desenha o selo nessa posição
+    // (só se o certificado tiver destaque) e tira o marcador do desenho.
+    const isSeal =
+      obj.placeholderType === 'selo_destaque' ||
+      normalized?.includes('selodedestaque') ||
+      normalized?.includes('selo_destaque');
+    if (isSeal) {
+      return { ...obj, isHighlightSealPlaceholder: true };
     }
 
     const variable = name ? variables[name] : undefined;
