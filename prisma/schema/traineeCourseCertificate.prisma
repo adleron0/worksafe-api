@@ -23,6 +23,7 @@ model TraineeCourseCertificate {
   highlightStudent     Boolean                    @default(false)
   highlightTheme       CertificateHighlightTheme?
   highlightLabel       String?                    @db.VarChar(60)
+  highlightPattern     CertificateHighlightPattern?
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
@@ -43,4 +44,17 @@ enum CertificateHighlightTheme {
   ouro
   prata
   holografico
+}
+
+/// Padronagem do centro no efeito de destaque (o tema define a cor).
+enum CertificateHighlightPattern {
+  rosetas
+  estrelas
+  estilhacos
+  bolhas
+  espiral
+  glitter
+  arco_iris
+  gravado
+  nenhum
 }

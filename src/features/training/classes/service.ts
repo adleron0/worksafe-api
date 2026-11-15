@@ -229,12 +229,14 @@ export class ClassesService {
    */
   async highlightCandidates(classId: number, companyId: number) {
     const turma = await this.prisma.courseClass.findFirst({
-      where: { id: classId, companyId, inactiveAt: null },
+      // turma cancelada continua com certificados válidos: não filtra inactiveAt
+      where: { id: classId, companyId },
       select: {
         id: true,
         name: true,
         highlightTheme: true,
         highlightLabel: true,
+        highlightPattern: true,
       },
     });
     if (!turma) throw new NotFoundException('Turma não encontrada');
@@ -249,6 +251,7 @@ export class ClassesService {
           highlightStudent: true,
           highlightTheme: true,
           highlightLabel: true,
+          highlightPattern: true,
           trainee: { select: { id: true, name: true, imageUrl: true } },
         },
       }),

@@ -23,6 +23,7 @@ import {
   SEAL_HEIGHT_RATIO,
   SealBox,
 } from './highlight-seal';
+import { drawStaticFoil } from './highlight-static';
 
 /**
  * Render do certificado na API (mesmo JSON do Fabric que o visualizador do
@@ -90,7 +91,14 @@ export class CertificateRenderService {
         highlightStudent: true,
         highlightTheme: true,
         highlightLabel: true,
-        class: { select: { highlightTheme: true, highlightLabel: true } },
+        highlightPattern: true,
+        class: {
+          select: {
+            highlightTheme: true,
+            highlightLabel: true,
+            highlightPattern: true,
+          },
+        },
       },
     });
     if (!cert) throw new NotFoundException('Certificado não encontrado');
@@ -245,8 +253,20 @@ export class CertificateRenderService {
       }
       const tLoad = Date.now();
       canvas.renderAll();
-      const highlight = side === 'front' ? resolveHighlight(cert) : null;
+      // destaque: efeito estático (frente e verso) e selo (só na frente)
+      const highlight = resolveHighlight(cert);
       if (highlight) {
+        const node = (canvas as any).getNodeCanvas();
+        drawStaticFoil(
+          node.getContext('2d'),
+          node.width,
+          node.height,
+          highlight.theme,
+          highlight.pattern,
+          `${cert.key}:${side}`,
+        );
+      }
+      if (highlight && side === 'front') {
         const node = (canvas as any).getNodeCanvas();
         drawHighlightSeal(
           node.getContext('2d'),
@@ -558,9 +578,14 @@ function parseJson(raw: unknown): any {
 }
 
 /** Assinatura curta do destaque para compor a versão de cache. */
-function highlightSignature(h: { kind: string; theme: string; label: string }) {
+function highlightSignature(h: {
+  kind: string;
+  theme: string;
+  label: string;
+  pattern: string;
+}) {
   return createHash('sha1')
-    .update(`${h.kind}|${h.theme}|${h.label}`)
+    .update(`${h.kind}|${h.theme}|${h.label}|${h.pattern}`)
     .digest('hex')
     .slice(0, 8);
 }

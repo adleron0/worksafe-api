@@ -1,4 +1,7 @@
-import { CertificateHighlightTheme } from '@prisma/client';
+import {
+  CertificateHighlightPattern,
+  CertificateHighlightTheme,
+} from '@prisma/client';
 
 /**
  * Destaque efetivo de um certificado.
@@ -18,15 +21,29 @@ export interface CertificateHighlight {
   kind: HighlightKind;
   theme: CertificateHighlightTheme;
   label: string;
+  /** Padronagem do centro (a borda sempre tem os brilhos). */
+  pattern: CertificateHighlightPattern;
 }
+
+/** Padronagem de cada tema quando ninguém escolheu uma. */
+export const DEFAULT_PATTERN: Record<
+  CertificateHighlightTheme,
+  CertificateHighlightPattern
+> = {
+  ouro: 'rosetas',
+  prata: 'estilhacos',
+  holografico: 'estrelas',
+};
 
 interface HighlightSource {
   highlightStudent?: boolean | null;
   highlightTheme?: CertificateHighlightTheme | null;
   highlightLabel?: string | null;
+  highlightPattern?: CertificateHighlightPattern | null;
   class?: {
     highlightTheme?: CertificateHighlightTheme | null;
     highlightLabel?: string | null;
+    highlightPattern?: CertificateHighlightPattern | null;
   } | null;
 }
 
@@ -40,17 +57,24 @@ export function resolveHighlight(
 ): CertificateHighlight | null {
   if (!cert) return null;
   if (cert.highlightStudent) {
+    const theme = cert.highlightTheme ?? cert.class?.highlightTheme ?? 'ouro';
     return {
       kind: 'aluno',
-      theme: cert.highlightTheme ?? cert.class?.highlightTheme ?? 'ouro',
+      theme,
       label: cert.highlightLabel?.trim() || HIGHLIGHT_DEFAULT_LABEL.aluno,
+      pattern:
+        cert.highlightPattern ??
+        cert.class?.highlightPattern ??
+        DEFAULT_PATTERN[theme],
     };
   }
   if (cert.class?.highlightTheme) {
+    const theme = cert.class.highlightTheme;
     return {
       kind: 'turma',
-      theme: cert.class.highlightTheme,
+      theme,
       label: cert.class.highlightLabel?.trim() || HIGHLIGHT_DEFAULT_LABEL.turma,
+      pattern: cert.class.highlightPattern ?? DEFAULT_PATTERN[theme],
     };
   }
   return null;

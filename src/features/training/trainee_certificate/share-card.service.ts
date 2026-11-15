@@ -174,7 +174,14 @@ export class ShareCardService {
         highlightStudent: true,
         highlightTheme: true,
         highlightLabel: true,
-        class: { select: { highlightTheme: true, highlightLabel: true } },
+        highlightPattern: true,
+        class: {
+          select: {
+            highlightTheme: true,
+            highlightLabel: true,
+            highlightPattern: true,
+          },
+        },
         company: {
           select: { comercial_name: true, corporate_name: true, logoUrl: true },
         },

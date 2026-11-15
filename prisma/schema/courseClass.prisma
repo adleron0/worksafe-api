@@ -12,6 +12,7 @@ model CourseClass {
   // Turma especial: todos os certificados da turma saem com este destaque
   highlightTheme    CertificateHighlightTheme?
   highlightLabel    String?           @db.VarChar(60)
+  highlightPattern  CertificateHighlightPattern?
   categoryId        Int?
   classCode         String?           @db.VarChar(50)
   price             Decimal?          @db.Decimal(18, 2)
