@@ -19,7 +19,43 @@ export const ITEM_PRESETS = {
   reutilizavel: { tracking: 'unidade', returnable: true, requiresInspection: true, inspectionIntervalDays: 180, requiresCalibration: false, isPpe: false },
   calibravel: { tracking: 'unidade', returnable: true, requiresInspection: false, requiresCalibration: true, calibrationIntervalMonths: 12, isPpe: false },
   epi: { tracking: 'quantidade', returnable: false, requiresInspection: false, requiresCalibration: false, isPpe: true },
+  ferramenta: { tracking: 'quantidade', returnable: true, requiresInspection: false, requiresCalibration: false, isPpe: false },
 } as const;
+/**
+ * Categorias com que a empresa começa (trabalho em altura, espaço confinado, resgate e
+ * treinamentos). `kind` é o tipo de item que a tela sugere ao escolher a categoria; `template`,
+ * o roteiro de inspeção que o item novo já recebe. A empresa edita, inativa e cria as suas.
+ */
+export const DEFAULT_CATEGORIES: Array<{ name: string; prefix: string; kind: string; template?: string; children?: Array<{ name: string; prefix: string; kind: string; template?: string }> }> = [
+  { name: 'Trabalho em altura', prefix: 'ALT', kind: 'reutilizavel', children: [
+    { name: 'Cordas', prefix: 'CRD', kind: 'reutilizavel', template: 'Corda' },
+    { name: 'Cinturões e talabartes', prefix: 'CIN', kind: 'reutilizavel', template: 'Cinturão' },
+    { name: 'Trava-quedas e descensores', prefix: 'TQD', kind: 'reutilizavel', template: 'Trava-quedas' },
+    { name: 'Mosquetões e conectores', prefix: 'MOS', kind: 'reutilizavel', template: 'Mosquetão' },
+    { name: 'Polias e bloqueadores', prefix: 'POL', kind: 'reutilizavel', template: 'Polia' },
+    { name: 'Ancoragens e fitas', prefix: 'ANC', kind: 'reutilizavel' },
+  ] },
+  { name: 'Espaço confinado e resgate', prefix: 'RES', kind: 'reutilizavel', children: [
+    { name: 'Tripés e guinchos', prefix: 'TRI', kind: 'reutilizavel', template: 'Tripé' },
+    { name: 'Macas e imobilização', prefix: 'MAC', kind: 'reutilizavel' },
+    { name: 'Ventilação e exaustão', prefix: 'VEN', kind: 'ferramenta' },
+    { name: 'Proteção respiratória autônoma', prefix: 'AUT', kind: 'calibravel' },
+  ] },
+  { name: 'Detecção de gases e medição', prefix: 'GAS', kind: 'calibravel', template: 'Detector' },
+  { name: 'EPI', prefix: 'EPI', kind: 'epi', children: [
+    { name: 'Capacetes', prefix: 'CAP', kind: 'epi' },
+    { name: 'Luvas', prefix: 'LUV', kind: 'epi' },
+    { name: 'Proteção visual e auditiva', prefix: 'OLH', kind: 'epi' },
+    { name: 'Proteção respiratória', prefix: 'RSP', kind: 'epi' },
+    { name: 'Vestimentas e calçados', prefix: 'VES', kind: 'epi' },
+  ] },
+  { name: 'Sinalização e isolamento', prefix: 'SIN', kind: 'consumivel' },
+  { name: 'Consumíveis de obra', prefix: 'CSM', kind: 'consumivel' },
+  { name: 'Ferramentas', prefix: 'FER', kind: 'ferramenta' },
+  { name: 'Iluminação e rádios', prefix: 'ILU', kind: 'ferramenta' },
+  { name: 'Treinamento (CT)', prefix: 'TRE', kind: 'ferramenta' },
+];
+
 const BOOL_FIELDS = ['returnable', 'requiresInspection', 'inspectionBeforeUse', 'requiresCalibration', 'isPpe', 'rentable'] as const;
 
 @Injectable()
@@ -28,7 +64,30 @@ export class StockCatalogService {
 
   // ------------------------------------------------------------------ categorias
 
+  /** Empresa que nunca teve categoria começa com as padrão (e não ganha de novo se inativar todas). */
+  async ensureCategories(companyId: number) {
+    if (await this.prisma.stock_Category.count({ where: { companyId } })) return;
+    await this.ensureTemplates(companyId);
+    const templates = await this.prisma.stock_InspectionTemplate.findMany({ where: { companyId }, select: { id: true, name: true } });
+    const templateOf = (start?: string) => (start ? templates.find((t) => t.name.toLowerCase().startsWith(start.toLowerCase()))?.id ?? null : null);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(740127::int, ${companyId}::int)`;
+      if (await tx.stock_Category.count({ where: { companyId } })) return;
+      for (const [index, category] of DEFAULT_CATEGORIES.entries()) {
+        const parent = await tx.stock_Category.create({ data: {
+          companyId, name: category.name, prefix: category.prefix, order: index * 10, defaults: { kind: category.kind }, inspectionTemplateId: templateOf(category.template),
+        } });
+        for (const [childIndex, child] of (category.children ?? []).entries()) {
+          await tx.stock_Category.create({ data: {
+            companyId, name: child.name, prefix: child.prefix, parentId: parent.id, order: index * 10 + childIndex + 1, defaults: { kind: child.kind }, inspectionTemplateId: templateOf(child.template),
+          } });
+        }
+      }
+    });
+  }
+
   async categories(actor: StockActor, query: Record<string, string> = {}) {
+    await this.ensureCategories(actor.companyId);
     const rows = await this.prisma.stock_Category.findMany({
       where: { companyId: actor.companyId, ...(query.all === '1' ? {} : { inactiveAt: null }) }, orderBy: [{ order: 'asc' }, { name: 'asc' }],
     });
@@ -284,7 +343,13 @@ export class StockCatalogService {
   }
 
   private async itemData(actor: StockActor, body: Body, current: Stock_Item | null): Promise<Prisma.Stock_ItemUncheckedUpdateInput> {
-    const preset = current ? null : ITEM_PRESETS[String(body.preset ?? '') as keyof typeof ITEM_PRESETS] ?? null;
+    let presetKey = String(body.preset ?? '');
+    if (!current && !presetKey && body.categoryId) {
+      // sem tipo escolhido: vale o que a categoria sugere
+      const category = await this.prisma.stock_Category.findFirst({ where: { id: Number(body.categoryId) || 0, companyId: actor.companyId }, select: { defaults: true } });
+      presetKey = String((category?.defaults as Body | null)?.kind ?? '');
+    }
+    const preset = current ? null : ITEM_PRESETS[presetKey as keyof typeof ITEM_PRESETS] ?? null;
     const input: Body = { ...(preset ?? {}), ...body };
     const data: Prisma.Stock_ItemUncheckedUpdateInput = {};
     if ('name' in input || !current) {

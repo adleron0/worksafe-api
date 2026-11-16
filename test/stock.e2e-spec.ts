@@ -93,6 +93,21 @@ describe('Estoque (e2e)', () => {
     expect(kardex.rows[0].inStockAfter).toBe(7);
   });
 
+  it('a empresa começa com categorias do ramo, que sugerem o tipo do item e o roteiro', async () => {
+    const { company } = await cenario();
+    const categories = (await api().get('/stock/categories').set(auth(company.id)).expect(200)).body;
+    expect(categories.map((c: any) => c.fullName)).toEqual(expect.arrayContaining(['Trabalho em altura › Cordas', 'Detecção de gases e medição', 'EPI › Luvas', 'Consumíveis de obra']));
+    const cordas = categories.find((c: any) => c.name === 'Cordas');
+    expect(cordas.defaults).toEqual({ kind: 'reutilizavel' });
+    expect(cordas.inspectionTemplateId).toBeTruthy();
+    // item sem tipo escolhido segue a categoria: peça com etiqueta, inspeção e o roteiro de corda
+    const corda = await item(company.id, { name: 'Corda 10,5mm 60m', categoryId: cordas.id });
+    expect(corda).toMatchObject({ code: 'CRD-0001', tracking: 'unidade', requiresInspection: true, inspectionTemplateId: cordas.inspectionTemplateId });
+    // inativar todas não faz as padrão voltarem
+    for (const c of categories) await api().patch(`/stock/categories/${c.id}/inactive`).set(auth(company.id)).expect(200);
+    expect((await api().get('/stock/categories').set(auth(company.id)).expect(200)).body).toEqual([]);
+  });
+
   it('estorna uma movimentação e recalcula o médio; estorno não se estorna', async () => {
     const { company, main } = await cenario();
     const tinta = await item(company.id, { name: 'Solvente', unit: 'l' });
@@ -238,7 +253,8 @@ describe('Estoque (e2e)', () => {
     const csv = 'código;nome;categoria;unidade;controle;quantidade;local;custo\n;Corda estática 11mm;Cordas;m;quantidade;200;Almoxarifado;8,50\nTIN-9;Tinta branca;Tintas;l;;12;Base Suape;30\n;Sem quantidade;Tintas;un;;;;\n';
     const result = (await api().post('/stock/import').set(auth(company.id)).send({ csv }).expect(200)).body;
     expect(result.errors).toEqual([]);
-    expect(result).toMatchObject({ items: 3, categories: 2, locations: 1, lines: 2 });
+    // "Cordas" já existe entre as categorias padrão (subcategoria de Trabalho em altura): é reaproveitada
+    expect(result).toMatchObject({ items: 3, categories: 1, locations: 1, lines: 2 });
     const list = (await api().get('/stock/items').set(auth(company.id)).expect(200)).body;
     expect(list.rows.find((r: any) => r.code === 'TIN-9').inStock).toBe(12);
     expect(list.value).toBe(2060);

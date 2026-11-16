@@ -304,6 +304,7 @@ export class StockMovementService {
     const date = today();
     const result = { items: 0, categories: 0, locations: 0, lines: 0, errors: [] as string[] };
     await this.catalog.ensureLocation(actor.companyId);
+    await this.catalog.ensureCategories(actor.companyId);
     const defaultLocation = (await this.prisma.stock_Location.findFirst({ where: { companyId: actor.companyId, inactiveAt: null }, orderBy: { id: 'asc' } }))!;
 
     await this.prisma.$transaction(async (tx) => {
@@ -317,7 +318,7 @@ export class StockMovementService {
         let categoryId: number | null = null;
         const categoryName = clean(get(idx.category), 100);
         if (categoryName) {
-          const found = await tx.stock_Category.findFirst({ where: { companyId: actor.companyId, name: { equals: categoryName, mode: 'insensitive' }, parentId: null } });
+          const found = await tx.stock_Category.findFirst({ where: { companyId: actor.companyId, name: { equals: categoryName, mode: 'insensitive' } }, orderBy: { parentId: { sort: 'desc', nulls: 'last' } } });
           categoryId = found?.id ?? (await tx.stock_Category.create({ data: { companyId: actor.companyId, name: categoryName } })).id;
           if (!found) result.categories++;
         }
