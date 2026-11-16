@@ -2,6 +2,8 @@ import { ConflictException, ForbiddenException, Injectable, NotFoundException } 
 import { Prisma, Stock_Item, Stock_Unit } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { holderKey, holderNames, lifeEnd, nextDue, postMovement } from './ledger';
+import { DEFAULT_TEMPLATES } from './equipment.templates';
+export { DEFAULT_TEMPLATES };
 import {
   Body, EXTERNAL, HolderType, MOVEMENT_TYPES, MovementType, PERM, RETIRE_REASONS, StockActor, UNIT_STATUS, UnitStatus, addDays, blank, can, clean, d,
   dateOf, dueState, fail, holder, idOf, num, optionalDate, positive, round2, text, today,
@@ -15,19 +17,6 @@ import {
 const KINDS = { pre_uso: 'Pré-uso', periodica: 'Periódica', extraordinaria: 'Extraordinária', recebimento: 'Recebimento' } as const;
 const RESULTS = { aprovado: 'Aprovado', aprovado_ressalva: 'Aprovado com ressalva', reprovado: 'Reprovado' } as const;
 const SERVICE_KINDS = { calibracao: 'Calibração', manutencao: 'Manutenção' } as const;
-const ok = (key: string, label: string) => ({ key, label, kind: 'ok_nok', required: true });
-
-/** Roteiros iniciais (o texto final precisa ser revisado pelo responsável técnico; decisão 13). */
-export const DEFAULT_TEMPLATES: Array<{ name: string; items: Array<Record<string, unknown>> }> = [
-  { name: 'Corda (semiestática / dinâmica)', items: [ok('capa', 'Capa sem cortes, abrasão excessiva, fios puxados ou derretidos'), ok('alma', 'Alma sem pontos duros, moles, afinamentos ou dobras'), ok('pontas', 'Pontas e terminações costuradas íntegras'), ok('contaminacao', 'Sem contato com produto químico, óleo ou calor'), ok('etiqueta', 'Identificação legível'), { key: 'obs', label: 'Observações', kind: 'texto', required: false }] },
-  { name: 'Cinturão paraquedista', items: [ok('fitas', 'Fitas sem cortes, desfiamento, queimaduras ou desbotamento forte'), ok('costuras', 'Costuras íntegras, sem fios rompidos'), ok('fivelas', 'Fivelas e reguladores sem trinca, corrosão ou deformação'), ok('argolas', 'Argolas (dorsal/peitoral/laterais) sem deformação ou corrosão'), ok('indicador', 'Indicador de queda não acionado'), ok('etiqueta', 'Etiqueta e CA legíveis')] },
-  { name: 'Talabarte / absorvedor de energia', items: [ok('fita', 'Fita ou corda sem cortes, desfiamento ou queimadura'), ok('absorvedor', 'Absorvedor fechado e sem acionamento'), ok('conectores', 'Conectores com trava funcionando'), ok('costuras', 'Costuras íntegras'), ok('etiqueta', 'Identificação legível')] },
-  { name: 'Trava-quedas', items: [ok('corpo', 'Corpo sem trinca, deformação ou corrosão'), ok('came', 'Came/mola funcionando e travando na corda/cabo'), ok('trava', 'Trava de segurança funcionando'), ok('conector', 'Conector e extensor íntegros')] },
-  { name: 'Mosquetão / conector', items: [ok('corpo', 'Corpo sem trinca, desgaste por atrito ou deformação'), ok('gatilho', 'Gatilho abre e fecha sozinho até o fim'), ok('trava', 'Trava (rosca/automática) funcionando'), ok('corrosao', 'Sem corrosão')] },
-  { name: 'Polia', items: [ok('roldana', 'Roldana gira livre, sem folga ou desgaste em canal'), ok('placas', 'Placas laterais sem trinca ou deformação'), ok('eixo', 'Eixo e rebites firmes')] },
-  { name: 'Tripé / sistema de resgate', items: [ok('pernas', 'Pernas sem amassado ou trinca; travas funcionando'), ok('cabeca', 'Cabeça e pontos de ancoragem íntegros'), ok('guincho', 'Guincho com freio e catraca funcionando'), ok('cabo', 'Cabo sem fios rompidos, dobras ou corrosão'), ok('sapatas', 'Sapatas e corrente de travamento presentes')] },
-  { name: 'Detector de gases — teste de resposta', items: [ok('liga', 'Liga e passa no autoteste'), ok('bateria', 'Bateria suficiente para a jornada'), ok('resposta', 'Todos os sensores responderam ao gás de teste e alarmaram'), ok('calibracao', 'Calibração dentro da validade'), { key: 'leituras', label: 'Leituras (O2 / LEL / H2S / CO)', kind: 'texto', required: false }] },
-];
 
 @Injectable()
 export class StockEquipmentService {

@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { Prisma, Stock_Item } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { holderKey, holderNames } from './ledger';
+import { DEFAULT_TEMPLATES } from './equipment.templates';
 import {
   Body, Holder, HolderType, MOVEMENT_TYPES, PERM, StockActor, TRACKINGS, UNIT_STATUS, blank, can, clean, d, dueState, fail, idOf, num,
   optionalDate, optionalNumber, round2, round3, text, today,
@@ -350,6 +351,7 @@ export class StockCatalogService {
     const code = (data.code as string | undefined) ?? (await this.nextCode(actor.companyId, (data.categoryId as number | null) ?? null));
     // item que exige inspeção nasce com um roteiro: o da categoria, ou o que começa pela mesma palavra do nome
     if (data.requiresInspection && !data.inspectionTemplateId) {
+      await this.ensureTemplates(actor.companyId);
       const category = data.categoryId ? await this.prisma.stock_Category.findUnique({ where: { id: Number(data.categoryId) }, select: { inspectionTemplateId: true } }) : null;
       const word = String(data.name ?? '').trim().split(/\s+/)[0]?.toLowerCase() ?? '';
       const byName = word.length >= 3 ? (await this.prisma.stock_InspectionTemplate.findMany({ where: { companyId: actor.companyId, inactiveAt: null }, select: { id: true, name: true } })).find((t) => t.name.toLowerCase().startsWith(word)) : null;
@@ -474,6 +476,25 @@ export class StockCatalogService {
     };
   }
 
+  /** Os roteiros iniciais nascem na primeira vez que a empresa precisa de um. */
+  async ensureTemplates(companyId: number) {
+    if (await this.prisma.stock_InspectionTemplate.count({ where: { companyId } })) return;
+    await this.prisma.stock_InspectionTemplate.createMany({ data: DEFAULT_TEMPLATES.map((t) => ({ companyId, name: t.name, items: t.items as Prisma.InputJsonValue })), skipDuplicates: true });
+  }
+
+  /** Roteiro de cada item: o definido, ou o que começa pela mesma palavra do nome. */
+  async templatesFor(companyId: number, items: Array<{ id: number; name: string; inspectionTemplateId: number | null }>) {
+    const map = new Map<number, number | null>();
+    if (!items.length) return map;
+    await this.ensureTemplates(companyId);
+    const templates = await this.prisma.stock_InspectionTemplate.findMany({ where: { companyId, inactiveAt: null }, select: { id: true, name: true } });
+    for (const item of items) {
+      const word = item.name.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+      map.set(item.id, item.inspectionTemplateId ?? (word.length >= 3 ? templates.find((t) => t.name.toLowerCase().startsWith(word))?.id ?? null : null));
+    }
+    return map;
+  }
+
   async unitOptions(actor: StockActor, query: Record<string, string>) {
     const itemId = idOf(query.itemId);
     const units = await this.prisma.stock_Unit.findMany({
@@ -482,8 +503,9 @@ export class StockCatalogService {
         ...(query.holderType ? { holderType: query.holderType, ...(idOf(query.holderId) ? { holderId: idOf(query.holderId) } : {}) } : {}),
         ...(query.available === '1' ? { status: 'disponivel', holderType: 'local' } : {}),
       },
-      orderBy: { tag: 'asc' }, take: 1000, include: { item: { select: { name: true, requiresInspection: true, requiresCalibration: true } } },
+      orderBy: { tag: 'asc' }, take: 1000, include: { item: { select: { id: true, name: true, requiresInspection: true, requiresCalibration: true, inspectionTemplateId: true } } },
     });
+    const templateOf = await this.templatesFor(actor.companyId, [...new Map(units.map((u) => [u.item.id, u.item])).values()]);
     const names = await holderNames(this.prisma, actor.companyId, units.map((u) => ({ type: u.holderType as HolderType, id: u.holderId })));
     const now = today();
     return units.map((u) => {
@@ -507,7 +529,7 @@ export class StockCatalogService {
       return {
         id: u.id, name: `${u.tag}${u.serialNumber ? ` · ${u.serialNumber}` : ''}`, tag: u.tag, itemId: u.itemId, item: u.item.name, status: u.status,
         holderType: u.holderType, holderId: u.holderId, where: u.holderType === 'externo' ? '—' : names.get(holderKey({ type: u.holderType, id: u.holderId })) ?? '—',
-        usable: !blocked, reason, fix,
+        usable: !blocked, reason, fix, templateId: templateOf.get(u.itemId) ?? null,
       };
     });
   }
