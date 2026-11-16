@@ -1,48 +1,48 @@
 model CourseClass {
-  id                Int               @id @default(autoincrement())
-  name              String            @db.VarChar(100)
-  companyId         Int?
-  company           Company?          @relation(fields: [companyId], references: [id])
-  customerId        Int?
-  customer          Customer?         @relation(fields: [customerId], references: [id])
-  courseId          Int
-  course            Course            @relation(fields: [courseId], references: [id])
-  certificateId     Int?
-  certificate       CouseCertificate? @relation(fields: [certificateId], references: [id])
+  id                     Int                          @id @default(autoincrement())
+  name                   String                       @db.VarChar(100)
+  companyId              Int?
+  company                Company?                     @relation(fields: [companyId], references: [id])
+  customerId             Int?
+  customer               Customer?                    @relation(fields: [customerId], references: [id])
+  courseId               Int
+  course                 Course                       @relation(fields: [courseId], references: [id])
+  certificateId          Int?
+  certificate            CouseCertificate?            @relation(fields: [certificateId], references: [id])
   // Turma especial: todos os certificados da turma saem com este destaque
-  highlightTheme    CertificateHighlightTheme?
-  highlightLabel    String?           @db.VarChar(60)
-  highlightPattern  CertificateHighlightPattern?
-  highlightBorder   CertificateHighlightBorder?
-  categoryId        Int?
-  classCode         String?           @db.VarChar(50)
-  price             Decimal?          @db.Decimal(18, 2)
-  discountPrice     Decimal?          @db.Decimal(18, 2)
-  dividedIn         Int?
-  hoursDuration     Int?
-  daysDuration      Int?
-  openClass         Boolean?          @default(false)
-  gifts             String?
-  description       String?
-  gradeTheory       String?
-  gradePracticle    String?
-  imageUrl          String?           @db.VarChar(255)
-  videoUrl          String?           @db.VarChar(255)
-  videoTitle        String?
-  videoSubtitle     String?
-  videoDescription  String?
-  active            Boolean           @default(true)
-  faq               Json?
-  periodClass       periodClassTypes @default(LIMITED)
-  initialDate       DateTime?
-  finalDate         DateTime?
-  landingPagesDates String?
-  allowExam         Boolean @default(false)
-  allowReview       Boolean @default(false)
-  minimumQuorum     Int?
-  maxSubscriptions  Int?
-  unlimitedSubscriptions Boolean @default(false)
-  allowCheckout     Boolean           @default(false)
+  highlightTheme         CertificateHighlightTheme?
+  highlightLabel         String?                      @db.VarChar(60)
+  highlightPattern       CertificateHighlightPattern?
+  highlightBorder        CertificateHighlightBorder?
+  categoryId             Int?
+  classCode              String?                      @db.VarChar(50)
+  price                  Decimal?                     @db.Decimal(18, 2)
+  discountPrice          Decimal?                     @db.Decimal(18, 2)
+  dividedIn              Int?
+  hoursDuration          Int?
+  daysDuration           Int?
+  openClass              Boolean?                     @default(false)
+  gifts                  String?
+  description            String?
+  gradeTheory            String?
+  gradePracticle         String?
+  imageUrl               String?                      @db.VarChar(255)
+  videoUrl               String?                      @db.VarChar(255)
+  videoTitle             String?
+  videoSubtitle          String?
+  videoDescription       String?
+  active                 Boolean                      @default(true)
+  faq                    Json?
+  periodClass            periodClassTypes             @default(LIMITED)
+  initialDate            DateTime?
+  finalDate              DateTime?
+  landingPagesDates      String?
+  allowExam              Boolean                      @default(false)
+  allowReview            Boolean                      @default(false)
+  minimumQuorum          Int?
+  maxSubscriptions       Int?
+  unlimitedSubscriptions Boolean                      @default(false)
+  allowCheckout          Boolean                      @default(false)
 
   // Provedor de pagamento desta turma. Aponta para a CONFIGURAÇÃO e não para
   // o nome do provedor, para que a empresa possa manter mais de uma conta do
@@ -51,25 +51,25 @@ model CourseClass {
   // Nulo = usa o provedor ativo da empresa. É o comportamento de sempre, e
   // por isso a coluna nasce opcional: nenhuma turma existente muda de
   // comportamento ao subir esta migração.
-  companyGatewayId  Int?
-  companyGateway    CompanyGateWays?  @relation(fields: [companyGatewayId], references: [id])
-  whyUs             Json?
-  onlineCourseModelId    Int?
-  onlineCourseModel      OnlineCourseModel?     @relation(fields: [onlineCourseModelId], references: [id])
-  allowSubscriptions    Boolean           @default(false)
-  periodSubscriptionsType   periodSubscriptionsTypes @default(LIMITED)
+  companyGatewayId               Int?
+  companyGateway                 CompanyGateWays?         @relation(fields: [companyGatewayId], references: [id])
+  whyUs                          Json?
+  onlineCourseModelId            Int?
+  onlineCourseModel              OnlineCourseModel?       @relation(fields: [onlineCourseModelId], references: [id])
+  allowSubscriptions             Boolean                  @default(false)
+  periodSubscriptionsType        periodSubscriptionsTypes @default(LIMITED)
   periodSubscriptionsInitialDate DateTime?
-  periodSubscriptionsFinalDate DateTime?
-  hasOnlineCourse Boolean @default(false)
+  periodSubscriptionsFinalDate   DateTime?
+  hasOnlineCourse                Boolean                  @default(false)
 
   // Campos de endereço para cursos presenciais
-  address           String?         @db.VarChar(255)
-  addressNumber     String?         @db.VarChar(255)
-  addressComplement String?         @db.VarChar(255)
-  neighborhood      String?         @db.VarChar(255)
-  city              String?         @db.VarChar(255)
-  state             String?         @db.VarChar(255)
-  zipCode           String?         @db.VarChar(255)
+  address           String? @db.VarChar(255)
+  addressNumber     String? @db.VarChar(255)
+  addressComplement String? @db.VarChar(255)
+  neighborhood      String? @db.VarChar(255)
+  city              String? @db.VarChar(255)
+  state             String? @db.VarChar(255)
+  zipCode           String? @db.VarChar(255)
 
   paymentMethods  paymentMethods[]
   certificates    TraineeCourseCertificate[]
@@ -78,17 +78,24 @@ model CourseClass {
   reviews         CourseReview[]
   subscriptions   CourseClassSubscription[]
   attendanceLists CourseClassAttendanceList[]
-  coupons        Coupon[]
+  coupons         Coupon[]
+  landingEvents   CourseClass_LandingEvent[]
+
+  // Página de inscrição: conteúdo editável (blocos em JSON), layout fixo e teste A/B
+  landingContent   Json?   @db.JsonB
+  landingLayout    String? @db.VarChar(20) // classico | impacto | direto | narrativa (vazio = classico)
+  landingAbTest    Boolean @default(false)
+  landingAbLayouts Json?   @db.JsonB // layouts que entram no teste, ex.: ["classico","impacto"]
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
 
   // ÍNDICES ESSENCIAIS
-  @@index([companyId, active])            // Turmas ativas por empresa
-  @@index([courseId, active])             // Turmas por curso
-  @@index([customerId])                   // Turmas do cliente
-  @@index([allowCheckout, active])        // Turmas vendáveis
-  @@index([periodClass, active])          // Filtro por período
-  @@index([initialDate, finalDate])       // Busca por datas
+  @@index([companyId, active]) // Turmas ativas por empresa
+  @@index([courseId, active]) // Turmas por curso
+  @@index([customerId]) // Turmas do cliente
+  @@index([allowCheckout, active]) // Turmas vendáveis
+  @@index([periodClass, active]) // Filtro por período
+  @@index([initialDate, finalDate]) // Busca por datas
 }

@@ -30,16 +30,27 @@ model CourseClassSubscription {
 
   financialRecords FinancialRecords[]
 
+  // Origem da inscrição pela página da turma (teste A/B). Só informativo:
+  // não participa de pagamento, cupom, quota ou confirmação.
+  landingLayout  String? @db.VarChar(20)
+  landingVisitor String? @db.VarChar(40)
+  landingOption  String? @db.VarChar(120) // opção escolhida no formulário (ex.: N1)
+  utmSource      String? @db.VarChar(120)
+  utmMedium      String? @db.VarChar(120)
+  utmCampaign    String? @db.VarChar(120)
+  referrer       String? @db.VarChar(255)
+
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
 
   // ÍNDICES ESSENCIAIS
-  @@index([cpf])                          // Busca por CPF
-  @@index([email])                        // Busca por email
-  @@index([classId, subscribeStatus])     // Inscritos por turma
-  @@index([traineeId])                    // Inscrições do aluno
-  @@index([companyId, subscribeStatus])   // Dashboard empresa
-  @@index([createdAt])                    // Ordenação temporal
-  @@index([phone])                        // Busca por telefone
+  @@index([cpf]) // Busca por CPF
+  @@index([email]) // Busca por email
+  @@index([classId, subscribeStatus]) // Inscritos por turma
+  @@index([traineeId]) // Inscrições do aluno
+  @@index([companyId, subscribeStatus]) // Dashboard empresa
+  @@index([createdAt]) // Ordenação temporal
+  @@index([phone]) // Busca por telefone
+  @@index([classId, landingLayout]) // Inscrições por layout da página
 }

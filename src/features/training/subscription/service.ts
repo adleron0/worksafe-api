@@ -6,6 +6,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { landingFieldsForSubscription } from '../landing/landing.rules';
 import { CheckoutService } from 'src/features/gateway/checkout/checkout.service';
 import { CacheService } from 'src/common/cache/cache.service';
 import { AlunosService } from '../trainees/service';
@@ -327,6 +328,8 @@ export class SubscriptionService {
       zipCode: dto.zipCode,
       occupation: dto.occupation,
       workedAt: dto.workedAt,
+      // de qual layout da página e de onde veio (só informativo, teste A/B)
+      ...landingFieldsForSubscription(dto),
     };
 
     const created = await this.prisma.insert(

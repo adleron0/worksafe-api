@@ -1,0 +1,21 @@
+/// Eventos da página de inscrição da turma (teste A/B de layouts).
+/// Sem dado pessoal: o visitante é um código aleatório guardado em cookie.
+model CourseClass_LandingEvent {
+  id        Int         @id @default(autoincrement())
+  companyId Int
+  classId   Int
+  class     CourseClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+  visitorId String      @db.VarChar(40)
+  layout    String      @db.VarChar(20)
+  event     String      @db.VarChar(30) // view | block | cta_click | form_start | submit | whatsapp_click
+  block     String?     @db.VarChar(30) // bloco visto (event = block)
+  source    String?     @db.VarChar(120) // utm_source ou domínio de origem
+  medium    String?     @db.VarChar(120)
+  campaign  String?     @db.VarChar(120)
+  device    String?     @db.VarChar(10) // mobile | desktop
+  createdAt DateTime    @default(now())
+
+  @@index([classId, layout, event])
+  @@index([companyId, createdAt])
+  @@index([classId, visitorId])
+}
