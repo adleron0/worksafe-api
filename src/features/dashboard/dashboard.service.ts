@@ -4,6 +4,7 @@ import { FinanceSection } from './finance.section';
 import { OperationsSection } from './operations.section';
 import { PeopleSection } from './people.section';
 import { WeekSection } from './week.section';
+import { TrainingSection } from './training.section';
 import { StockMovementService } from 'src/features/stock/movement.service';
 import { DashboardActor, todayBr } from './shared';
 
@@ -23,7 +24,13 @@ export class DashboardService {
     private readonly people: PeopleSection,
     private readonly week: WeekSection,
     private readonly stock: StockMovementService,
+    private readonly trainingPanel: TrainingSection,
   ) {}
+
+  /** Painel da área de treinamentos (a rota checa a permissão). */
+  training(actor: DashboardActor) {
+    return this.trainingPanel.build(actor, todayBr());
+  }
 
   async summary(actor: DashboardActor) {
     const can = (p: string) => actor.permissions.includes(p);

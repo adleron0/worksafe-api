@@ -10,10 +10,11 @@ import { FinanceSection } from './finance.section';
 import { OperationsSection } from './operations.section';
 import { PeopleSection } from './people.section';
 import { WeekSection } from './week.section';
+import { TrainingSection } from './training.section';
 
 @Module({
   imports: [FinancialModule, CommercialModule, OperationsModule, HrModule, StockModule],
-  providers: [DashboardService, FinanceSection, CommercialSection, OperationsSection, PeopleSection, WeekSection],
+  providers: [DashboardService, FinanceSection, CommercialSection, OperationsSection, PeopleSection, WeekSection, TrainingSection],
   exports: [DashboardService],
 })
 export class DashboardModule {}
