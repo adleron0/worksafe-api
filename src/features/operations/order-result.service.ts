@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, ServiceOrderStatus, Service_Order } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { stockCostOfOrder } from 'src/features/stock/movement.service';
 import { DailyReportService } from './daily-report.service';
 
 /**
@@ -43,6 +44,12 @@ const PURCHASE_LINES = [
   { key: 'outros', label: 'Outros', group: 'outros', budgetType: 'avulso' },
 ] as const;
 
+function stockNote(stock: { sent: number; returned: number; lost: number; ppe: number }) {
+  const parts = [stock.sent ? `${money(stock.sent)} saíram do estoque` : '', stock.returned ? `${money(stock.returned)} de sobras devolvidas` : '',
+    stock.lost ? `${money(stock.lost)} de equipamento perdido` : '', stock.ppe ? `${money(stock.ppe)} de EPI` : ''].filter(Boolean);
+  return `Estoque: ${parts.join(', ')}`;
+}
+
 function figures(revenue: number, cost: number): Figures {
   const profit = round2(revenue - cost);
   return { revenue: round2(revenue), cost: round2(cost), profit, margin: revenue > 0 ? round2((profit / revenue) * 100) : null };
@@ -59,13 +66,15 @@ export class OrderResultService {
     const revenueBudget = Number(budget.revenue ?? 0);
     const finished = DONE.includes(order.status);
 
-    const [diary, records, installments, purchases, payables] = await Promise.all([
+    const [diary, records, installments, purchases, payables, stock] = await Promise.all([
       this.reports.summaryOf(order, true),
       this.prisma.financialRecords.findMany({ where: { contractId: order.contractId, inactiveAt: null, status: { notIn: NOT_INVOICED as never } }, select: { value: true, status: true, commissionValue: true } }),
       this.prisma.commercial_ContractInstallment.findMany({ where: { contractId: order.contractId }, select: { value: true, financialRecordId: true } }),
       this.prisma.purchase_Order.findMany({ where: { serviceOrderId: order.id, inactiveAt: null, status: { in: ['solicitado', 'aprovado', ...SPENT] } }, select: { group: true, status: true, total: true } }),
       // despesas lançadas direto no Financeiro para esta obra (as dos pedidos já contam pelo pedido)
       this.prisma.financial_Payable.findMany({ where: { serviceOrderId: order.id, purchaseOrderId: null, inactiveAt: null }, select: { value: true } }),
+      // material que saiu do estoque para a obra (menos as sobras), perdas e EPI marcados para a obra
+      stockCostOfOrder(this.prisma, order.id),
     ]);
 
     const invoiced = round2(records.reduce((sum, record) => sum + Number(record.value ?? 0), 0));
@@ -90,14 +99,15 @@ export class OrderResultService {
       const mine = purchases.filter((purchase) => purchase.group === line.group);
       const total = (statuses: string[]) => round2(mine.filter((purchase) => statuses.includes(purchase.status)).reduce((sum, purchase) => sum + Number(purchase.total), 0));
       const lineBudget = line.budgetType ? groupBudget(line.budgetType) : 0;
-      const realized = round2(total(SPENT) + (line.key === 'outros' ? direct : 0));
+      const realized = round2(total(SPENT) + (line.key === 'outros' ? direct : 0) + (line.key === 'material' ? stock.total : 0));
       const committed = total(['aprovado']);
       // linha sem orçamento e sem gasto não diz nada
       if (!lineBudget && !realized && !committed) continue;
       lines.push({
         key: line.key, label: line.label, budget: lineBudget, realized, committed,
         projected: round2(finished ? realized + committed : Math.max(lineBudget, realized + committed)),
-        note: line.key === 'outros' && direct > 0 ? `Inclui ${money(direct)} lançados direto em Contas a Pagar para esta obra` : null,
+        note: line.key === 'outros' && direct > 0 ? `Inclui ${money(direct)} lançados direto em Contas a Pagar para esta obra`
+          : line.key === 'material' && (stock.sent || stock.returned || stock.lost || stock.ppe) ? stockNote(stock) : null,
       });
     }
     // parte do custo da proposta que não é serviço (treinamento em proposta mista): fica como foi orçada

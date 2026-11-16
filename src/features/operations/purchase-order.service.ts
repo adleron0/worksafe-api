@@ -5,6 +5,7 @@ import { FlowDefinition, assertMove, listFlowEvents, recordFlowEvent } from 'src
 import { normalizeSupplier } from 'src/features/financial/payable.rules';
 import { addMonths } from 'src/features/financial/payable.service';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { StockMovementService } from 'src/features/stock/movement.service';
 
 /**
  * Pedido de compra: o que a empresa compra, aluga ou contrata de terceiros,
@@ -18,7 +19,7 @@ type Tx = Prisma.TransactionClient;
 type Body = Record<string, any>;
 export interface PurchaseActor { userId: number; companyId: number; canApprove: boolean; canSeeCosts: boolean }
 export type PurchaseStatus = 'solicitado' | 'aprovado' | 'comprado' | 'recebido' | 'recusado' | 'cancelado';
-export interface PurchaseItem { description: string; unit: string | null; quantity: number; unitPrice: number; total: number }
+export interface PurchaseItem { description: string; unit: string | null; quantity: number; unitPrice: number; total: number; itemId?: number | null; receivedQuantity?: number }
 export interface PurchaseAttachment { id: string; kind: string; name: string; url: string }
 
 export const PURCHASE_FLOW: FlowDefinition<PurchaseStatus> = {
@@ -69,7 +70,8 @@ function itemsOf(value: unknown): { items: PurchaseItem[]; total: number } {
     const unitPrice = blank(raw?.unitPrice) ? 0 : Number(raw.unitPrice);
     if (!(quantity > 0) || quantity > 1e9) throw new BadRequestException(`Item ${index + 1}: quantidade inválida`);
     if (!(unitPrice >= 0) || unitPrice > 1e11) throw new BadRequestException(`Item ${index + 1}: valor inválido`);
-    return { description, unit: clean(raw?.unit, 20) || null, quantity: Math.round(quantity * 1000) / 1000, unitPrice: round2(unitPrice), total: round2(quantity * unitPrice) };
+    const itemId = Number(raw?.itemId) > 0 ? Number(raw.itemId) : null;
+    return { description, unit: clean(raw?.unit, 20) || null, quantity: Math.round(quantity * 1000) / 1000, unitPrice: round2(unitPrice), total: round2(quantity * unitPrice), ...(itemId ? { itemId, receivedQuantity: 0 } : {}) };
   });
   const total = round2(items.reduce((sum, item) => sum + item.total, 0));
   if (total <= 0) throw new BadRequestException('Informe o valor dos itens');
@@ -78,7 +80,7 @@ function itemsOf(value: unknown): { items: PurchaseItem[]; total: number } {
 
 @Injectable()
 export class PurchaseOrderService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly stock: StockMovementService) {}
 
   private async byId(companyId: number, id: number) {
     const row = await this.prisma.purchase_Order.findFirst({ where: { id, companyId, inactiveAt: null } });
@@ -257,6 +259,8 @@ export class PurchaseOrderService {
     }
     if ('items' in body || !current) {
       const { items, total } = itemsOf(body.items);
+      const itemIds = [...new Set(items.map((item) => item.itemId).filter((id): id is number => !!id))];
+      if (itemIds.length && (await this.prisma.stock_Item.count({ where: { id: { in: itemIds }, companyId: actor.companyId } })) !== itemIds.length) fail('Item do estoque não encontrado');
       data.items = items as unknown as Prisma.InputJsonValue;
       data.total = total;
     }
@@ -400,12 +404,25 @@ export class PurchaseOrderService {
         await this.dropPayables(tx, row, target === 'cancelado' ? `Pedido ${row.number} cancelado` : `Compra do pedido ${row.number} desfeita`);
         data = { ...data, purchasedAt: null, paymentTerms: Prisma.JsonNull };
       }
+      const items = (row.items as unknown as PurchaseItem[]) ?? [];
       if (target === 'recebido') {
         const received = blank(body.date) ? today() : dateOf(body.date, 'Recebimento');
         if (received > today()) fail('O recebimento não pode ser no futuro');
         data = { ...data, receivedAt: asDate(received), ...(blank(body.invoiceNumber) ? {} : { invoiceNumber: clean(body.invoiceNumber, 60) }) };
+        // o que é do estoque e ainda falta receber entra agora (quantidade simples); peça e lote pedem o recebimento detalhado
+        const pending = items.map((item, index) => ({ item, index, left: Math.round((item.quantity - (item.receivedQuantity ?? 0)) * 1000) / 1000 })).filter((p) => p.item.itemId && p.left > 0);
+        if (pending.length) {
+          const tracked = await tx.stock_Item.findMany({ where: { id: { in: pending.map((p) => p.item.itemId!) }, tracking: { not: 'quantidade' } }, select: { name: true } });
+          if (tracked.length) throw new ConflictException(`Use "Receber itens" para informar lote ou peças de: ${tracked.map((t) => t.name).join(', ')}`);
+          const { items: next } = await this.stock.receivePurchase(tx, { ...row, items: items as never }, pending.map((p) => ({ index: p.index, quantity: p.left, locationId: body.locationId })), received, actor.userId);
+          data = { ...data, items: next as unknown as Prisma.InputJsonValue };
+        }
       }
-      if (from === 'recebido') data = { ...data, receivedAt: null };
+      if (from === 'recebido' || (items.some((item) => (item.receivedQuantity ?? 0) > 0) && ['aprovado', 'cancelado'].includes(target))) {
+        // desfazer o recebimento estorna as entradas no estoque (falha se algo já saiu)
+        await this.stock.undoPurchase(tx, row.companyId, row.id, actor.userId);
+        data = { ...data, receivedAt: null, items: items.map((item) => (item.itemId ? { ...item, receivedQuantity: 0 } : item)) as unknown as Prisma.InputJsonValue };
+      }
 
       // só anda se ainda estiver onde a tela viu: dois cliques não compram duas vezes
       const moved = await tx.purchase_Order.updateMany({ where: { id, status: from }, data });
@@ -415,6 +432,32 @@ export class PurchaseOrderService {
         companyId: row.companyId, entityId: id, type: target === 'recusado' ? 'recusado' : target === 'cancelado' ? 'cancelado' : forward ? 'avancou' : 'voltou',
         from, to: target, userId: actor.userId, note,
       });
+    });
+    return this.get(actor, id);
+  }
+
+  /**
+   * Recebimento detalhado (pedido comprado): por linha do estoque, quanto chegou, para onde,
+   * lote e peças. Quando tudo o que é do estoque chega, o pedido passa a "Recebido".
+   */
+  async receive(actor: PurchaseActor, id: number, body: Body) {
+    const row = await this.byId(actor.companyId, id);
+    if (row.status !== 'comprado') throw new ConflictException('Só pedido comprado recebe itens');
+    const date = blank(body.date) ? today() : dateOf(body.date, 'Recebimento');
+    if (date > today()) fail('O recebimento não pode ser no futuro');
+    const lines: Body[] = Array.isArray(body.lines) ? body.lines.filter((line: Body) => Number(line.quantity) > 0 || (Array.isArray(line.units) && line.units.length)) : [];
+    if (!lines.length) fail('Informe o que chegou');
+    await this.prisma.$transaction(async (tx) => {
+      const { items } = await this.stock.receivePurchase(tx, { ...row, items: row.items as never }, lines, date, actor.userId);
+      const done = items.every((item: PurchaseItem) => !item.itemId || (item.receivedQuantity ?? 0) >= item.quantity - 0.0005);
+      const data: Prisma.Purchase_OrderUncheckedUpdateInput = { items: items as unknown as Prisma.InputJsonValue, ...(blank(body.invoiceNumber) ? {} : { invoiceNumber: clean(body.invoiceNumber, 60) }) };
+      if (done) {
+        const moved = await tx.purchase_Order.updateMany({ where: { id, status: 'comprado' }, data: { ...data, status: 'recebido', receivedAt: asDate(date), statusNote: null } as Prisma.Purchase_OrderUncheckedUpdateManyInput });
+        if (!moved.count) throw new ConflictException('O pedido já mudou de etapa: atualize a tela');
+        await recordFlowEvent(tx, PURCHASE_FLOW.entity, { companyId: row.companyId, entityId: id, type: 'avancou', from: 'comprado', to: 'recebido', userId: actor.userId, note: 'Itens recebidos no estoque' });
+      } else {
+        await tx.purchase_Order.update({ where: { id }, data });
+      }
     });
     return this.get(actor, id);
   }

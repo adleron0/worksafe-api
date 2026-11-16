@@ -16,7 +16,8 @@ import { proposalsVisibleTo } from './ownership';
 export interface Actor { userId: number; companyId: number; canSeeCosts: boolean; seesAll: boolean }
 
 const KINDS: CommercialProposalKind[] = ['servico', 'treinamento', 'misto'];
-const ITEM_TYPES: CommercialItemType[] = ['mao_de_obra', 'locacao', 'material', 'treinamento', 'avulso'];
+const ITEM_TYPES: CommercialItemType[] = ['mao_de_obra', 'locacao', 'material', 'treinamento', 'avulso', 'locacao_cliente'];
+const RENT_PERIODS = ['dia', 'semana', 'mes'];
 const DUE_RULES: CommercialDueRule[] = ['data_fixa', 'dias_apos_aceite', 'dias_apos_nf', 'dias_apos_conclusao'];
 /** Ainda em negociação: pode ser revisada, cancelada ou decidida. */
 const SENT: CommercialProposalStatus[] = ['enviada', 'visualizada'];
@@ -53,11 +54,15 @@ function dateOf(value: unknown, label: string): string {
 
 export { installmentValues };
 
+/** Locação a cliente: quantidade × valor do período × períodos (vira o preço de tabela do item). */
+export const rentPrice = (item: Pick<DraftItem, 'quantity' | 'extra'>) => round2(Number(item.quantity) * Number(item.extra?.rate ?? 0) * Number(item.extra?.periods ?? 1));
+
 export interface DraftItem {
   id?: number; type: CommercialItemType; description: string; unit: string | null; quantity: number;
   professionalId: number | null; night: boolean; travel: boolean; weekend: boolean;
   workDays: number | null; weekendDays: number | null; hoursPerDay: number | null; overtimeHours: number;
-  courseId: number | null; extra: { students?: number | null; workload?: number | null; dates?: string; location?: string } | null;
+  courseId: number | null; stockItemId: number | null;
+  extra: { students?: number | null; workload?: number | null; dates?: string; location?: string; period?: string; periods?: number | null; rate?: number | null } | null;
   unitCost: number; extraCost: number; margin: number | null; finalValue: number | null; showInDocument: boolean;
 }
 export interface DraftSection { id?: number; title: string; kind: CommercialItemType; margin: number; showInDocument: boolean; items: DraftItem[] }
@@ -143,6 +148,11 @@ export class ProposalService {
         const type = (ITEM_TYPES.includes(entry.type) ? entry.type : sectionKind) as CommercialItemType;
         const itemId = Number(entry.id) > 0 ? Number(entry.id) : undefined;
         const label = clean(entry.description, 80) || 'item';
+        const rentExtra = type === 'locacao_cliente' ? {
+          period: RENT_PERIODS.includes(entry.extra?.period) ? String(entry.extra.period) : 'mes',
+          periods: optional(entry.extra?.periods, `Períodos de ${label}`, 0, 100000) ?? 1,
+          rate: optional(entry.extra?.rate, `Valor do período de ${label}`, 0, 1e10) ?? 0,
+        } : null;
         const extra = entry.extra && typeof entry.extra === 'object' ? {
           students: optional(entry.extra.students, 'Alunos', 0, 100000),
           workload: optional(entry.extra.workload, 'Carga horária', 0, 100000),
@@ -158,7 +168,8 @@ export class ProposalService {
           hoursPerDay: type === 'mao_de_obra' ? optional(entry.hoursPerDay, `Horas por dia de ${label}`, 0.5, 24) : null,
           overtimeHours: type === 'mao_de_obra' ? number(entry.overtimeHours, `Horas extras de ${label}`, 0, 100000, 0) : 0,
           courseId: type === 'treinamento' ? optional(entry.courseId, 'Curso', 1, 2147483647) : null,
-          extra: type === 'treinamento' ? extra : null,
+          stockItemId: type === 'locacao_cliente' ? optional(entry.stockItemId, 'Item do estoque', 1, 2147483647) : null,
+          extra: type === 'treinamento' ? extra : rentExtra,
           unitCost: type === 'mao_de_obra' ? 0 : round2(number(entry.unitCost, `Custo de ${label}`, 0, 1e10, 0)),
           extraCost: type === 'mao_de_obra' ? 0 : round2(number(entry.extraCost, `Taxas de ${label}`, 0, 1e10, 0)),
           margin: actor.canSeeCosts ? optional(entry.margin, `Margem de ${label}`, 0, 0.95) : (itemId ? itemMarginOf.get(itemId) ?? null : null),
@@ -275,7 +286,7 @@ export class ProposalService {
               workDays: item.workDays ?? undefined, weekendDays: item.weekendDays ?? undefined, hoursPerDay: item.hoursPerDay ?? undefined,
               overtimeHours: item.overtimeHours, margin: item.margin, finalValue: item.finalValue }
             : { type: item.type, quantity: item.quantity, unitCost: item.unitCost, extraCost: item.extraCost, margin: item.margin, finalValue: item.finalValue,
-              listPrice: item.type === 'treinamento' ? this.listPrice(item, snapshot) : null }),
+              listPrice: item.type === 'treinamento' ? this.listPrice(item, snapshot) : item.type === 'locacao_cliente' ? rentPrice(item) : null }),
         })),
       };
       return { ...price(input, { params: snapshot.params, base, tax }), taxResult: tax };
@@ -300,7 +311,7 @@ export class ProposalService {
         ...(see ? { cost: r(section.cost), margin: rate(section.margin) } : {}),
         lines: section.lines.map((line, i) => ({
           suggested: r(line.suggested), value: r(line.value), hours: line.hours ?? null,
-          listPrice: draft.sections[s].items[i].type === 'treinamento' ? r(this.listPrice(draft.sections[s].items[i], snapshot)) : null,
+          listPrice: draft.sections[s].items[i].type === 'treinamento' ? r(this.listPrice(draft.sections[s].items[i], snapshot)) : draft.sections[s].items[i].type === 'locacao_cliente' ? r(rentPrice(draft.sections[s].items[i])) : null,
           ...(see ? { cost: r(line.cost), margin: rate(line.margin), hourCost: r(line.hourCost) } : {}),
         })),
       })),
@@ -356,7 +367,7 @@ export class ProposalService {
         items: row.items.filter((item) => item.sectionId === section.id).map((item) => ({
           id: item.id, type: item.type, description: item.description, unit: item.unit, quantity: Number(item.quantity),
           professionalId: item.professionalId, night: item.night, travel: item.travel, weekend: item.weekend,
-          workDays: item.workDays, weekendDays: item.weekendDays, hoursPerDay: n(item.hoursPerDay), overtimeHours: Number(item.overtimeHours), courseId: item.courseId,
+          workDays: item.workDays, weekendDays: item.weekendDays, hoursPerDay: n(item.hoursPerDay), overtimeHours: Number(item.overtimeHours), courseId: item.courseId, stockItemId: item.stockItemId,
           extra: (item.extra as DraftItem['extra']) ?? null, unitCost: Number(item.unitCost), extraCost: Number(item.extraCost),
           margin: n(item.margin), finalValue: n(item.finalValue), showInDocument: item.showInDocument,
         })),
@@ -482,6 +493,8 @@ export class ProposalService {
           const days = item.workDays ?? draft.workDays;
           const detail = item.type === 'mao_de_obra'
             ? [days ? `${days} dia${days === 1 ? '' : 's'} útei${days === 1 ? 'l' : 's'}` : '', item.night ? 'noturno' : '', item.weekend ? 'inclui fim de semana/feriado' : ''].filter(Boolean).join(' · ')
+            : item.type === 'locacao_cliente'
+              ? `${item.extra?.periods ?? 1} ${({ dia: 'dia(s)', semana: 'semana(s)', mes: 'mês(es)' } as Record<string, string>)[item.extra?.period ?? 'mes']} de locação`
             : item.type === 'treinamento'
               ? [item.extra?.students ? `${item.extra.students} alunos` : '', item.extra?.workload ? `${item.extra.workload} h` : '', item.extra?.dates ?? '', item.extra?.location ?? ''].filter(Boolean).join(' · ')
               : '';

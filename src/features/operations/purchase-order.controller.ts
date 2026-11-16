@@ -49,6 +49,10 @@ export class PurchaseOrderController {
   @Permissions('update_pedidos_de_compra') @Patch(':id/status')
   move(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.purchases.move(actorOf(req), id, body ?? {}); }
 
+  /** Recebimento detalhado dos itens do estoque (quantidade, local, lote, peças). */
+  @Permissions('update_pedidos_de_compra') @Post(':id/receive')
+  receive(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.purchases.receive(actorOf(req), id, body ?? {}); }
+
   @Permissions('update_pedidos_de_compra') @Post(':id/attachments')
   @UseInterceptors(FileInterceptor('file', getDocumentMulterOptions('purchase-orders')))
   attach(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json, @UploadedFile() file?: Express.MulterS3.File) {

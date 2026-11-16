@@ -1,0 +1,456 @@
+// Estoque de equipamentos e materiais (Suprimentos). Plano em
+// worksafe/estoque-planejamento/. O saldo é a soma das movimentações: toda
+// movimentação tira de uma posição e põe em outra. Posições (holderType):
+// local | os | funcionario | locacao | fornecedor; "externo" é origem ou
+// destino final (compra, consumo, descarte, ajuste) e não tem saldo.
+
+model Stock_Category {
+  id        Int     @id @default(autoincrement())
+  companyId Int
+  name      String  @db.VarChar(100)
+  parentId  Int?
+  parent    Stock_Category?  @relation("Stock_CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children  Stock_Category[] @relation("Stock_CategoryTree")
+  // prefixo do código dos itens novos (CRD → CRD-0001)
+  prefix    String? @db.VarChar(8)
+  // marcas com que um item novo da categoria já nasce
+  defaults  Json?
+  inspectionTemplateId Int?
+  order     Int     @default(0)
+
+  items Stock_Item[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@index([companyId, parentId])
+}
+
+model Stock_Location {
+  id        Int     @id @default(autoincrement())
+  companyId Int
+  name      String  @db.VarChar(120)
+  // almoxarifado | container | veiculo | ct | outro
+  kind      String  @default("almoxarifado") @db.VarChar(20)
+  placeId   Int?
+  responsibleUserId Int?
+  // o saldo daqui conta como "pronta entrega" na loja do site
+  sellsOnline Boolean @default(false)
+  notes     String? @db.VarChar(500)
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@index([companyId])
+}
+
+model Stock_Item {
+  id          Int     @id @default(autoincrement())
+  companyId   Int
+  code        String  @db.VarChar(30)
+  name        String  @db.VarChar(200)
+  description String? @db.VarChar(2000)
+  categoryId  Int?
+  category    Stock_Category? @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  manufacturer String? @db.VarChar(120)
+  model       String? @db.VarChar(120)
+  photoUrl    String? @db.VarChar(500)
+
+  unit           String   @default("un") @db.VarChar(20)
+  purchaseUnit   String?  @db.VarChar(20)
+  purchaseFactor Decimal? @db.Decimal(12, 4)
+
+  // quantidade | lote | unidade
+  tracking        String   @default("quantidade") @db.VarChar(12)
+  returnable      Boolean  @default(false)
+  minQuantity     Decimal? @db.Decimal(14, 3)
+  reorderQuantity Decimal? @db.Decimal(14, 3)
+
+  requiresInspection     Boolean @default(false)
+  inspectionIntervalDays Int?
+  inspectionBeforeUse    Boolean @default(false)
+  inspectionTemplateId   Int?
+
+  lifeMonths Int?
+  // fabricacao | primeiro_uso
+  lifeFrom   String @default("fabricacao") @db.VarChar(14)
+  warnDays   Int    @default(30)
+
+  requiresCalibration       Boolean @default(false)
+  calibrationIntervalMonths Int?
+
+  isPpe            Boolean   @default(false)
+  caNumber         String?   @db.VarChar(30)
+  caExpiry         DateTime? @db.Date
+  replaceEveryDays Int?
+
+  rentable         Boolean  @default(false)
+  rentDaily        Decimal? @db.Decimal(14, 2)
+  rentWeekly       Decimal? @db.Decimal(14, 2)
+  rentMonthly      Decimal? @db.Decimal(14, 2)
+  replacementValue Decimal? @db.Decimal(14, 2)
+
+  // produto da loja do site ligado a este item (um para um)
+  siteProductId Int? @unique
+
+  averageCost    Decimal   @default(0) @db.Decimal(18, 4)
+  lastCost       Decimal?  @db.Decimal(18, 4)
+  lastSupplierId Int?
+  lastPurchaseAt DateTime? @db.Date
+
+  notes String? @db.VarChar(1000)
+
+  units Stock_Unit[]
+  lots  Stock_Lot[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([companyId, code])
+  @@index([companyId, categoryId])
+  @@index([companyId, name])
+}
+
+model Stock_Lot {
+  id             Int       @id @default(autoincrement())
+  companyId      Int
+  itemId         Int
+  item           Stock_Item @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  number         String    @db.VarChar(60)
+  manufacturedAt DateTime? @db.Date
+  expiresAt      DateTime? @db.Date
+  supplierId     Int?
+  purchaseOrderId Int?
+  unitCost       Decimal?  @db.Decimal(18, 4)
+  // liberado | bloqueado | baixado
+  status         String    @default("liberado") @db.VarChar(12)
+  nextInspectionAt DateTime? @db.Date
+  notes          String?   @db.VarChar(500)
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([itemId, number])
+  @@index([companyId, expiresAt])
+}
+
+model Stock_Unit {
+  id           Int     @id @default(autoincrement())
+  companyId    Int
+  itemId       Int
+  item         Stock_Item @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  lotId        Int?
+  tag          String  @db.VarChar(40)
+  serialNumber String? @db.VarChar(80)
+
+  manufacturedAt  DateTime? @db.Date
+  acquiredAt      DateTime? @db.Date
+  firstUseAt      DateTime? @db.Date
+  supplierId      Int?
+  purchaseOrderId Int?
+  acquisitionCost Decimal?  @db.Decimal(18, 4)
+
+  // disponivel | em_uso | em_inspecao | em_manutencao | em_calibracao | bloqueado | baixado
+  status     String @default("disponivel") @db.VarChar(16)
+  // precisa de inspeção extraordinária antes de sair de novo
+  needsInspection Boolean @default(false)
+  holderType String @default("local") @db.VarChar(12)
+  holderId   Int?
+
+  nextInspectionAt  DateTime? @db.Date
+  nextCalibrationAt DateTime? @db.Date
+  lifeEndsAt        DateTime? @db.Date
+
+  retiredAt     DateTime? @db.Date
+  // reprovado | fim_vida | perda | extravio | avaria | venda | corte | outro
+  retiredReason String?   @db.VarChar(14)
+  retiredNote   String?   @db.VarChar(500)
+  // corte de corda: de qual peça esta saiu
+  originUnitId  Int?
+
+  length     Decimal? @db.Decimal(10, 2)
+  attributes Json?
+  notes      String?  @db.VarChar(1000)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([companyId, tag])
+  @@index([companyId, itemId, status])
+  @@index([companyId, holderType, holderId])
+  @@index([companyId, nextInspectionAt])
+  @@index([companyId, nextCalibrationAt])
+}
+
+model Stock_Balance {
+  id         Int     @id @default(autoincrement())
+  companyId  Int
+  itemId     Int
+  // 0 = sem lote (o Postgres não trata NULL como igual no índice único)
+  lotId      Int     @default(0)
+  holderType String  @db.VarChar(12)
+  holderId   Int
+  quantity   Decimal @default(0) @db.Decimal(14, 3)
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  @@unique([itemId, lotId, holderType, holderId])
+  @@index([companyId, holderType, holderId])
+}
+
+model Stock_Movement {
+  id        Int      @id @default(autoincrement())
+  companyId Int
+  // MOV-2026-00001
+  number    String   @db.VarChar(30)
+  year      Int
+  sequence  Int
+  type      String   @db.VarChar(20)
+  date      DateTime @db.Date
+  userId    Int?
+  note      String?  @db.VarChar(1000)
+
+  purchaseOrderId Int?
+  serviceOrderId  Int?
+  employeeId      Int?
+  rentalId        Int?
+  supplierId      Int?
+  countId         Int?
+  costCenterId    Int?
+  // estorno de outra movimentação
+  reversesId      Int?
+  reversedById    Int?
+  // entrega de EPI: motivo
+  reason          String? @db.VarChar(20)
+
+  // { name, document, key (assinatura no bucket privado), at }
+  signature   Json?
+  attachments Json?
+
+  lines Stock_MovementLine[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([companyId, number])
+  @@index([companyId, type, date])
+  @@index([companyId, serviceOrderId])
+  @@index([companyId, purchaseOrderId])
+  @@index([companyId, employeeId])
+  @@index([companyId, rentalId])
+}
+
+model Stock_MovementLine {
+  id         Int            @id @default(autoincrement())
+  companyId  Int
+  movementId Int
+  movement   Stock_Movement @relation(fields: [movementId], references: [id], onDelete: Cascade)
+  itemId     Int
+  lotId      Int?
+  unitId     Int?
+  quantity   Decimal @db.Decimal(14, 3)
+  fromType   String  @db.VarChar(12)
+  fromId     Int?
+  toType     String  @db.VarChar(12)
+  toId       Int?
+  unitCost   Decimal @default(0) @db.Decimal(18, 4)
+  totalCost  Decimal @default(0) @db.Decimal(18, 2)
+  // este valor conta no resultado da OS (seção 4 de 05-integracoes.md)
+  chargedToOrder Boolean @default(false)
+  // retorno: ok | sujo | avariado | faltando
+  condition  String? @db.VarChar(12)
+  note       String? @db.VarChar(500)
+
+  createdAt DateTime @default(now())
+
+  @@index([itemId, createdAt])
+  @@index([unitId])
+  @@index([companyId, toType, toId])
+  @@index([companyId, fromType, fromId])
+}
+
+model Stock_InspectionTemplate {
+  id        Int     @id @default(autoincrement())
+  companyId Int
+  name      String  @db.VarChar(120)
+  // [{ key, label, kind: ok_nok | texto | numero, required }]
+  items     Json
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([companyId, name])
+}
+
+model Stock_Inspection {
+  id        Int      @id @default(autoincrement())
+  companyId Int
+  unitId    Int?
+  lotId     Int?
+  // pre_uso | periodica | extraordinaria | recebimento
+  kind      String   @db.VarChar(16)
+  date      DateTime @db.Date
+  // aprovado | aprovado_ressalva | reprovado
+  result    String   @db.VarChar(18)
+  templateId Int?
+  answers   Json
+  inspectorEmployeeId Int?
+  inspectorUserId     Int?
+  serviceOrderId      Int?
+  nextDueAt DateTime? @db.Date
+  photos    Json
+  notes     String?  @db.VarChar(1000)
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId, unitId])
+  @@index([companyId, lotId])
+  @@index([companyId, date])
+}
+
+model Stock_ServiceEvent {
+  id        Int     @id @default(autoincrement())
+  companyId Int
+  unitId    Int
+  // calibracao | manutencao
+  kind      String  @db.VarChar(12)
+  // enviado | concluido | cancelado
+  status    String  @default("enviado") @db.VarChar(12)
+  sentAt     DateTime? @db.Date
+  returnedAt DateTime? @db.Date
+  supplierId Int?
+  purchaseOrderId Int?
+  cost      Decimal? @db.Decimal(14, 2)
+  // aprovado | ajustado | reprovado
+  result    String?  @db.VarChar(12)
+  certificateNumber String? @db.VarChar(80)
+  nextDueAt DateTime? @db.Date
+  // de onde a peça saiu (para voltar ao mesmo local)
+  locationId Int?
+  notes     String?  @db.VarChar(1000)
+
+  createdByUserId Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([companyId, unitId])
+  @@index([companyId, status])
+}
+
+model Stock_Rental {
+  id        Int     @id @default(autoincrement())
+  companyId Int
+  // LOC-2026-0001
+  number    String  @db.VarChar(30)
+  year      Int
+  sequence  Int
+  customerId Int
+  contractId Int?
+  proposalId Int?
+  serviceOrderId Int?
+  // reservada | ativa | devolvida | encerrada | cancelada
+  status    String  @default("reservada") @db.VarChar(12)
+  startDate   DateTime  @db.Date
+  expectedEnd DateTime? @db.Date
+  deliveredAt DateTime? @db.Date
+  returnedAt  DateTime? @db.Date
+  // periodo | unico
+  billing   String  @default("periodo") @db.VarChar(10)
+  // dia | semana | mes
+  period    String  @default("mes") @db.VarChar(8)
+  // até onde já foi cobrado (o próximo período começa no dia seguinte)
+  billedUntil DateTime? @db.Date
+  deliveryAddress String? @db.VarChar(300)
+  responsibleName String? @db.VarChar(160)
+  terms     String?
+  deposit   Decimal? @db.Decimal(14, 2)
+  notes     String?  @db.VarChar(1000)
+  statusNote String? @db.VarChar(500)
+  // quem recebeu do lado do cliente: { name, document, key, at }
+  signature Json?
+
+  createdByUserId Int?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  lines   Stock_RentalLine[]
+  charges Stock_RentalCharge[]
+
+  @@unique([companyId, number])
+  @@index([companyId, status])
+  @@index([companyId, customerId])
+  @@index([contractId])
+}
+
+model Stock_RentalLine {
+  id        Int     @id @default(autoincrement())
+  rentalId  Int
+  rental    Stock_Rental @relation(fields: [rentalId], references: [id], onDelete: Cascade)
+  itemId    Int
+  unitId    Int?
+  lotId     Int?
+  quantity  Decimal @db.Decimal(14, 3)
+  // preço do período
+  rate      Decimal @default(0) @db.Decimal(14, 2)
+  deliveredQuantity Decimal @default(0) @db.Decimal(14, 3)
+  returnedQuantity  Decimal @default(0) @db.Decimal(14, 3)
+  condition String? @db.VarChar(12)
+  damageValue Decimal? @db.Decimal(14, 2)
+  note      String? @db.VarChar(500)
+
+  @@index([rentalId])
+}
+
+model Stock_RentalCharge {
+  id          Int      @id @default(autoincrement())
+  companyId   Int
+  rentalId    Int
+  rental      Stock_Rental @relation(fields: [rentalId], references: [id], onDelete: Cascade)
+  periodStart DateTime @db.Date
+  periodEnd   DateTime @db.Date
+  value       Decimal  @db.Decimal(14, 2)
+  // aluguel | avaria | falta | frete
+  kind        String   @db.VarChar(10)
+  description String?  @db.VarChar(255)
+  financialRecordId Int?
+  createdAt   DateTime @default(now())
+
+  @@unique([rentalId, periodStart, kind])
+}
+
+model Stock_Count {
+  id         Int     @id @default(autoincrement())
+  companyId  Int
+  locationId Int
+  // aberta | fechada | cancelada
+  status     String  @default("aberta") @db.VarChar(10)
+  blindCount Boolean @default(false)
+  note       String? @db.VarChar(500)
+  openedByUserId Int?
+  closedByUserId Int?
+  movementId Int?
+  openedAt   DateTime  @default(now())
+  closedAt   DateTime?
+
+  lines Stock_CountLine[]
+
+  @@index([companyId, status])
+}
+
+model Stock_CountLine {
+  id       Int     @id @default(autoincrement())
+  countId  Int
+  count    Stock_Count @relation(fields: [countId], references: [id], onDelete: Cascade)
+  itemId   Int
+  lotId    Int     @default(0)
+  unitId   Int?
+  expected Decimal @db.Decimal(14, 3)
+  counted  Decimal? @db.Decimal(14, 3)
+  note     String? @db.VarChar(300)
+
+  @@index([countId])
+}

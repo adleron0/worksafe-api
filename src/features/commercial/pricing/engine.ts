@@ -205,7 +205,7 @@ export function resolveTax(profile: TaxProfileInput): TaxResult {
 
 // ---------------------------------------------------------------- proposta
 
-export type ItemType = 'mao_de_obra' | 'locacao' | 'material' | 'treinamento' | 'avulso';
+export type ItemType = 'mao_de_obra' | 'locacao' | 'material' | 'treinamento' | 'avulso' | 'locacao_cliente';
 
 export interface PriceItemInput {
   id?: string | number;

@@ -177,6 +177,8 @@ enum CommercialItemType {
   material
   treinamento
   avulso
+  // equipamento próprio alugado ao cliente (estoque); `locacao` é o aluguel que a empresa paga
+  locacao_cliente
 }
 
 enum CommercialDueRule {
@@ -342,6 +344,9 @@ model Commercial_ProposalItem {
   hoursPerDay    Decimal? @db.Decimal(6, 2)
   // horas extras por profissional da linha, no período todo
   overtimeHours  Decimal  @default(0) @db.Decimal(8, 2)
+
+  // locacao_cliente: o item do estoque alugado (o período fica em `extra.period`)
+  stockItemId Int?
 
   // treinamento
   courseId Int?
