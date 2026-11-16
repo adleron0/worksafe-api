@@ -7,7 +7,7 @@
  *
  * Todos são só partículas por cima da corda (nada de tingir):
  * - corda (padrão, "Trança" na tela): três fios de luz em curvas entrelaçadas
- * - reflexo: traços longos que acendem e apagam, em trilhas paralelas à borda
+ * - reflexo: faixas inclinadas de poeira brilhante, como luz passando sobre metal
  * - glitter: quadradinhos de tamanhos e brilhos sorteados
  * - cristais: triângulos pequenos de tamanhos e giros sorteados
  * - nenhum: sem brilho (só a moldura do modelo)
@@ -179,52 +179,58 @@ function drawCorda(ctx: Ctx, w: number, h: number, colors: string[], rand: () =>
 }
 
 /**
- * Reflexo: traços longos e finíssimos que acendem e apagam nas pontas
- * (degradê transparente → ouro → branco → ouro → transparente), em três
- * trilhas paralelas à borda, com espaçamento irregular — luz correndo pela
- * moldura.
+ * Reflexo: faixas inclinadas de poeira brilhante, como a luz passando sobre
+ * metal. Em cada faixa, pontinhos finíssimos se concentram no meio e se
+ * dissolvem nas bordas (distribuição gaussiana), somando luz ("lighter");
+ * um ou dois pontos nítidos marcam o centro do reflexo. Entre as faixas a
+ * corda fica limpa.
  */
 function drawReflexo(ctx: Ctx, w: number, h: number, colors: string[], rand: () => number) {
   const B = ropeBand(w, h);
   const unit = Math.min(w, h);
   const light = colors[colors.length - 1];
-  const gold = colors[0];
-  const deep = colors[3] ?? colors[1] ?? gold;
-  const lanes = [0.22, 0.5, 0.78];
+  const gauss = () => (rand() + rand() + rand() - 1.5) / 1.5; // ~N(0, 0.33), em -1..1
+  const slant = Math.tan(Math.PI / 6); // inclinação das faixas
   edgeStrips(ctx, w, h, B, (L) => {
-    ctx.lineCap = 'round';
-    lanes.forEach((lane, li) => {
-      let x = -B + rand() * B;
-      while (x < L) {
-        const len = B * (1.2 + rand() * 2.6);
-        const y = B * lane + (rand() - 0.5) * B * 0.06;
-        const peak = 0.75 + rand() * 0.25;
-        const g = ctx.createLinearGradient(x, 0, x + len, 0);
-        g.addColorStop(0, rgba(gold, 0));
-        g.addColorStop(0.35, rgba(gold, peak * 0.8));
-        g.addColorStop(0.5, rgba(light, peak));
-        g.addColorStop(0.65, rgba(gold, peak * 0.8));
-        g.addColorStop(1, rgba(gold, 0));
-        const line = (width: number, alpha: number, style: string | CanvasGradient) => {
-          ctx.globalAlpha = alpha;
-          ctx.strokeStyle = style;
-          ctx.lineWidth = width;
-          ctx.beginPath();
-          ctx.moveTo(x, y);
-          ctx.lineTo(x + len, y);
-          ctx.stroke();
-        };
-        const base = unit * (li === 1 ? 0.0034 : 0.0024);
-        // halo largo e suave + traço fino aceso
-        const halo = ctx.createLinearGradient(x, 0, x + len, 0);
-        halo.addColorStop(0, rgba(deep, 0));
-        halo.addColorStop(0.5, rgba(deep, 0.55));
-        halo.addColorStop(1, rgba(deep, 0));
-        line(base * 2.2, 1, halo);
-        line(base, 1, g);
-        x += len + B * (0.6 + rand() * 2.2);
+    let c = B * (0.5 + rand() * 1.5);
+    while (c < L + B) {
+      const width = B * (0.35 + rand() * 0.35); // meia largura da faixa
+      const strength = 0.6 + rand() * 0.4;
+      const count = Math.round(320 * strength);
+      for (let i = 0; i < count; i++) {
+        const u = gauss(); // posição através da faixa (-1..1)
+        const y = rand() * B;
+        const x = c + u * width + (y - B / 2) * slant;
+        const fall = Math.exp(-u * u * 4); // mais denso e aceso no meio
+        const r = unit * (0.0005 + rand() * rand() * 0.0016) * (0.6 + fall * 0.7);
+        ctx.globalAlpha = (0.3 + fall * 0.7) * strength;
+        // poeira na cor do tema (aparece sobre a prata); pouco branco, só de brilho
+        ctx.fillStyle = rand() < 0.15 ? '#ffffff' : colors[Math.floor(rand() * colors.length)];
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
       }
-    });
+      // um ou dois pontos nítidos no centro do reflexo, somando luz
+      ctx.globalCompositeOperation = 'lighter';
+      const n = rand() < 0.5 ? 1 : 2;
+      for (let j = 0; j < n; j++) {
+        const y = B * (0.25 + rand() * 0.5);
+        const x = c + (y - B / 2) * slant + gauss() * width * 0.25;
+        const r = unit * (0.0035 + rand() * 0.003);
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, rgba('#ffffff', 0.95));
+        g.addColorStop(0.3, rgba(light, 0.5));
+        g.addColorStop(1, rgba(light, 0));
+        ctx.globalAlpha = strength;
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      c += B * (1.8 + rand() * 1.6);
+    }
+    ctx.globalCompositeOperation = 'source-over';
   });
 }
 
