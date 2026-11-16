@@ -62,29 +62,11 @@ function starPath(
   ctx.closePath();
 }
 
-function shapePath(
-  ctx: Ctx,
-  kind: number,
-  x: number,
-  y: number,
-  r: number,
-  rot: number,
-) {
-  if (kind === 0) {
-    ctx.beginPath();
-    ctx.arc(x, y, r * 0.75, 0, Math.PI * 2);
-  } else if (kind === 1) {
-    starPath(ctx, x, y, r, 2, 0.45, rot); // losango
-  } else if (kind === 2) {
-    starPath(ctx, x, y, r * 0.85, 3, 1, rot); // hexágono
-  } else if (kind === 3) {
-    starPath(ctx, x, y, r, 4, 0.38, rot); // estrela de 4 pontas
-  } else {
-    starPath(ctx, x, y, r, 5, 0.45, rot); // estrela de 5 pontas
-  }
-}
-
-/** Brilhos da moldura: formas, tamanhos e cores sorteados. */
+/**
+ * Moldura em glitter: quadradinhos alinhados numa grade fina, de tamanhos e
+ * brilhos sorteados (como foil holográfico). O sorteio é feito num quarto da
+ * página e espelhado nos outros três, então a borda fica simétrica.
+ */
 function drawEdgeSparkles(
   ctx: Ctx,
   w: number,
@@ -94,42 +76,30 @@ function drawEdgeSparkles(
   rand: () => number,
 ) {
   const unit = Math.min(w, h);
-  const count = Math.round((((w + h) * 2 * band) / (unit * unit)) * 2600);
-  for (let i = 0; i < count; i++) {
-    // posição dentro da faixa da borda
-    const side = Math.floor(rand() * 4);
-    const along = rand();
-    const into = rand() * band;
-    const x =
-      side === 0
-        ? along * w
-        : side === 1
-          ? w - into
-          : side === 2
-            ? along * w
-            : into;
-    const y =
-      side === 0
-        ? into
-        : side === 1
-          ? along * h
-          : side === 2
-            ? h - into
-            : along * h;
-    const big = rand() < 0.22;
-    const r = unit * (big ? 0.006 + rand() * 0.007 : 0.002 + rand() * 0.004);
-    const kind = Math.floor(rand() * 5);
-    ctx.globalAlpha = 0.55 + rand() * 0.4;
-    ctx.fillStyle = colors[Math.floor(rand() * colors.length)];
-    shapePath(ctx, kind, x, y, r, rand() * Math.PI);
-    ctx.fill();
-    if (big) {
-      // ponto de luz
-      ctx.globalAlpha = 0.8;
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.arc(x - r * 0.2, y - r * 0.2, r * 0.22, 0, Math.PI * 2);
-      ctx.fill();
+  const cell = Math.max(2, unit * 0.0065);
+  const halfW = w / 2;
+  const halfH = h / 2;
+  for (let gy = 0; gy * cell < halfH; gy++) {
+    for (let gx = 0; gx * cell < halfW; gx++) {
+      const x = gx * cell;
+      const y = gy * cell;
+      // só na faixa da borda, mais denso perto da beirada
+      const dist = Math.min(x, y);
+      if (dist > band) continue;
+      const edge = 1 - dist / band;
+      if (rand() > 0.4 + edge * 0.5) continue;
+      const t = rand();
+      const glint = t > 0.88;
+      const size = cell * (glint ? 0.85 : 0.3 + t * t * 0.6);
+      const off = (cell - size) / 2;
+      ctx.globalAlpha = glint ? 1 : 0.45 + rand() * 0.5 * (0.6 + edge * 0.4);
+      ctx.fillStyle = glint ? colors[colors.length - 1] : colors[Math.floor(rand() * colors.length)];
+      const px = x + off;
+      const py = y + off;
+      ctx.fillRect(px, py, size, size);
+      ctx.fillRect(w - px - size, py, size, size);
+      ctx.fillRect(px, h - py - size, size, size);
+      ctx.fillRect(w - px - size, h - py - size, size, size);
     }
   }
   ctx.globalAlpha = 1;
