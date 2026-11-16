@@ -24,6 +24,7 @@ model TraineeCourseCertificate {
   highlightTheme       CertificateHighlightTheme?
   highlightLabel       String?                    @db.VarChar(60)
   highlightPattern     CertificateHighlightPattern?
+  highlightBorder      CertificateHighlightBorder?
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
@@ -56,5 +57,14 @@ enum CertificateHighlightPattern {
   glitter
   arco_iris
   gravado
+  nenhum
+}
+
+/// Brilho da moldura no efeito de destaque (padrão: corda).
+enum CertificateHighlightBorder {
+  corda
+  reflexo
+  glitter
+  cristais
   nenhum
 }

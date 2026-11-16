@@ -40,7 +40,7 @@ import { applyConditionalVisibility } from './conditional-visibility';
  */
 
 /** Suba quando o resultado do render mudar, para invalidar caches/URLs. */
-export const RENDER_VERSION = 8;
+export const RENDER_VERSION = 9;
 
 export type CertificateSide = 'front' | 'back';
 
@@ -95,11 +95,13 @@ export class CertificateRenderService {
         highlightTheme: true,
         highlightLabel: true,
         highlightPattern: true,
+        highlightBorder: true,
         class: {
           select: {
             highlightTheme: true,
             highlightLabel: true,
             highlightPattern: true,
+            highlightBorder: true,
           },
         },
       },
@@ -295,6 +297,7 @@ export class CertificateRenderService {
           highlight.theme,
           highlight.pattern,
           `${cert.key}:${side}`,
+          highlight.border,
         );
       }
       if (highlight && side === 'front') {

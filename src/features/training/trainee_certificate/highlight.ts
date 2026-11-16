@@ -1,4 +1,5 @@
 import {
+  CertificateHighlightBorder,
   CertificateHighlightPattern,
   CertificateHighlightTheme,
 } from '@prisma/client';
@@ -21,9 +22,13 @@ export interface CertificateHighlight {
   kind: HighlightKind;
   theme: CertificateHighlightTheme;
   label: string;
-  /** Padronagem do centro (a borda sempre tem os brilhos). */
+  /** Padronagem do centro. */
   pattern: CertificateHighlightPattern;
+  /** Brilho da moldura (padrão: corda). */
+  border: CertificateHighlightBorder;
 }
+
+export const DEFAULT_BORDER: CertificateHighlightBorder = 'corda';
 
 /** Padronagem de cada tema quando ninguém escolheu uma. */
 export const DEFAULT_PATTERN: Record<
@@ -40,10 +45,12 @@ interface HighlightSource {
   highlightTheme?: CertificateHighlightTheme | null;
   highlightLabel?: string | null;
   highlightPattern?: CertificateHighlightPattern | null;
+  highlightBorder?: CertificateHighlightBorder | null;
   class?: {
     highlightTheme?: CertificateHighlightTheme | null;
     highlightLabel?: string | null;
     highlightPattern?: CertificateHighlightPattern | null;
+    highlightBorder?: CertificateHighlightBorder | null;
   } | null;
 }
 
@@ -66,6 +73,8 @@ export function resolveHighlight(
         cert.highlightPattern ??
         cert.class?.highlightPattern ??
         DEFAULT_PATTERN[theme],
+      border:
+        cert.highlightBorder ?? cert.class?.highlightBorder ?? DEFAULT_BORDER,
     };
   }
   if (cert.class?.highlightTheme) {
@@ -75,6 +84,7 @@ export function resolveHighlight(
       theme,
       label: cert.class.highlightLabel?.trim() || HIGHLIGHT_DEFAULT_LABEL.turma,
       pattern: cert.class.highlightPattern ?? DEFAULT_PATTERN[theme],
+      border: cert.class.highlightBorder ?? DEFAULT_BORDER,
     };
   }
   return null;

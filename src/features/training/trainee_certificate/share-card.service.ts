@@ -175,11 +175,13 @@ export class ShareCardService {
         highlightTheme: true,
         highlightLabel: true,
         highlightPattern: true,
+        highlightBorder: true,
         class: {
           select: {
             highlightTheme: true,
             highlightLabel: true,
             highlightPattern: true,
+            highlightBorder: true,
           },
         },
         company: {

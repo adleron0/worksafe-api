@@ -13,6 +13,7 @@ model CourseClass {
   highlightTheme    CertificateHighlightTheme?
   highlightLabel    String?           @db.VarChar(60)
   highlightPattern  CertificateHighlightPattern?
+  highlightBorder   CertificateHighlightBorder?
   categoryId        Int?
   classCode         String?           @db.VarChar(50)
   price             Decimal?          @db.Decimal(18, 2)

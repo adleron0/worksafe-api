@@ -249,6 +249,7 @@ export class ClassesService {
         highlightTheme: true,
         highlightLabel: true,
         highlightPattern: true,
+        highlightBorder: true,
       },
     });
     if (!turma) throw new NotFoundException('Turma não encontrada');
@@ -264,6 +265,7 @@ export class ClassesService {
           highlightTheme: true,
           highlightLabel: true,
           highlightPattern: true,
+          highlightBorder: true,
           trainee: { select: { id: true, name: true, imageUrl: true } },
         },
       }),
@@ -317,6 +319,7 @@ export class ClassesService {
         highlightTheme: true,
         highlightLabel: true,
         highlightPattern: true,
+        highlightBorder: true,
         certificate: { select: { id: true, name: true } },
       },
     });
@@ -350,6 +353,7 @@ export class ClassesService {
           highlightTheme: true,
           highlightLabel: true,
           highlightPattern: true,
+          highlightBorder: true,
         },
       }),
       this.prisma.courseClassExam.findMany({

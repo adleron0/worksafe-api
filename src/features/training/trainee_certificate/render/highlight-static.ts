@@ -3,6 +3,7 @@ import {
   CertificateHighlightTheme,
 } from '@prisma/client';
 import { createCanvas } from 'canvas';
+import { DEFAULT_FOIL_BORDER, FoilBorder, drawFoilBorder } from './highlight-border';
 
 /**
  * Efeito de destaque ESTÁTICO (PNG, PDF, miniatura, prévia, impresso): a
@@ -67,49 +68,6 @@ function starPath(
     else ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
   }
   ctx.closePath();
-}
-
-/**
- * Moldura em glitter: quadradinhos alinhados numa grade fina, de tamanhos e
- * brilhos sorteados (como foil holográfico). O sorteio é feito num quarto da
- * página e espelhado nos outros três, então a borda fica simétrica.
- */
-function drawEdgeSparkles(
-  ctx: Ctx,
-  w: number,
-  h: number,
-  band: number,
-  colors: string[],
-  rand: () => number,
-) {
-  const unit = Math.min(w, h);
-  const cell = Math.max(2, unit * 0.0065);
-  const halfW = w / 2;
-  const halfH = h / 2;
-  for (let gy = 0; gy * cell < halfH; gy++) {
-    for (let gx = 0; gx * cell < halfW; gx++) {
-      const x = gx * cell;
-      const y = gy * cell;
-      // só na faixa da borda, mais denso perto da beirada
-      const dist = Math.min(x, y);
-      if (dist > band) continue;
-      const edge = 1 - dist / band;
-      if (rand() > 0.4 + edge * 0.5) continue;
-      const t = rand();
-      const glint = t > 0.88;
-      const size = cell * (glint ? 0.85 : 0.3 + t * t * 0.6);
-      const off = (cell - size) / 2;
-      ctx.globalAlpha = glint ? 1 : 0.45 + rand() * 0.5 * (0.6 + edge * 0.4);
-      ctx.fillStyle = glint ? colors[colors.length - 1] : colors[Math.floor(rand() * colors.length)];
-      const px = x + off;
-      const py = y + off;
-      ctx.fillRect(px, py, size, size);
-      ctx.fillRect(w - px - size, py, size, size);
-      ctx.fillRect(px, h - py - size, size, size);
-      ctx.fillRect(w - px - size, h - py - size, size, size);
-    }
-  }
-  ctx.globalAlpha = 1;
 }
 
 /** Padronagem do centro, em vetor. */
@@ -297,6 +255,7 @@ export function drawStaticFoil(
   theme: CertificateHighlightTheme,
   pattern: CertificateHighlightPattern,
   seed: string,
+  border: FoilBorder = DEFAULT_FOIL_BORDER,
 ) {
   const colors = PALETTE[theme] ?? PALETTE.ouro;
   const rand = rng(`${seed}|${theme}|${pattern}`);
@@ -331,7 +290,7 @@ export function drawStaticFoil(
     ctx.drawImage(layer as unknown as CanvasImageSource, band, band);
     ctx.restore();
   }
-  // moldura: brilhos por cima, nítidos
-  drawEdgeSparkles(ctx, width, height, band, colors, rand);
+  // moldura: brilho no estilo escolhido, por cima, nítido
+  drawFoilBorder(ctx, width, height, colors, () => rng(`${seed}|${theme}|borda`), border);
   ctx.restore();
 }

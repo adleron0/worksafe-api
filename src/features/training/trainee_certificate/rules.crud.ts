@@ -20,7 +20,7 @@ export const traineeCertificateEntity: EntityRules = {
   includes: {
     trainee: { select: { id: true, name: true, imageUrl: true } },
     course: { select: { name: true, icon: true, color: true } },
-    class: { select: { name: true, description: true, initialDate: true, finalDate: true, highlightTheme: true, highlightLabel: true, highlightPattern: true } },
+    class: { select: { name: true, description: true, initialDate: true, finalDate: true, highlightTheme: true, highlightLabel: true, highlightPattern: true, highlightBorder: true } },
     company: { select: { cnpj: true, comercial_name: true, logoUrl: true, faviconUrl: true, websiteUrl: true } },
   },
   neverWritable: ['key'], softDelete: { field: 'inactiveAt' },
