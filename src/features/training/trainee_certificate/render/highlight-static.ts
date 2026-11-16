@@ -14,6 +14,13 @@ import { createCanvas } from 'canvas';
 
 type Ctx = CanvasRenderingContext2D;
 
+/** Degradê do brilho fixo (mesmas cores da etiqueta do tema no visualizador). */
+const SHEEN: Record<CertificateHighlightTheme, string[]> = {
+  ouro: ['#e8c770', '#f7e3a1', '#fff6d8', '#efd27e', '#d9b252'],
+  prata: ['#c3ccd4', '#e3e8ec', '#ffffff', '#d5dce2', '#b5bfc8'],
+  holografico: ['#ff9adf', '#a0e7ff', '#c8ffb0', '#ffe39a', '#d3a8ff'],
+};
+
 const PALETTE: Record<CertificateHighlightTheme, string[]> = {
   ouro: ['#e9c46a', '#d9a93c', '#f3dc8a', '#c99a2e', '#fff1c2'],
   prata: ['#c7d0da', '#aab6c3', '#dfe6ee', '#9aa5ae', '#f4f7fa'],
@@ -296,6 +303,19 @@ export function drawStaticFoil(
   const band = Math.min(width, height) * 0.045;
 
   ctx.save();
+  // brilho fixo do tema (o que o visualizador mostra em movimento), para a
+  // imagem/PDF baixados e a impressão também levarem a cor do foil
+  {
+    const stops = SHEEN[theme] ?? SHEEN.ouro;
+    const g = ctx.createLinearGradient(0, 0, width, height);
+    stops.forEach((c, i) => g.addColorStop(i / (stops.length - 1), c));
+    ctx.save();
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = g;
+    ctx.fillRect(band, band, width - band * 2, height - band * 2);
+    ctx.restore();
+  }
   // centro: suave, multiplicado (tinge o papel e deixa o texto legível)
   if (pattern !== 'nenhum') {
     // camada própria: a opacidade e o multiply valem para a padronagem toda
