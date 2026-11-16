@@ -416,9 +416,13 @@ export class StockEquipmentService {
       include: { item: true }, take: 200,
     });
     const names = await holderNames(this.prisma, actor.companyId, units.map((u) => ({ type: u.holderType as HolderType, id: u.holderId })));
+    const suggested = new Map<number, number | null>();
+    for (const item of new Map([...units, ...lots].map((x) => [x.item.id, x.item])).values()) {
+      suggested.set(item.id, item.inspectionTemplateId ?? (await this.suggestTemplate(actor.companyId, item.name)));
+    }
     return {
-      units: units.map((u) => ({ ...this.row(u, names), reason: u.needsInspection ? 'Extraordinária' : u.status === 'em_inspecao' ? 'Esperando inspeção' : !u.nextInspectionAt ? 'Sem inspeção registrada' : d(u.nextInspectionAt)! < today() ? 'Vencida' : 'A vencer' })),
-      lots: lots.map((l) => ({ id: l.id, number: l.number, itemId: l.itemId, item: l.item.name, nextInspectionAt: d(l.nextInspectionAt), state: dueState(d(l.nextInspectionAt), l.item.warnDays) ?? 'vencido' })),
+      units: units.map((u) => ({ ...this.row(u, names), templateId: suggested.get(u.itemId) ?? null, reason: u.needsInspection ? 'Extraordinária' : u.status === 'em_inspecao' ? 'Esperando inspeção' : !u.nextInspectionAt ? 'Sem inspeção registrada' : d(u.nextInspectionAt)! < today() ? 'Vencida' : 'A vencer' })),
+      lots: lots.map((l) => ({ id: l.id, number: l.number, itemId: l.itemId, item: l.item.name, templateId: suggested.get(l.itemId) ?? null, nextInspectionAt: d(l.nextInspectionAt), state: dueState(d(l.nextInspectionAt), l.item.warnDays) ?? 'vencido' })),
     };
   }
 

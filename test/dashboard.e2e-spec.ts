@@ -66,7 +66,7 @@ describe('Resumo da tela inicial (e2e)', () => {
     const none = (await api().get('/dashboard').set(auth(company.id, user.id, [])).expect(200)).body;
     expect(none.today).toBe(TODAY);
     expect(none.monthDay).toBe(Number(TODAY.slice(8, 10)));
-    for (const key of ['finance', 'commercial', 'operations', 'team', 'training', 'week']) expect(none[key]).toBeUndefined();
+    for (const key of ['finance', 'commercial', 'operations', 'team', 'training', 'week', 'stock']) expect(none[key]).toBeUndefined();
 
     const fin = (await api().get('/dashboard').set(auth(company.id, user.id, ['list_financeiro'])).expect(200)).body;
     expect(fin.finance).toBeDefined();
@@ -77,6 +77,10 @@ describe('Resumo da tela inicial (e2e)', () => {
     const com = (await api().get('/dashboard').set(auth(company.id, user.id, ['list_comercial'])).expect(200)).body;
     expect(com.commercial).toBeDefined();
     expect(com.finance).toBeUndefined();
+
+    const estoque = (await api().get('/dashboard').set(auth(company.id, user.id, ['list_itens_estoque'])).expect(200)).body;
+    expect(estoque.stock).toMatchObject({ low: 0, inspections: 0, calibrations: 0, value: null, link: '/suprimentos/estoque' });
+    expect(estoque.finance).toBeUndefined();
   });
 
   it('financeiro: caixa de hoje, projetado em 30 dias, vencidos por faixa e meta do mês', async () => {

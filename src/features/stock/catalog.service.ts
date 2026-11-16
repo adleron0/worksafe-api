@@ -348,6 +348,13 @@ export class StockCatalogService {
   async createItem(actor: StockActor, body: Body) {
     const data = await this.itemData(actor, body, null);
     const code = (data.code as string | undefined) ?? (await this.nextCode(actor.companyId, (data.categoryId as number | null) ?? null));
+    // item que exige inspeção nasce com um roteiro: o da categoria, ou o que começa pela mesma palavra do nome
+    if (data.requiresInspection && !data.inspectionTemplateId) {
+      const category = data.categoryId ? await this.prisma.stock_Category.findUnique({ where: { id: Number(data.categoryId) }, select: { inspectionTemplateId: true } }) : null;
+      const word = String(data.name ?? '').trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+      const byName = word.length >= 3 ? (await this.prisma.stock_InspectionTemplate.findMany({ where: { companyId: actor.companyId, inactiveAt: null }, select: { id: true, name: true } })).find((t) => t.name.toLowerCase().startsWith(word)) : null;
+      data.inspectionTemplateId = category?.inspectionTemplateId ?? byName?.id ?? null;
+    }
     const row = await this.prisma.stock_Item.create({ data: { ...(data as Prisma.Stock_ItemUncheckedCreateInput), code, companyId: actor.companyId } });
     return this.item(actor, row.id);
   }
@@ -480,14 +487,27 @@ export class StockCatalogService {
     const names = await holderNames(this.prisma, actor.companyId, units.map((u) => ({ type: u.holderType as HolderType, id: u.holderId })));
     const now = today();
     return units.map((u) => {
-      const blocked = u.status !== 'disponivel' || u.needsInspection
-        || (u.item.requiresInspection && (!u.nextInspectionAt || d(u.nextInspectionAt)! < now))
-        || (u.item.requiresCalibration && (!u.nextCalibrationAt || d(u.nextCalibrationAt)! < now))
-        || (!!u.lifeEndsAt && d(u.lifeEndsAt)! < now);
+      const br = (value: Date | null) => (value ? d(value)!.split('-').reverse().join('/') : '');
+      // o motivo em palavras, para a tela mostrar com o atalho certo (inspecionar, calibrar)
+      const reason = u.status === 'baixado' ? 'baixada'
+        : u.status === 'bloqueado' ? 'bloqueada'
+          : u.status === 'em_inspecao' ? 'esperando inspeção'
+            : u.status === 'em_calibracao' ? 'em calibração'
+              : u.status === 'em_manutencao' ? 'em manutenção'
+                : u.status === 'em_uso' ? `em uso (${u.holderType === 'externo' ? 'fora' : names.get(holderKey({ type: u.holderType, id: u.holderId })) ?? 'fora'})`
+                  : u.needsInspection ? 'precisa de inspeção extraordinária'
+                    : u.item.requiresInspection && !u.nextInspectionAt ? 'sem inspeção registrada'
+                      : u.item.requiresInspection && d(u.nextInspectionAt)! < now ? `inspeção venceu em ${br(u.nextInspectionAt)}`
+                        : u.item.requiresCalibration && !u.nextCalibrationAt ? 'sem calibração registrada'
+                          : u.item.requiresCalibration && d(u.nextCalibrationAt)! < now ? `calibração venceu em ${br(u.nextCalibrationAt)}`
+                            : u.lifeEndsAt && d(u.lifeEndsAt)! < now ? `vida útil acabou em ${br(u.lifeEndsAt)}` : null;
+      const fix = reason === null ? null
+        : /inspeç/.test(reason) ? 'inspecionar' : /calibraç/.test(reason) && u.status !== 'em_calibracao' ? 'calibrar' : null;
+      const blocked = reason !== null;
       return {
         id: u.id, name: `${u.tag}${u.serialNumber ? ` · ${u.serialNumber}` : ''}`, tag: u.tag, itemId: u.itemId, item: u.item.name, status: u.status,
         holderType: u.holderType, holderId: u.holderId, where: u.holderType === 'externo' ? '—' : names.get(holderKey({ type: u.holderType, id: u.holderId })) ?? '—',
-        usable: !blocked,
+        usable: !blocked, reason, fix,
       };
     });
   }
