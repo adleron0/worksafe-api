@@ -26,9 +26,12 @@ export const profileEntity: EntityRules = {
       (context as Request).user?.profile === 'super'
         ? undefined
         : { kind: 'cmp', path: ['name'], operator: 'ne', value: 'super' },
-    preWrite: ({ op, data }) => {
-      if (op === 'create' && String(data.name ?? '').toLowerCase() === 'super') {
+    preWrite: ({ op, data, existing, context }) => {
+      if ((op === 'create' || op === 'update') && 'name' in data && String(data.name ?? '').trim().toLowerCase() === 'super' && existing?.name !== 'super') {
         throw new CrudError('VALIDATION_FAILED', 'Não é possível criar um perfil com o nome de Super', 'name');
+      }
+      if (existing?.name === 'super' && (context as Request).user?.profile !== 'super') {
+        throw new CrudError('FORBIDDEN', 'Só o super altera o perfil super');
       }
       return undefined;
     },

@@ -1,4 +1,4 @@
-import { EntityHooks, EntityRules, composeHooks } from '@adleron/crud-core';
+import { CrudError, EntityHooks, EntityRules, composeHooks } from '@adleron/crud-core';
 import { Request } from 'express';
 
 import { AuthCacheService } from 'src/common/cache/auth-cache.service';
@@ -30,6 +30,29 @@ const invalidateAuthCache: EntityHooks<Request> = {
   },
 };
 
+/**
+ * Quem não é super não promove ninguém a super (nem a si mesmo) e não altera,
+ * inativa ou reativa um usuário super. Antes, quem tinha `update_user` trocava
+ * o perfil de qualquer um para super pelo PUT /user/:id.
+ */
+const protectSuper: EntityHooks<Request> = {
+  preWrite: async ({ data, existing, context, repository }) => {
+    if ((context as Request).user?.profile === 'super') return undefined;
+    const profileName = async (id: unknown) => {
+      if (id === undefined || id === null || id === '') return undefined;
+      const row = await repository.findOne('profile', { kind: 'cmp', path: ['id'], operator: 'eq', value: Number(id) });
+      return row?.name as string | undefined;
+    };
+    if (existing && (await profileName(existing.profileId)) === 'super') {
+      throw new CrudError('FORBIDDEN', 'Só o super altera um usuário super');
+    }
+    if ('profileId' in data && (await profileName(data.profileId)) === 'super') {
+      throw new CrudError('FORBIDDEN', 'Só o super pode dar o perfil super a alguém');
+    }
+    return undefined;
+  },
+};
+
 export const userEntity: EntityRules = {
   entity: 'user',
   model: 'User',
@@ -53,6 +76,7 @@ export const userEntity: EntityRules = {
   selfRestricted: ['profileId', 'sellerStatus', 'sellerConfig', 'isSeller'],
   softDelete: { field: 'inactiveAt' },
   hooks: composeHooks<Request>(
+    protectSuper,
     syncActiveFlag,
     imageUpload(),
     parseJsonFields('bankAccount', 'sellerConfig'),

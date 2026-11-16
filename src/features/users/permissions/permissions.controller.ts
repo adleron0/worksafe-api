@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Param, Req } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Put, Param, ParseIntPipe, Req } from '@nestjs/common';
 import { PermissionsService } from './permissions.service';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { Request } from 'express';
@@ -13,6 +13,43 @@ export class PermissionsController {
     const companyId = request.companyId;
     const allPermissions = await this.service.getAllPermissions(companyId);
     return allPermissions;
+  }
+
+  @Get('profile/:profileId')
+  @Permissions('list_profile')
+  async readProfile(@Param('profileId', ParseIntPipe) profileId: number, @Req() request: Request) {
+    await this.service.assertProfileInCompany(profileId, Number(request.user.companyId));
+    return this.service.getAssigned({ profileId });
+  }
+
+  @Get('user/:userId')
+  @Permissions('list_profile')
+  async readUser(@Param('userId', ParseIntPipe) userId: number, @Req() request: Request) {
+    await this.service.assertUserInCompany(userId, Number(request.user.companyId));
+    return this.service.getAssigned({ userId });
+  }
+
+  /** Tela de permissões: grava as concessões e remoções de uma vez. */
+  @Put('profile/:profileId')
+  @Permissions('update_profile')
+  async saveProfile(
+    @Param('profileId', ParseIntPipe) profileId: number,
+    @Body() body: { grant?: number[]; revoke?: number[] },
+    @Req() request: Request,
+  ) {
+    await this.service.assertProfileInCompany(profileId, Number(request.user.companyId));
+    return this.service.saveBulk({ profileId }, body ?? {}, request.user);
+  }
+
+  @Put('user/:userId')
+  @Permissions('update_profile')
+  async saveUser(
+    @Param('userId', ParseIntPipe) userId: number,
+    @Body() body: { grant?: number[]; revoke?: number[] },
+    @Req() request: Request,
+  ) {
+    await this.service.assertUserInCompany(userId, Number(request.user.companyId));
+    return this.service.saveBulk({ userId }, body ?? {}, request.user);
   }
 
   @Patch('user/active/:userId/:permissionId')
@@ -32,6 +69,8 @@ export class PermissionsController {
       permissionId: Number(permissionId),
     };
     await this.service.assertUserInCompany(payload.userId, Number(companyId));
+    await this.service.assertTargetNotSuper(request.user, { userId: payload.userId });
+    await this.service.assertCanAssign(request.user, [payload.permissionId]);
 
     return this.service.activeUserPermission(payload, logParams);
   }
@@ -53,6 +92,8 @@ export class PermissionsController {
       permissionId: Number(permissionId),
     };
     await this.service.assertUserInCompany(payload.userId, Number(companyId));
+    await this.service.assertTargetNotSuper(request.user, { userId: payload.userId });
+    await this.service.assertCanAssign(request.user, [payload.permissionId]);
     return this.service.inactiveUserPermission(payload, logParams);
   }
 
@@ -73,6 +114,8 @@ export class PermissionsController {
       permissionId: Number(permissionId),
     };
     await this.service.assertProfileInCompany(payload.profileId, Number(companyId));
+    await this.service.assertTargetNotSuper(request.user, { profileId: payload.profileId });
+    await this.service.assertCanAssign(request.user, [payload.permissionId]);
 
     return this.service.activeProfilePermission(payload, logParams);
   }
@@ -94,6 +137,8 @@ export class PermissionsController {
       permissionId: Number(permissionId),
     };
     await this.service.assertProfileInCompany(payload.profileId, Number(companyId));
+    await this.service.assertTargetNotSuper(request.user, { profileId: payload.profileId });
+    await this.service.assertCanAssign(request.user, [payload.permissionId]);
     return this.service.inactiveProfilePermission(payload, logParams);
   }
 }

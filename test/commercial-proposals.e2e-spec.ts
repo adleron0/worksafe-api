@@ -18,7 +18,7 @@ import { blockRealNetwork, resetAsaasMock } from './setup/asaas-mock';
  */
 describe('Comercial — propostas (e2e)', () => {
   const BASE = ['list_comercial', 'create_comercial', 'update_comercial', 'inactive_comercial', 'activate_comercial'];
-  const ALL = [...BASE, 'view_custos_comercial'];
+  const ALL = [...BASE, 'view_custos_comercial', 'update_base_calculo'];
   const YEAR = new Date().getFullYear();
   let jwt: JwtService;
   let userId = 0;

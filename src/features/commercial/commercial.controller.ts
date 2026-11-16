@@ -3,6 +3,9 @@ import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { CommercialService } from './commercial.service';
 
+/** Base de cálculo e perfis de impostos mudam o preço de tudo: permissão própria. */
+const BASE_PERMISSION = 'update_base_calculo';
+
 const companyOf = (req: Request) => Number((req as Request & { user?: { companyId?: number } }).user?.companyId ?? 0);
 type Json = Record<string, unknown>;
 
@@ -30,39 +33,39 @@ export class CommercialController {
   @Permissions('list_comercial') @Post('cost-bases/compute')
   compute(@Req() req: Request, @Body() body: Json) { return this.commercial.computeDraft(companyOf(req), body ?? {}); }
 
-  @Permissions('create_comercial') @Post('cost-bases')
+  @Permissions(BASE_PERMISSION) @Post('cost-bases')
   createBase(@Req() req: Request, @Body() body: Json) { return this.commercial.createBase(companyOf(req), body ?? {}); }
 
-  @Permissions('update_comercial') @Put('cost-bases/:id')
+  @Permissions(BASE_PERMISSION) @Put('cost-bases/:id')
   updateBase(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) {
     return this.commercial.updateBase(companyOf(req), id, body ?? {});
   }
 
-  @Permissions('inactive_comercial') @Patch('cost-bases/inactive/:id')
+  @Permissions(BASE_PERMISSION) @Patch('cost-bases/inactive/:id')
   inactivateBase(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.commercial.setBaseActive(companyOf(req), id, false); }
 
-  @Permissions('activate_comercial') @Patch('cost-bases/active/:id')
+  @Permissions(BASE_PERMISSION) @Patch('cost-bases/active/:id')
   activateBase(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.commercial.setBaseActive(companyOf(req), id, true); }
 
   // ---- perfis tributários
   @Permissions('list_comercial') @Get('tax-profiles')
   taxProfiles(@Req() req: Request, @Query('date') date?: string) { return this.commercial.listTaxProfiles(companyOf(req), date || undefined); }
 
-  @Permissions('create_comercial') @Post('tax-profiles')
+  @Permissions(BASE_PERMISSION) @Post('tax-profiles')
   createTax(@Req() req: Request, @Body() body: Json) { return this.commercial.createTaxProfile(companyOf(req), body ?? {}); }
 
-  @Permissions('update_comercial') @Put('tax-profiles/:id')
+  @Permissions(BASE_PERMISSION) @Put('tax-profiles/:id')
   updateTax(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) {
     return this.commercial.updateTaxProfile(companyOf(req), id, body ?? {});
   }
 
-  @Permissions('update_comercial') @Patch('tax-profiles/default/:id')
+  @Permissions(BASE_PERMISSION) @Patch('tax-profiles/default/:id')
   defaultTax(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.commercial.setDefaultTaxProfile(companyOf(req), id); }
 
-  @Permissions('inactive_comercial') @Patch('tax-profiles/inactive/:id')
+  @Permissions(BASE_PERMISSION) @Patch('tax-profiles/inactive/:id')
   inactivateTax(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.commercial.setTaxActive(companyOf(req), id, false); }
 
-  @Permissions('activate_comercial') @Patch('tax-profiles/active/:id')
+  @Permissions(BASE_PERMISSION) @Patch('tax-profiles/active/:id')
   activateTax(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.commercial.setTaxActive(companyOf(req), id, true); }
 
   // ---- motor
