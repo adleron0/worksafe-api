@@ -1,3 +1,4 @@
+import { rentalsFromContract } from 'src/features/stock/rental.service';
 import { SellerWalletService } from './wallet.service';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CommercialContractStatus, Prisma, financialRecordsStatus, paymentMethods } from '@prisma/client';
@@ -98,6 +99,8 @@ export class ContractService {
     } });
     // venda de serviço abre a ordem de serviço da operação
     await this.orders.createFromContract(tx, created.id, Number(signer.userId) || null);
+    // itens "locação a cliente": a locação nasce reservada, ligada à venda
+    await rentalsFromContract(tx, created.id);
     return { id: created.id, number: created.number };
   }
 

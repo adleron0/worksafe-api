@@ -8,7 +8,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
  * pasta. Quem vê o registro vê os arquivos dele; quem pode alterar o registro
  * pode enviar e apagar. Vale o "só as minhas" de propostas e de OS.
  */
-export const RECORD_ENTITIES = ['customer', 'proposal', 'service_order'] as const;
+export const RECORD_ENTITIES = ['customer', 'proposal', 'service_order', 'stock_item', 'stock_unit'] as const;
 export type RecordEntity = (typeof RECORD_ENTITIES)[number];
 export interface RecordActor { userId: number; companyId: number; permissions: string[] }
 export interface RecordAccess { entity: RecordEntity; id: number; label: string; customerId: number | null; write: boolean }
@@ -17,6 +17,9 @@ const RULES: Record<RecordEntity, { view: string; write: string }> = {
   customer: { view: 'list_clientes', write: 'update_clientes' },
   proposal: { view: 'list_comercial', write: 'update_comercial' },
   service_order: { view: 'list_ordens_de_servico', write: 'update_ordens_de_servico' },
+  // estoque: manual, ficha técnica e CA no item; certificado de calibração e laudo na peça
+  stock_item: { view: 'list_itens_estoque', write: 'update_itens_estoque' },
+  stock_unit: { view: 'list_equipamentos', write: 'update_equipamentos' },
 };
 
 export function recordEntityOf(value: unknown): RecordEntity {
@@ -50,6 +53,16 @@ export async function recordAccess(prisma: PrismaService, actor: RecordActor, en
     const row = await prisma.commercial_Proposal.findFirst({ where: { AND: [{ id, companyId: actor.companyId }, where] }, select: { id: true, number: true, title: true, customerId: true } });
     if (!row) throw missing();
     return { entity, id, label: `${row.number} · ${row.title}`, customerId: row.customerId, write };
+  }
+  if (entity === 'stock_item') {
+    const row = await prisma.stock_Item.findFirst({ where: { id, companyId: actor.companyId }, select: { id: true, code: true, name: true } });
+    if (!row) throw missing();
+    return { entity, id, label: `${row.code} · ${row.name}`, customerId: null, write };
+  }
+  if (entity === 'stock_unit') {
+    const row = await prisma.stock_Unit.findFirst({ where: { id, companyId: actor.companyId }, select: { id: true, tag: true, item: { select: { name: true } } } });
+    if (!row) throw missing();
+    return { entity, id, label: `${row.tag} · ${row.item.name}`, customerId: null, write };
   }
   const where = await ordersVisibleTo(prisma, { userId: actor.userId, companyId: actor.companyId, seesAll: can(ALL_ORDERS_PERMISSION) });
   const row = await prisma.service_Order.findFirst({ where: { AND: [{ id, companyId: actor.companyId }, where] }, select: { id: true, number: true, title: true, customerId: true } });

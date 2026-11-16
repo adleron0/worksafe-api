@@ -283,6 +283,9 @@ export class PurchaseOrderService {
         status: 'solicitado', attachments: [], requestedByUserId: actor.userId || null,
       } });
       await recordFlowEvent(tx, PURCHASE_FLOW.entity, { companyId: actor.companyId, entityId: row.id, type: 'criado', to: 'solicitado', userId: actor.userId });
+      // pedido aberto pelo envio de calibração/manutenção: o serviço fica ligado a ele
+      const eventId = Number(body.stockServiceEventId) || 0;
+      if (eventId) await tx.stock_ServiceEvent.updateMany({ where: { id: eventId, companyId: actor.companyId }, data: { purchaseOrderId: row.id } });
       return row;
     });
     return this.present(created, actor);

@@ -476,7 +476,7 @@ CREATE UNIQUE INDEX "Stock_Rental_companyId_number_key" ON "Stock_Rental"("compa
 CREATE INDEX "Stock_RentalLine_rentalId_idx" ON "Stock_RentalLine"("rentalId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Stock_RentalCharge_rentalId_periodStart_kind_key" ON "Stock_RentalCharge"("rentalId", "periodStart", "kind");
+CREATE INDEX "Stock_RentalCharge_rentalId_periodStart_idx" ON "Stock_RentalCharge"("rentalId", "periodStart");
 
 -- CreateIndex
 CREATE INDEX "Stock_Count_companyId_status_idx" ON "Stock_Count"("companyId", "status");

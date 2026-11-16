@@ -419,7 +419,7 @@ model Stock_RentalCharge {
   financialRecordId Int?
   createdAt   DateTime @default(now())
 
-  @@unique([rentalId, periodStart, kind])
+  @@index([rentalId, periodStart])
 }
 
 model Stock_Count {

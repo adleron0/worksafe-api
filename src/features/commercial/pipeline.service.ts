@@ -6,6 +6,9 @@ import { TeamEntry, orderPeriod } from 'src/features/hr/allocation';
 import { documentIssues } from 'src/features/hr/document.queries';
 import { DOCUMENTS_VIEW_PERMISSION, EmployeeDocumentService } from 'src/features/hr/document.service';
 import { CompanyFileService, FILES_MANAGE_PERMISSION, FILES_VIEW_PERMISSION, FILES_WRITE_PERMISSION } from 'src/features/files/file.service';
+import { StockInventoryService } from 'src/features/stock/inventory.service';
+import { StockPpeService } from 'src/features/stock/ppe.service';
+import { StockRentalService } from 'src/features/stock/rental.service';
 import { ContractService } from './contract.service';
 
 /**
@@ -27,7 +30,8 @@ const today = () => new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0
 
 @Injectable()
 export class PipelineService {
-  constructor(private readonly prisma: PrismaService, private readonly contracts: ContractService, private readonly documents: EmployeeDocumentService, private readonly files: CompanyFileService) {}
+  constructor(private readonly prisma: PrismaService, private readonly contracts: ContractService, private readonly documents: EmployeeDocumentService, private readonly files: CompanyFileService,
+    private readonly stock: StockInventoryService, private readonly ppe: StockPpeService, private readonly rentals: StockRentalService) {}
 
   async mine(actor: PipelineActor): Promise<{ today: string; blocks: PipelineBlock[] }> {
     const can = (permission: string) => actor.permissions.includes(permission);
@@ -44,6 +48,10 @@ export class PipelineService {
     if (can(FILES_VIEW_PERMISSION)) blocks.push(this.files.pipelineBlocks({ userId: actor.userId, companyId: actor.companyId, canWrite: can(FILES_WRITE_PERMISSION), canManage: can(FILES_MANAGE_PERMISSION), permissions: actor.permissions }));
     // Bots: o que os assistentes prepararam e espera a confirmação da pessoa
     if (can('usar_bots') || can('usar_mcp')) blocks.push(this.botActions(actor));
+    // Estoque: abaixo do mínimo, inspeções, calibrações, material em obra concluída, locações atrasadas
+    blocks.push(this.stock.pipelineBlocks(actor));
+    if (can('list_entregas_epi')) blocks.push(this.ppeBlock(actor));
+    if (can('list_locacoes')) blocks.push(this.rentalsToBill(actor));
     return { today: now, blocks: (await Promise.all(blocks)).flat() };
   }
 
@@ -57,6 +65,27 @@ export class PipelineService {
     return [{
       key: 'bots_acoes', area: 'Bots', title: 'Ações dos bots para confirmar', hint: 'Preparadas pelos assistentes: só acontecem depois do seu ok', count, total: null, link: '/bots/acoes',
       items: rows.map((row) => ({ id: row.id, title: row.summary.slice(0, 120), subtitle: `expira em ${br(iso(row.expiresAt))}`, link: '/bots/acoes', value: null, late: false })),
+    }];
+  }
+
+  /** RH/Suprimentos: EPIs para trocar, CA vencido e desligados com item. */
+  private async ppeBlock(actor: PipelineActor): Promise<PipelineBlock[]> {
+    const rows = await this.ppe.pending(actor);
+    if (!rows.length) return [];
+    return [{
+      key: 'epi_pendencias', area: 'RH', title: 'EPIs para trocar ou devolver', hint: 'Troca periódica, CA vencido ou funcionário desligado com item', count: rows.length, total: null, link: '/suprimentos/estoque/epi',
+      items: rows.slice(0, TOP).map((row, index) => ({ id: Number(row.employeeId) * 1000 + index, title: String(row.employee), subtitle: `${row.label}: ${row.item}${row.tag ? ` (${row.tag})` : ''}`, link: '/suprimentos/estoque/epi', value: null, late: row.kind !== 'troca' || row.label === 'Troca vencida' })),
+    }];
+  }
+
+  /** Locações diretas com período fechado ou cobrança de avaria esperando faturar. */
+  private async rentalsToBill(actor: PipelineActor): Promise<PipelineBlock[]> {
+    const { rows } = await this.rentals.list(actor, { status: 'todas' });
+    const pending = rows.filter((row) => row.toBill);
+    if (!pending.length) return [];
+    return [{
+      key: 'locacoes_faturar', area: 'Financeiro', title: 'Locações para faturar', hint: 'Período fechado: gerar a conta a receber', count: pending.length, total: null, link: '/suprimentos/locacoes',
+      items: pending.slice(0, TOP).map((row) => ({ id: row.id, title: row.number, subtitle: row.customer, link: `/suprimentos/locacoes/${row.id}`, value: row.ratePerPeriod, late: false })),
     }];
   }
 

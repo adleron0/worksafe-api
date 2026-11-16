@@ -16,6 +16,7 @@ const MANUAL: Partial<Record<MovementType, { from: HolderType; to: HolderType; p
   transferencia: { from: 'local', to: 'local', permission: PERM.move },
   consumo_interno: { from: 'local', to: 'externo', permission: PERM.move },
   ajuste: { from: 'local', to: 'externo', permission: PERM.adjust },
+  venda: { from: 'local', to: 'externo', permission: PERM.move },
 };
 export interface NewUnit { tag?: string | null; serialNumber?: string | null; manufacturedAt?: string | null; length?: number | null }
 
