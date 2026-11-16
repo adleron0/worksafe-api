@@ -24,6 +24,7 @@ import {
 } from './highlight-seal';
 import { drawStaticFoil } from './highlight-static';
 import { QrStyle, styledQrPng } from './qr-styled';
+import { layoutInstructorSlots } from './instructor-slots';
 
 /**
  * Render do certificado na API (mesmo JSON do Fabric que o visualizador do
@@ -206,7 +207,10 @@ export class CertificateRenderService {
     if (!raw) throw new NotFoundException('Certificado sem desenho');
 
     const variables = parseCertificateVariables(cert.variableToReplace);
-    const json = replaceInCanvasJSON(raw, variables);
+    const json = replaceInCanvasJSON(
+      layoutInstructorSlots(raw, variables),
+      variables,
+    );
     const highlight = resolveHighlight(cert);
     // Marcador "Selo" do editor: com destaque recebe o selo de destaque
     // (desenhado depois); sem destaque, a imagem padrão do marcador, se houver.
