@@ -5,11 +5,11 @@
  * resultado é espelhado nos outros três: a borda sai simétrica e o sorteio
  * (que vem da chave do certificado) é o mesmo nos quatro cantos.
  *
- * - corda (padrão): tinge a corda da moldura na cor do tema e trança fios
- *   finos de luz nas duas diagonais, com reflexos correndo por ela
- * - reflexo: a corda tingida com faixas de luz largas e calmas
+ * Todos são só partículas por cima da corda (nada de tingir):
+ * - corda (padrão, "Trança" na tela): três fios de luz em curvas entrelaçadas
+ * - reflexo: traços longos que acendem e apagam, em trilhas paralelas à borda
  * - glitter: quadradinhos de tamanhos e brilhos sorteados
- * - cristais: losangos facetados, como vidro lapidado
+ * - cristais: triângulos pequenos de tamanhos e giros sorteados
  * - nenhum: sem brilho (só a moldura do modelo)
  */
 export const FOIL_BORDERS = ['corda', 'reflexo', 'glitter', 'cristais', 'nenhum'] as const;
@@ -42,17 +42,38 @@ function mirrored(ctx: Ctx, w: number, h: number, draw: () => void) {
   }
 }
 
-/** Brilho do reflexo ao longo da borda: ondas suaves (0..1). */
-function shimmer(pos: number, period: number, phase: number) {
-  const s = 0.5 + 0.5 * Math.sin((pos / period) * Math.PI * 2 + phase);
-  return s * s;
-}
-
 /** Largura da corda dos modelos (mais larga que a faixa do glitter). */
 const ropeBand = (w: number, h: number) => Math.min(w, h) * 0.066;
 
 /**
- * Faixa da borda "desenrolada": `drawStrip(L)` desenha uma tira horizontal de
+ * Partículas na faixa da corda (canto superior esquerdo): sorteia posições
+ * numa grade fina, mais densas perto da beirada, e chama `draw` em cada uma.
+ * Nada de tingir ou cobrir a corda: só pontos de brilho por cima dela.
+ */
+function particles(
+  w: number,
+  h: number,
+  B: number,
+  cell: number,
+  density: number,
+  rand: () => number,
+  draw: (x: number, y: number, t: number, edge: number) => void,
+) {
+  for (let gy = 0; gy * cell < h / 2; gy++) {
+    for (let gx = 0; gx * cell < w / 2; gx++) {
+      const x = (gx + 0.15 + rand() * 0.7) * cell;
+      const y = (gy + 0.15 + rand() * 0.7) * cell;
+      const dist = Math.min(x, y);
+      if (dist > B) continue;
+      const edge = 1 - dist / B;
+      if (rand() > density * (0.55 + edge * 0.45)) continue;
+      draw(x, y, rand(), edge);
+    }
+  }
+}
+
+/**
+ * Faixa da borda "desenrolada": `drawStrip(L)` desenha numa tira horizontal de
  * comprimento L e altura B (o topo); a lateral é a mesma tira transposta. O
  * canto é dividido na diagonal, então nada é desenhado duas vezes.
  */
@@ -73,93 +94,133 @@ function edgeStrips(ctx: Ctx, w: number, h: number, B: number, drawStrip: (L: nu
   }
 }
 
-/** Tinge a corda do fundo com as cores do tema (a prata vira ouro, holográfico…). */
-function tintStrip(ctx: Ctx, L: number, B: number, colors: string[], alpha: number) {
-  const g = ctx.createLinearGradient(0, 0, L, 0);
-  const n = Math.max(2, Math.round(L / (B * 3)));
-  for (let i = 0; i <= n; i++) g.addColorStop(i / n, colors[i % colors.length]);
-  ctx.globalCompositeOperation = 'multiply';
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, L, B);
-}
-
-/** Faixas de luz inclinadas, suaves, que "correm" pela moldura. */
-function sweepStrip(ctx: Ctx, L: number, B: number, period: number, phase: number, maxA: number) {
-  ctx.save();
-  ctx.transform(1, 0, -0.7, 1, 0, 0); // inclina as faixas
-  const x0 = -B;
-  const x1 = L + B * 2;
-  const g = ctx.createLinearGradient(x0, 0, x1, 0);
-  const steps = Math.ceil((x1 - x0) / (period / 10));
-  for (let i = 0; i <= steps; i++) {
-    const x = x0 + (i / steps) * (x1 - x0);
-    const a = Math.pow(shimmer(x, period, phase), 3) * maxA;
-    g.addColorStop(i / steps, `rgba(255,255,255,${a.toFixed(3)})`);
-  }
-  ctx.globalCompositeOperation = 'screen';
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = g;
-  ctx.fillRect(x0, 0, x1 - x0, B);
-  ctx.restore();
+function rgba(hex: string, a: number) {
+  const n = parseInt(hex.replace('#', ''), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a.toFixed(3)})`;
 }
 
 /**
- * Corda: tinge a corda, passa reflexos inclinados e trança fios finos de luz
- * nas duas diagonais (por cima/por baixo, como trama), com intensidade
- * acompanhando os reflexos — os fios se misturam à corda (screen).
+ * Trança (id "corda"): três fios finos de luz em curvas que se entrelaçam
+ * como uma trança de três pernas, por cima da corda. Cada fio acende no alto
+ * da curva (onde a luz bateria) e quase some no vale, então o desenho tem
+ * volume sem cobrir a corda; nos cruzamentos mais acesos, um ponto de brilho.
  */
 function drawCorda(ctx: Ctx, w: number, h: number, colors: string[], rand: () => number) {
   const B = ropeBand(w, h);
-  const phase = rand() * Math.PI * 2;
-  const period = B * 7;
+  const unit = Math.min(w, h);
   const light = colors[colors.length - 1];
+  const gold = colors[0];
+  const deep = colors[3] ?? colors[1] ?? gold;
+  const yc = B * 0.5;
+  const amp = B * 0.3;
+  const period = B * 1.35;
+  const phase0 = rand() * Math.PI * 2;
   edgeStrips(ctx, w, h, B, (L) => {
-    tintStrip(ctx, L, B, colors, 0.5);
-    sweepStrip(ctx, L, B, period, phase, 0.55);
-    ctx.globalCompositeOperation = 'screen';
     ctx.lineCap = 'round';
-    const step = B * 0.3;
-    const slope = 0.75; // inclinação dos fios (x por y)
-    const parts = 4;
-    for (const dir of [1, -1]) {
-      for (let x0 = -B * 2; x0 < L + B * 2; x0 += step) {
-        for (let k = 0; k < parts; k++) {
-          const y0 = (k / parts) * B;
-          const y1 = ((k + 1) / parts) * B;
-          const xa = x0 + dir * slope * y0;
-          const xb = x0 + dir * slope * y1;
-          const glow = shimmer((xa + xb) / 2 + (dir > 0 ? 0 : period * 0.18), period, phase);
-          const over = (Math.round(x0 / step) + k + (dir > 0 ? 0 : 1)) % 2 === 0;
-          const a = (over ? 0.55 : 0.18) * (0.25 + glow * 0.75);
-          ctx.globalAlpha = a;
-          ctx.strokeStyle = light;
-          ctx.lineWidth = B * 0.045;
-          ctx.beginPath();
-          ctx.moveTo(xa, y0);
-          ctx.lineTo(xb, y1);
-          ctx.stroke();
-          if (over && glow > 0.6) {
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = B * 0.016;
+    const step = period / 28;
+    for (let k = 0; k < 3; k++) {
+      const ph = phase0 + (k * Math.PI * 2) / 3;
+      let prev: [number, number] | null = null;
+      for (let x = -period; x <= L + period; x += step) {
+        const th = (x / period) * Math.PI * 2 + ph;
+        const y = yc + amp * Math.sin(th);
+        if (prev) {
+          // "por cima" na subida do fio: mais aceso; "por baixo": quase some
+          const lit = Math.max(0, Math.cos(th - 0.6)); // 0..1
+          const a = 0.15 + Math.pow(lit, 1.4) * 0.85;
+          const seg = () => {
             ctx.beginPath();
-            ctx.moveTo(xa, y0);
-            ctx.lineTo(xb, y1);
+            ctx.moveTo(prev![0], prev![1]);
+            ctx.lineTo(x, y);
             ctx.stroke();
+          };
+          // contorno dourado escuro (dá contraste sobre a corda prateada)
+          ctx.globalAlpha = a * 0.8;
+          ctx.strokeStyle = deep;
+          ctx.lineWidth = unit * (0.0034 + lit * 0.0026);
+          seg();
+          // fio dourado
+          ctx.globalAlpha = a;
+          ctx.strokeStyle = gold;
+          ctx.lineWidth = unit * (0.002 + lit * 0.0018);
+          seg();
+          // núcleo claro onde a luz bate
+          if (lit > 0.55) {
+            ctx.globalAlpha = (lit - 0.55) * 2;
+            ctx.strokeStyle = light;
+            ctx.lineWidth = unit * 0.0011;
+            seg();
           }
         }
+        prev = [x, y];
       }
+    }
+    // pontos de brilho em alguns cruzamentos (onde dois fios se encontram)
+    for (let x = -period; x <= L + period; x += period / 3) {
+      if (rand() > 0.35) continue;
+      const th = (x / period) * Math.PI * 2 + phase0 + Math.PI / 3;
+      const y = yc + amp * Math.sin(th) * 0.5;
+      const r = unit * (0.005 + rand() * 0.004);
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, rgba('#ffffff', 0.95));
+      g.addColorStop(0.4, rgba(light, 0.6));
+      g.addColorStop(1, rgba(light, 0));
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
     }
   });
 }
 
-/** Reflexo: só a corda tingida e faixas de luz largas e calmas. */
+/**
+ * Reflexo: traços longos e finíssimos que acendem e apagam nas pontas
+ * (degradê transparente → ouro → branco → ouro → transparente), em três
+ * trilhas paralelas à borda, com espaçamento irregular — luz correndo pela
+ * moldura.
+ */
 function drawReflexo(ctx: Ctx, w: number, h: number, colors: string[], rand: () => number) {
   const B = ropeBand(w, h);
-  const phase = rand() * Math.PI * 2;
+  const unit = Math.min(w, h);
+  const light = colors[colors.length - 1];
+  const gold = colors[0];
+  const deep = colors[3] ?? colors[1] ?? gold;
+  const lanes = [0.22, 0.5, 0.78];
   edgeStrips(ctx, w, h, B, (L) => {
-    tintStrip(ctx, L, B, colors, 0.55);
-    sweepStrip(ctx, L, B, B * 10, phase, 0.7);
+    ctx.lineCap = 'round';
+    lanes.forEach((lane, li) => {
+      let x = -B + rand() * B;
+      while (x < L) {
+        const len = B * (1.2 + rand() * 2.6);
+        const y = B * lane + (rand() - 0.5) * B * 0.06;
+        const peak = 0.75 + rand() * 0.25;
+        const g = ctx.createLinearGradient(x, 0, x + len, 0);
+        g.addColorStop(0, rgba(gold, 0));
+        g.addColorStop(0.35, rgba(gold, peak * 0.8));
+        g.addColorStop(0.5, rgba(light, peak));
+        g.addColorStop(0.65, rgba(gold, peak * 0.8));
+        g.addColorStop(1, rgba(gold, 0));
+        const line = (width: number, alpha: number, style: string | CanvasGradient) => {
+          ctx.globalAlpha = alpha;
+          ctx.strokeStyle = style;
+          ctx.lineWidth = width;
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + len, y);
+          ctx.stroke();
+        };
+        const base = unit * (li === 1 ? 0.0034 : 0.0024);
+        // halo largo e suave + traço fino aceso
+        const halo = ctx.createLinearGradient(x, 0, x + len, 0);
+        halo.addColorStop(0, rgba(deep, 0));
+        halo.addColorStop(0.5, rgba(deep, 0.55));
+        halo.addColorStop(1, rgba(deep, 0));
+        line(base * 2.2, 1, halo);
+        line(base, 1, g);
+        x += len + B * (0.6 + rand() * 2.2);
+      }
+    });
   });
 }
 
@@ -187,40 +248,28 @@ function drawGlitter(ctx: Ctx, w: number, h: number, colors: string[], rand: () 
   }
 }
 
-/** Cristais: losangos sobre a corda, cada faceta com um brilho e um corte claro. */
+/** Cristais: só triângulos pequenos, de tamanhos, giros e brilhos sorteados. */
 function drawCristais(ctx: Ctx, w: number, h: number, colors: string[], rand: () => number) {
   const B = ropeBand(w, h);
-  const s = B * 0.26; // meia diagonal do losango
-  edgeStrips(ctx, w, h, B, (L) => {
-    tintStrip(ctx, L, B, colors, 0.35);
-    for (let row = 0; row * s <= B + s; row++) {
-      for (let col = -1; col * s * 2 < L + s * 2; col++) {
-        const cx = col * s * 2 + (row % 2 ? s : 0);
-        const cy = row * s;
-        const t = rand();
-        if (t > 0.7) continue;
-        ctx.globalCompositeOperation = 'multiply';
-        ctx.globalAlpha = 0.2 + t * 0.35;
-        ctx.fillStyle = colors[Math.floor(rand() * colors.length)];
-        ctx.beginPath();
-        ctx.moveTo(cx, cy - s);
-        ctx.lineTo(cx + s, cy);
-        ctx.lineTo(cx, cy + s);
-        ctx.lineTo(cx - s, cy);
-        ctx.closePath();
-        ctx.fill();
-        // corte claro na metade de cima da faceta
-        ctx.globalCompositeOperation = 'screen';
-        ctx.globalAlpha = 0.25 + t * 0.6;
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.moveTo(cx, cy - s);
-        ctx.lineTo(cx + s * 0.6, cy - s * 0.15);
-        ctx.lineTo(cx - s * 0.4, cy - s * 0.3);
-        ctx.closePath();
-        ctx.fill();
-      }
+  const unit = Math.min(w, h);
+  const cell = unit * 0.009;
+  const light = colors[colors.length - 1];
+  particles(w, h, B, cell, 0.6, rand, (x, y, t) => {
+    const bright = t > 0.9;
+    const r = cell * (bright ? 0.75 : 0.25 + t * t * 0.45);
+    const rot = rand() * Math.PI * 2;
+    ctx.globalAlpha = bright ? 1 : 0.4 + rand() * 0.5;
+    ctx.fillStyle = bright ? light : colors[Math.floor(rand() * colors.length)];
+    ctx.beginPath();
+    for (let i = 0; i < 3; i++) {
+      const a = rot + (i * Math.PI * 2) / 3;
+      const px = x + Math.cos(a) * r;
+      const py = y + Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
     }
+    ctx.closePath();
+    ctx.fill();
   });
 }
 
