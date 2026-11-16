@@ -270,7 +270,7 @@ export class StockMovementService {
       return {
         id: item.id, code: item.code, name: item.name, unit: item.unit, available, min,
         suggested: round3(item.reorderQuantity !== null ? num(item.reorderQuantity) : Math.max(min * 2 - available, min - available)),
-        lastCost: item.lastCost === null ? null : num(item.lastCost), lastSupplierId: item.lastSupplierId, lastSupplier: item.lastSupplierId ? supplierOf.get(item.lastSupplierId) ?? null : null,
+        lastCost: item.lastCost === null || !(can(actor, PERM.costs) || can(actor, 'create_pedidos_de_compra')) ? null : num(item.lastCost), lastSupplierId: item.lastSupplierId, lastSupplier: item.lastSupplierId ? supplierOf.get(item.lastSupplierId) ?? null : null,
       };
     }).filter((row) => row.available < row.min);
   }

@@ -12,14 +12,44 @@ export const stockActorOf = (req: Request): StockActor => {
 };
 type Json = Record<string, unknown>;
 type Q = Record<string, string>;
+const PICKERS = ['list_itens_estoque', 'movimentar_estoque', 'create_pedidos_de_compra', 'update_pedidos_de_compra', 'create_entregas_epi', 'create_locacoes', 'update_locacoes', 'list_equipamentos', 'inspecoes_equipamentos', 'update_comercial'];
 
 /** Estoque: catálogo, locais, saldos e movimentações. */
 @Controller('stock')
 export class StockController {
   constructor(private readonly catalog: StockCatalogService, private readonly movements: StockMovementService) {}
 
-  @Permissions('list_itens_estoque') @Get('options')
-  options(@Req() req: Request) { return this.catalog.options(stockActorOf(req)); }
+  /** Opções dos formulários: também para quem só movimenta, compra, entrega EPI ou aluga. */
+  @Get('options')
+  options(@Req() req: Request) {
+    const actor = stockActorOf(req);
+    requireAny(actor, PICKERS);
+    return this.catalog.options(actor);
+  }
+
+  /** Peças de um item (para escolher na saída, transferência, entrega ou locação). */
+  @Get('units/options')
+  unitOptions(@Req() req: Request, @Query() q: Q) {
+    const actor = stockActorOf(req);
+    requireAny(actor, PICKERS);
+    return this.catalog.unitOptions(actor, q ?? {});
+  }
+
+  /** Lotes de um item com saldo num local. */
+  @Get('lots/options')
+  lotOptions(@Req() req: Request, @Query() q: Q) {
+    const actor = stockActorOf(req);
+    requireAny(actor, PICKERS);
+    return this.catalog.lotOptions(actor, q ?? {});
+  }
+
+  /** Fornecedores em Suprimentos (sem dados bancários). */
+  @Get('suppliers')
+  suppliers(@Req() req: Request, @Query() q: Q) {
+    const actor = stockActorOf(req);
+    requireAny(actor, ['view_fornecedores_suprimentos', 'list_pedidos_de_compra', 'list_equipamentos']);
+    return this.catalog.suppliers(actor, q ?? {});
+  }
 
   @Permissions('list_itens_estoque') @Get('overview')
   overview(@Req() req: Request) { return this.movements.overview(stockActorOf(req)); }

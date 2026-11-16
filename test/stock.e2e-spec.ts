@@ -216,6 +216,23 @@ describe('Estoque (e2e)', () => {
     expect(material.realized).toBe(320);
   });
 
+  it('quem só movimenta escolhe local, peça e lote; fornecedores sem dados bancários', async () => {
+    const { company, main, supplier } = await cenario();
+    const polia = await item(company.id, { name: 'Polia', tracking: 'unidade', returnable: true });
+    const cola = await item(company.id, { name: 'Cola', tracking: 'lote' });
+    await entrada(company.id, main.id, [{ itemId: polia.id, unitCost: 100, units: [{ serialNumber: 'P1' }] }, { itemId: cola.id, quantity: 4, unitCost: 9, lotNumber: 'L-1', expiresAt: '2030-01-01' }]).expect(201);
+    const options = (await api().get('/stock/options').set(auth(company.id, FIELD)).expect(200)).body;
+    expect(options.locations[0].id).toBe(main.id);
+    const units = (await api().get('/stock/units/options').set(auth(company.id, FIELD)).query({ itemId: polia.id, available: '1' }).expect(200)).body;
+    expect(units[0]).toMatchObject({ tag: `${polia.code}-001`, usable: true });
+    const lots = (await api().get('/stock/lots/options').set(auth(company.id, FIELD)).query({ itemId: cola.id, locationId: main.id }).expect(200)).body;
+    expect(lots[0]).toMatchObject({ number: 'L-1', available: 4 });
+    const suppliers = (await api().get('/stock/suppliers').set(auth(company.id, ['view_fornecedores_suprimentos'])).expect(200)).body;
+    expect(suppliers[0].name).toBe(supplier.name);
+    expect(suppliers[0].pixKey).toBeUndefined();
+    await api().get('/stock/options').set(auth(company.id, ['view_fornecedores_suprimentos'])).expect(403);
+  });
+
   it('carga inicial por planilha cria categoria, local e item e lança o saldo', async () => {
     const { company } = await cenario();
     const csv = 'código;nome;categoria;unidade;controle;quantidade;local;custo\n;Corda estática 11mm;Cordas;m;quantidade;200;Almoxarifado;8,50\nTIN-9;Tinta branca;Tintas;l;;12;Base Suape;30\n;Sem quantidade;Tintas;un;;;;\n';

@@ -4,7 +4,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { holderKey, holderNames } from './ledger';
 import {
   Body, Holder, HolderType, MOVEMENT_TYPES, PERM, StockActor, TRACKINGS, UNIT_STATUS, blank, can, clean, d, dueState, fail, idOf, num,
-  optionalDate, optionalNumber, round2, round3, text,
+  optionalDate, optionalNumber, round2, round3, text, today,
 } from './stock.rules';
 
 /**
@@ -465,5 +465,55 @@ export class StockCatalogService {
       presets: ITEM_PRESETS,
       canSeeCosts: can(actor, PERM.costs),
     };
+  }
+
+  async unitOptions(actor: StockActor, query: Record<string, string>) {
+    const itemId = idOf(query.itemId);
+    const units = await this.prisma.stock_Unit.findMany({
+      where: {
+        companyId: actor.companyId, status: { not: 'baixado' }, ...(itemId ? { itemId } : {}),
+        ...(query.holderType ? { holderType: query.holderType, ...(idOf(query.holderId) ? { holderId: idOf(query.holderId) } : {}) } : {}),
+        ...(query.available === '1' ? { status: 'disponivel', holderType: 'local' } : {}),
+      },
+      orderBy: { tag: 'asc' }, take: 1000, include: { item: { select: { name: true, requiresInspection: true, requiresCalibration: true } } },
+    });
+    const names = await holderNames(this.prisma, actor.companyId, units.map((u) => ({ type: u.holderType as HolderType, id: u.holderId })));
+    const now = today();
+    return units.map((u) => {
+      const blocked = u.status !== 'disponivel' || u.needsInspection
+        || (u.item.requiresInspection && (!u.nextInspectionAt || d(u.nextInspectionAt)! < now))
+        || (u.item.requiresCalibration && (!u.nextCalibrationAt || d(u.nextCalibrationAt)! < now))
+        || (!!u.lifeEndsAt && d(u.lifeEndsAt)! < now);
+      return {
+        id: u.id, name: `${u.tag}${u.serialNumber ? ` · ${u.serialNumber}` : ''}`, tag: u.tag, itemId: u.itemId, item: u.item.name, status: u.status,
+        holderType: u.holderType, holderId: u.holderId, where: u.holderType === 'externo' ? '—' : names.get(holderKey({ type: u.holderType, id: u.holderId })) ?? '—',
+        usable: !blocked,
+      };
+    });
+  }
+
+  async lotOptions(actor: StockActor, query: Record<string, string>) {
+    const itemId = idOf(query.itemId);
+    if (!itemId) return [];
+    const lots = await this.prisma.stock_Lot.findMany({ where: { companyId: actor.companyId, itemId, status: { not: 'baixado' } }, orderBy: [{ expiresAt: { sort: 'asc', nulls: 'last' } }] });
+    const balances = await this.prisma.stock_Balance.groupBy({
+      by: ['lotId'], where: { itemId, lotId: { in: lots.map((l) => l.id) }, holderType: query.holderType || 'local', quantity: { gt: 0 }, ...(idOf(query.locationId ?? query.holderId) ? { holderId: idOf(query.locationId ?? query.holderId)! } : {}) },
+      _sum: { quantity: true },
+    });
+    const has = new Map(balances.map((b) => [b.lotId, round3(num(b._sum.quantity))]));
+    return lots.filter((l) => query.all === '1' || (has.get(l.id) ?? 0) > 0).map((l) => ({
+      id: l.id, name: `${l.number}${l.expiresAt ? ` · validade ${d(l.expiresAt)!.split('-').reverse().join('/')}` : ''}`, number: l.number,
+      expiresAt: d(l.expiresAt), status: l.status, available: has.get(l.id) ?? 0,
+    }));
+  }
+
+  async suppliers(actor: StockActor, query: Record<string, string>) {
+    const term = clean(query.search, 80);
+    const rows = await this.prisma.financial_Supplier.findMany({
+      where: { companyId: actor.companyId, ...(query.all === '1' ? {} : { inactiveAt: null }), ...(term ? { OR: [{ name: { contains: term, mode: 'insensitive' } }, { supplies: { contains: term, mode: 'insensitive' } }] } : {}) },
+      orderBy: { name: 'asc' }, take: 1000,
+      select: { id: true, name: true, legalName: true, document: true, supplies: true, contactName: true, email: true, phone: true, inactiveAt: true },
+    });
+    return rows.map(({ inactiveAt, ...row }) => ({ ...row, active: !inactiveAt }));
   }
 }
