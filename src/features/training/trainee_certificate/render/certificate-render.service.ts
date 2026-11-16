@@ -25,6 +25,7 @@ import {
 import { drawStaticFoil } from './highlight-static';
 import { QrStyle, styledQrPng } from './qr-styled';
 import { layoutInstructorSlots } from './instructor-slots';
+import { applyConditionalVisibility } from './conditional-visibility';
 
 /**
  * Render do certificado na API (mesmo JSON do Fabric que o visualizador do
@@ -39,7 +40,7 @@ import { layoutInstructorSlots } from './instructor-slots';
  */
 
 /** Suba quando o resultado do render mudar, para invalidar caches/URLs. */
-export const RENDER_VERSION = 7;
+export const RENDER_VERSION = 8;
 
 export type CertificateSide = 'front' | 'back';
 
@@ -208,7 +209,10 @@ export class CertificateRenderService {
 
     const variables = parseCertificateVariables(cert.variableToReplace);
     const json = replaceInCanvasJSON(
-      layoutInstructorSlots(raw, variables),
+      layoutInstructorSlots(
+        applyConditionalVisibility(raw, variables),
+        variables,
+      ),
       variables,
     );
     const highlight = resolveHighlight(cert);
