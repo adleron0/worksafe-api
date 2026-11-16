@@ -95,12 +95,16 @@ export class LandingService {
       SELECT "layout", "block", COUNT(DISTINCT "visitorId")::int AS n
       FROM "CourseClass_LandingEvent" WHERE "classId" = ${classId} AND "event" = 'block'
       GROUP BY "layout", "block"`);
-    // origem e aparelho de quem visitou e de quem enviou o formulário
-    const segRows = await this.prisma.$queryRaw<{ layout: string; source: string; device: string; event: string; n: number }[]>(Prisma.sql`
-      SELECT "layout", COALESCE(NULLIF("source", ''), 'direto') AS source, COALESCE("device", '?') AS device, "event",
-             COUNT(DISTINCT "visitorId")::int AS n
+    // origem e aparelho de quem visitou e de quem enviou o formulário (contados à parte:
+    // a mesma pessoa pode abrir no celular e no computador)
+    const sourceRows = await this.prisma.$queryRaw<{ layout: string; key: string; event: string; n: number }[]>(Prisma.sql`
+      SELECT "layout", COALESCE(NULLIF("source", ''), 'direto') AS key, "event", COUNT(DISTINCT "visitorId")::int AS n
       FROM "CourseClass_LandingEvent" WHERE "classId" = ${classId} AND "event" IN ('view', 'submit')
-      GROUP BY 1, 2, 3, 4`);
+      GROUP BY 1, 2, 3`);
+    const deviceRows = await this.prisma.$queryRaw<{ layout: string; key: string; event: string; n: number }[]>(Prisma.sql`
+      SELECT "layout", COALESCE("device", '?') AS key, "event", COUNT(DISTINCT "visitorId")::int AS n
+      FROM "CourseClass_LandingEvent" WHERE "classId" = ${classId} AND "event" IN ('view', 'submit')
+      GROUP BY 1, 2, 3`);
     const subs = await this.prisma.courseClassSubscription.groupBy({
       by: ['landingLayout', 'subscribeStatus'],
       where: { classId, landingLayout: { not: null } },
@@ -137,13 +141,13 @@ export class LandingService {
     });
 
     const chance = chanceToBeBest(rows.map((r) => ({ layout: r.layout, visitors: r.visitors, submits: r.submits })));
-    const segments = (key: 'source' | 'device') => {
+    const segments = (source: { layout: string; key: string; event: string; n: number }[]) => {
       const groups = new Map<string, { key: string; layout: string; visitors: number; submits: number }>();
-      for (const r of segRows) {
-        const id = `${r.layout}|${r[key]}`;
-        const g = groups.get(id) ?? { key: r[key], layout: r.layout, visitors: 0, submits: 0 };
-        if (r.event === 'view') g.visitors += r.n;
-        else g.submits += r.n;
+      for (const r of source) {
+        const id = `${r.layout}|${r.key}`;
+        const g = groups.get(id) ?? { key: r.key, layout: r.layout, visitors: 0, submits: 0 };
+        if (r.event === 'view') g.visitors = r.n;
+        else g.submits = r.n;
         groups.set(id, g);
       }
       return [...groups.values()].sort((a, b) => b.visitors - a.visitors);
@@ -155,8 +159,8 @@ export class LandingService {
       config: { layout: turma.landingLayout || 'classico', abTest: turma.landingAbTest, abLayouts: layoutList(turma.landingAbLayouts) },
       minimum: { visitors: MIN_VISITORS, submits: MIN_SUBMITS },
       layouts: rows.map((r) => ({ ...r, chanceToBeBest: chance[r.layout] ?? null })),
-      bySource: segments('source'),
-      byDevice: segments('device'),
+      bySource: segments(sourceRows),
+      byDevice: segments(deviceRows),
     };
   }
 

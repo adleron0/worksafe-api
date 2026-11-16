@@ -107,6 +107,8 @@ describe('Página da turma: teste A/B (e2e)', () => {
       await events({ classId: courseClass.id, visitorId: `visitante-a${i}`, layout: 'classico', source: 'instagram', events: [{ event: 'view' }, ...(i < 1 ? [{ event: 'submit' }] : [])] });
       await events({ classId: courseClass.id, visitorId: `visitante-b${i}`, layout: 'impacto', source: i % 2 ? 'google' : 'instagram', device: 'mobile', events: [{ event: 'view' }, { event: 'cta_click' }, ...(i < 4 ? [{ event: 'submit' }] : [])] });
     }
+    // a mesma pessoa abrindo no celular e no computador conta uma vez na origem
+    await events({ classId: courseClass.id, visitorId: 'visitante-a0', layout: 'classico', source: 'instagram', device: 'desktop', events: [{ event: 'view' }] });
     await subscribeAsSite({ ...buyer, classId: String(courseClass.id), landingLayout: 'impacto', landingVisitor: 'visitante-b0' }).expect(201);
     await testDb().courseClassSubscription.updateMany({ where: { cpf: buyer.cpf }, data: { subscribeStatus: 'confirmed' } });
 
@@ -117,6 +119,8 @@ describe('Página da turma: teste A/B (e2e)', () => {
     expect(byLayout.impacto).toMatchObject({ visitors: 10, ctaClicks: 10, submits: 4, subscriptions: 1, confirmed: 1 });
     expect(byLayout.impacto.chanceToBeBest).toBeGreaterThan(byLayout.classico.chanceToBeBest);
     expect(res.body.bySource.find((s: any) => s.layout === 'impacto' && s.key === 'google')).toMatchObject({ visitors: 5 });
+    expect(res.body.bySource.find((s: any) => s.layout === 'classico' && s.key === 'instagram')).toMatchObject({ visitors: 10, submits: 1 });
+    expect(res.body.byDevice.filter((s: any) => s.layout === 'classico').map((s: any) => [s.key, s.visitors]).sort()).toEqual([['?', 10], ['desktop', 1]]);
 
     // outra empresa não vê
     const other = await makeCheckoutScenario();
