@@ -1,55 +1,20 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { BalanceService } from './balance.service';
 import { ChartAccountService } from './chart-account.service';
 import { CLASSIFICATION_ORIGINS, ClassificationOrigin, assertClassification } from './classification';
 
 @Injectable()
 export class FinancialService {
-  constructor(private readonly prisma: PrismaService, private readonly chart: ChartAccountService) {}
+  constructor(private readonly prisma: PrismaService, private readonly chart: ChartAccountService, private readonly balance: BalanceService) {}
 
   /**
-   * Saldo gerencial de cada conta: saldo inicial + o que entrou nela − o que saiu
-   * (contas a pagar baixadas).
-   * Conta do tipo gateway soma também o que o provedor confirmou (esses
-   * recebíveis não passam pela baixa manual, então não têm conta gravada).
+   * Saldo gerencial de cada conta: saldo inicial + o que entrou − o que saiu ±
+   * transferências, a partir da data inicial da conta (regra em BalanceService).
    */
   async bankBalances(companyId: number) {
-    const accounts = await this.prisma.financial_BankAccount.findMany({ where: { companyId } });
-    const out: Array<{ id: number; balance: number; received: number; paid: number; transfers: number }> = [];
-    for (const account of accounts) {
-      const since = account.openingBalanceDate ? { paidAt: { gte: account.openingBalanceDate } } : {};
-      const base = { companyId, status: 'received' as const, inactiveAt: null, ...since };
-      const settled = await this.prisma.financialRecords.findMany({
-        where: { ...base, bankAccountId: account.id }, select: { value: true, netValue: true, receivedValue: true },
-      });
-      const viaGateway = account.type === 'gateway' && account.gateway
-        ? await this.prisma.financialRecords.findMany({
-          where: { ...base, bankAccountId: null, gateway: account.gateway }, select: { value: true, netValue: true, receivedValue: true },
-        })
-        : [];
-      const received = [...settled, ...viaGateway]
-        .reduce((sum, r) => sum + Number(r.receivedValue ?? r.netValue ?? r.value ?? 0), 0);
-      // saídas: contas a pagar baixadas nesta conta
-      const outflow = await this.prisma.financial_Payable.aggregate({
-        where: { companyId, status: 'paga', inactiveAt: null, bankAccountId: account.id, ...since }, _sum: { paidValue: true },
-      });
-      const paid = Number(outflow._sum.paidValue ?? 0);
-      // transferências entre contas: entram numa e saem da outra
-      const sinceDate = account.openingBalanceDate ? { date: { gte: account.openingBalanceDate } } : {};
-      const [transferIn, transferOut] = await Promise.all([
-        this.prisma.financial_Transfer.aggregate({ where: { companyId, inactiveAt: null, toBankAccountId: account.id, ...sinceDate }, _sum: { value: true } }),
-        this.prisma.financial_Transfer.aggregate({ where: { companyId, inactiveAt: null, fromBankAccountId: account.id, ...sinceDate }, _sum: { value: true } }),
-      ]);
-      const transfers = Number(transferIn._sum.value ?? 0) - Number(transferOut._sum.value ?? 0);
-      out.push({
-        id: account.id,
-        received: Math.round(received * 100) / 100,
-        paid: Math.round(paid * 100) / 100,
-        transfers: Math.round(transfers * 100) / 100,
-        balance: Math.round((Number(account.openingBalance) + received - paid + transfers) * 100) / 100,
-      });
-    }
-    return out;
+    const { rows } = await this.balance.balances(companyId);
+    return rows;
   }
 
   async classificationDefaults(companyId: number) {

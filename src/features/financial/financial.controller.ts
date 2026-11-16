@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
 import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
+import { BalanceService } from './balance.service';
 import { ChartAccountService } from './chart-account.service';
 import { FinancialService } from './financial.service';
 
@@ -16,7 +17,7 @@ const actorOf = (req: Request) => {
  */
 @Controller('financial')
 export class FinancialController {
-  constructor(private readonly chart: ChartAccountService, private readonly financial: FinancialService) {}
+  constructor(private readonly chart: ChartAccountService, private readonly financial: FinancialService, private readonly balance: BalanceService) {}
 
   @Permissions('list_financeiro') @Get('chart-accounts')
   list(@Req() req: Request, @Query('month') month?: string, @Query('inactive') inactive?: string) {
@@ -51,6 +52,17 @@ export class FinancialController {
   @Permissions('list_financeiro') @Get('bank-balances')
   bankBalances(@Req() req: Request) {
     return this.financial.bankBalances(actorOf(req).companyId);
+  }
+
+  /** Implantação: data inicial do financeiro e saldo inicial das contas. */
+  @Permissions('list_financeiro') @Get('setup')
+  setup(@Req() req: Request) {
+    return this.balance.setup(actorOf(req).companyId);
+  }
+
+  @Permissions('update_financeiro') @Put('setup')
+  saveSetup(@Req() req: Request, @Body() body: Record<string, unknown>) {
+    return this.balance.saveSetup(actorOf(req), body ?? {});
   }
 
   @Permissions('list_financeiro') @Get('classification-defaults')

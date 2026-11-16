@@ -101,7 +101,16 @@ export const bankAccountEntity: EntityRules = {
         if (Number.isNaN(value)) throw new CrudError('VALIDATION_FAILED', 'Saldo inicial inválido', 'openingBalance');
         next.openingBalance = Math.round(value * 100) / 100;
       }
-      if ('openingBalanceDate' in next && blank(next.openingBalanceDate)) next.openingBalanceDate = null;
+      if ('openingBalanceDate' in next && !blank(next.openingBalanceDate)) {
+        // só o dia importa: grava à meia-noite UTC, como a data de implantação
+        const raw = /^(\d{4}-\d{2}-\d{2})/.exec(next.openingBalanceDate instanceof Date ? next.openingBalanceDate.toISOString() : String(next.openingBalanceDate));
+        if (!raw) throw new CrudError('VALIDATION_FAILED', 'Data do saldo inicial inválida', 'openingBalanceDate');
+        next.openingBalanceDate = new Date(`${raw[1]}T00:00:00.000Z`);
+      } else if ('openingBalanceDate' in next || op === 'create') {
+        // sem data própria: a conta começa na data de implantação do financeiro (se houver)
+        const settings = await prisma.financial_Settings.findUnique({ where: { companyId } });
+        next.openingBalanceDate = settings?.startDate ?? null;
+      }
       if ('isDefault' in next) next.isDefault = next.isDefault === true || next.isDefault === 'true';
       return next;
     },

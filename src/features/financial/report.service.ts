@@ -3,6 +3,7 @@ import { Prisma, financialRecordsStatus } from '@prisma/client';
 import { XlsxCell, XlsxSheet, brDate } from 'src/common/xlsx';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Query, day, dayStart, ints, month, monthEnd, plusDays, round, todayBr } from './ledger.filters';
+import { BalanceService } from './balance.service';
 import { RecurrenceService } from './recurrence.service';
 
 const fail = (message: string): never => { throw new BadRequestException(message); };
@@ -57,7 +58,7 @@ const DRE_LINES: Array<{ key: string; label: string; nature: 'receita' | 'despes
 
 @Injectable()
 export class ReportService {
-  constructor(private readonly prisma: PrismaService, private readonly recurrences: RecurrenceService) {}
+  constructor(private readonly prisma: PrismaService, private readonly recurrences: RecurrenceService, private readonly balance: BalanceService) {}
 
   // ------------------------------------------------------------ fluxo de caixa
 
@@ -76,51 +77,38 @@ export class ReportService {
     if (from > to) fail('A data inicial é maior que a final');
     const group = (['day', 'week', 'month'].includes(String(query.group)) ? query.group : 'week') as Group;
     const banks = ints(query.bankAccountId);
-    const accounts = await this.prisma.financial_BankAccount.findMany({ where: { companyId, ...(banks.length ? { id: { in: banks } } : {}) } });
-    const gatewayOf = new Map(accounts.filter((a) => a.type === 'gateway' && a.gateway).map((a) => [a.gateway as string, a.id]));
-
-    const receivedWhere = (range: Prisma.DateTimeFilter): Prisma.FinancialRecordsWhereInput => ({
-      companyId, status: 'received', inactiveAt: null, paidAt: range,
-      ...(banks.length ? { OR: [{ bankAccountId: { in: banks } }, { bankAccountId: null, gateway: { in: [...gatewayOf.keys()] as never } }] } : {}),
-    });
-    const paidWhere = (range: Prisma.DateTimeFilter): Prisma.Financial_PayableWhereInput => ({
-      companyId, status: 'paga', inactiveAt: null, paidAt: range, ...(banks.length ? { bankAccountId: { in: banks } } : {}),
-    });
-    const rangeOf = (a: string, b: string) => ({ gte: dayStart(a), lt: dayStart(plusDays(b, 1)) });
-
-    // saldo inicial: saldo de abertura de cada conta + movimentos até a véspera do período
-    let opening = 0;
-    for (const account of accounts) {
-      const since = account.openingBalanceDate ? account.openingBalanceDate.toISOString().slice(0, 10) : '1900-01-01';
-      if (since >= from) continue; // conta aberta depois do início: entra pelos movimentos
-      opening += num(account.openingBalance);
-    }
-    const sinceAll = accounts.length ? accounts.map((a) => (a.openingBalanceDate ? a.openingBalanceDate.toISOString().slice(0, 10) : '1900-01-01')).sort()[0] : '1900-01-01';
-    const before = sinceAll < from ? rangeOf(sinceAll, plusDays(from, -1)) : null;
-
-    const [received, paid, transfers, openReceivables, openPayables, priorReceived, priorPaid, priorTransfers] = await Promise.all([
-      this.prisma.financialRecords.findMany({ where: receivedWhere(rangeOf(from, to)), select: { paidAt: true, value: true, netValue: true, receivedValue: true } }),
-      this.prisma.financial_Payable.findMany({ where: paidWhere(rangeOf(from, to)), select: { paidAt: true, paidValue: true, value: true } }),
-      banks.length ? this.prisma.financial_Transfer.findMany({ where: { companyId, inactiveAt: null, date: rangeOf(from, to), OR: [{ fromBankAccountId: { in: banks } }, { toBankAccountId: { in: banks } }] } }) : [],
+    // baixas e transferências até o fim do período, já pela data inicial de cada conta
+    const { accounts, list: moves } = await this.balance.movements(companyId, { to, accountIds: banks.length ? banks : undefined });
+    const [openReceivables, openPayables] = await Promise.all([
       this.prisma.financialRecords.findMany({ where: { companyId, status: { in: OPEN }, inactiveAt: null, dueDate: { lt: dayStart(plusDays(to, 1)) } }, select: { dueDate: true, value: true, netValue: true } }),
       this.prisma.financial_Payable.findMany({ where: { companyId, status: 'aberta', inactiveAt: null, dueDate: { lt: dayStart(plusDays(to, 1)) } }, select: { dueDate: true, value: true } }),
-      before ? this.prisma.financialRecords.findMany({ where: receivedWhere(before), select: { value: true, netValue: true, receivedValue: true } }) : [],
-      before ? this.prisma.financial_Payable.aggregate({ where: paidWhere(before), _sum: { paidValue: true } }) : null,
-      before && banks.length ? this.prisma.financial_Transfer.findMany({ where: { companyId, inactiveAt: null, date: before, OR: [{ fromBankAccountId: { in: banks } }, { toBankAccountId: { in: banks } }] } }) : [],
     ]);
-    const receivedValue = (r: { value: unknown; netValue: unknown; receivedValue: unknown }) => num(r.receivedValue ?? r.netValue ?? r.value);
-    const transferNet = (t: { fromBankAccountId: number; toBankAccountId: number; value: unknown }) =>
-      (banks.includes(t.toBankAccountId) ? num(t.value) : 0) - (banks.includes(t.fromBankAccountId) ? num(t.value) : 0);
-    opening += (priorReceived as Array<{ value: unknown; netValue: unknown; receivedValue: unknown }>).reduce((s: number, r) => s + receivedValue(r), 0)
-      - num(priorPaid?._sum.paidValue)
-      + (priorTransfers as Array<{ fromBankAccountId: number; toBankAccountId: number; value: unknown }>).reduce((s: number, t) => s + transferNet(t), 0);
+
+    // saldo no início do período = saldo no fim da véspera: saldos iniciais que
+    // já valiam + tudo o que se moveu antes. Conta que começa dentro do período
+    // entra com o saldo inicial no dia em que começa.
+    const eve = plusDays(from, -1);
+    let opening = 0;
+    const openingsInside: Array<{ day: string; value: number }> = [];
+    for (const account of accounts) {
+      if (BalanceService.openingCounts(account, eve)) opening += num(account.openingBalance);
+      else if (account.start && account.start <= to) openingsInside.push({ day: account.start, value: num(account.openingBalance) });
+    }
+    for (const m of moves) if (m.day < from) opening += m.amount;
 
     const list = periods(from, to, group);
     const indexOf = (dayText: string) => list.findIndex((p) => dayText >= p.start && dayText <= p.end);
     const rows = list.map((p) => ({ ...p, realizedIn: 0, realizedOut: 0, projectedIn: 0, projectedOut: 0, transfers: 0, opening: 0, closing: 0 }));
-    for (const r of received) { const i = indexOf(r.paidAt!.toISOString().slice(0, 10)); if (i >= 0) rows[i].realizedIn += receivedValue(r); }
-    for (const p of paid) { const i = indexOf(p.paidAt!.toISOString().slice(0, 10)); if (i >= 0) rows[i].realizedOut += num(p.paidValue ?? p.value); }
-    for (const t of transfers) { const i = indexOf(t.date.toISOString().slice(0, 10)); if (i >= 0) rows[i].transfers += transferNet(t); }
+    for (const m of moves) {
+      if (m.day < from) continue;
+      const i = indexOf(m.day);
+      if (i < 0) continue;
+      if (m.kind === 'in') rows[i].realizedIn += m.amount;
+      else if (m.kind === 'out') rows[i].realizedOut -= m.amount;
+      else rows[i].transfers += m.amount;
+    }
+    const openingAdds = rows.map(() => 0);
+    for (const o of openingsInside) { const i = indexOf(o.day); if (i >= 0) openingAdds[i] += o.value; }
     let overdueIn = 0, overdueOut = 0, overdueInCount = 0, overdueOutCount = 0;
     for (const r of openReceivables) {
       const due = r.dueDate ? r.dueDate.toISOString().slice(0, 10) : null;
@@ -135,12 +123,13 @@ export class ReportService {
       const i = indexOf(due); if (i >= 0) rows[i].projectedOut += num(p.value);
     }
     let running = opening;
-    for (const row of rows) {
+    rows.forEach((row, i) => {
+      running += openingAdds[i];
       row.opening = round(running);
       running += row.realizedIn - row.realizedOut + row.projectedIn - row.projectedOut + row.transfers;
       row.closing = round(running);
       for (const key of ['realizedIn', 'realizedOut', 'projectedIn', 'projectedOut', 'transfers'] as const) row[key] = round(row[key]);
-    }
+    });
     const total = (key: 'realizedIn' | 'realizedOut' | 'projectedIn' | 'projectedOut' | 'transfers') => round(rows.reduce((s, r) => s + r[key], 0));
     const lowest = rows.reduce<null | (typeof rows)[number]>((low, r) => (!low || r.closing < low.closing ? r : low), null);
     return {

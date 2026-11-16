@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { FinancialrecordsService } from 'src/features/gateway/financialrecords/service';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { BalanceService } from './balance.service';
 import { assertClassification } from './classification';
 import { Query, day, dayStart, plusDays, round, todayBr } from './ledger.filters';
 import { PayableActor, PayableService } from './payable.service';
@@ -15,7 +16,7 @@ const OPEN_RECEIVABLE = ['waiting', 'overdue', 'processing'] as const;
 export interface StatementLine { fitId: string; date: string; amount: number; memo: string; type: string }
 
 /** Lê um extrato OFX (SGML 1.x ou XML 2.x). Só o que importa: data, valor, identificador e histórico. */
-export function parseOfx(content: string): { lines: StatementLine[]; bankId: string | null; accountId: string | null } {
+export function parseOfx(content: string): { lines: StatementLine[]; bankId: string | null; accountId: string | null; ledger: { amount: number; date: string } | null } {
   const text = content.replace(/\r/g, '');
   if (!/<OFX>/i.test(text)) fail('Arquivo não parece ser um extrato OFX');
   const tag = (block: string, name: string) => {
@@ -35,7 +36,14 @@ export function parseOfx(content: string): { lines: StatementLine[]; bankId: str
     const fitId = (tag(block, 'FITID') || `${date}:${amount}:${memo}`).slice(0, 60);
     lines.push({ fitId, date, amount: round(amount), memo, type: tag(block, 'TRNTYPE') });
   }
-  return { lines, bankId: tag(text, 'BANKID') || null, accountId: tag(text, 'ACCTID') || null };
+  // saldo final informado pelo banco (LEDGERBAL): valor e data a que se refere
+  const ledgerBlock = /<LEDGERBAL>([\s\S]*?)(<\/LEDGERBAL>|<AVAILBAL>|<\/STMTRS>|$)/i.exec(text)?.[1] ?? '';
+  const ledgerAmount = Number(tag(ledgerBlock, 'BALAMT').replace(',', '.'));
+  const ledgerDate = tag(ledgerBlock, 'DTASOF');
+  const ledger = ledgerBlock && tag(ledgerBlock, 'BALAMT') !== '' && Number.isFinite(ledgerAmount) && /^\d{8}/.test(ledgerDate)
+    ? { amount: round(ledgerAmount), date: `${ledgerDate.slice(0, 4)}-${ledgerDate.slice(4, 6)}-${ledgerDate.slice(6, 8)}` }
+    : null;
+  return { lines, bankId: tag(text, 'BANKID') || null, accountId: tag(text, 'ACCTID') || null, ledger };
 }
 
 const daysBetween = (a: string, b: string) => Math.abs((new Date(`${a}T12:00:00Z`).getTime() - new Date(`${b}T12:00:00Z`).getTime()) / 86400000);
@@ -53,6 +61,7 @@ export class TreasuryService {
     private readonly prisma: PrismaService,
     private readonly payables: PayableService,
     private readonly receivables: FinancialrecordsService,
+    private readonly balance: BalanceService,
   ) {}
 
   // ------------------------------------------------------------ transferências
@@ -103,8 +112,10 @@ export class TreasuryService {
     const bankAccountId = Number(bankAccountIdRaw);
     if (!bankAccountId) fail('Escolha a conta bancária do extrato');
     await assertClassification(this.prisma, companyId, { bankAccountId });
-    const { lines, bankId, accountId } = parseOfx(content);
+    const { lines, bankId, accountId, ledger } = parseOfx(content);
     if (!lines.length) fail('Nenhum lançamento encontrado no extrato');
+    const { accounts } = await this.balance.accounts(companyId, [bankAccountId]);
+    const start = accounts[0]?.start ?? null;
     const refs = lines.map((l) => this.ref(bankAccountId, l.fitId));
     const dates = lines.map((l) => l.date).sort();
     const from = dayStart(plusDays(dates[0], -20)), to = dayStart(plusDays(dates[dates.length - 1], 21));
@@ -135,6 +146,8 @@ export class TreasuryService {
       const ref = this.ref(bankAccountId, line.fitId);
       const done = usedPayables.find((p) => p.statementRef === ref) ?? usedReceivables.find((r) => r.statementRef === ref) ?? usedTransfers.find((t) => t.statementRef === ref);
       if (done) return { ...line, status: 'conciliado' as const, candidates: [] };
+      // antes da data inicial: já está dentro do saldo inicial, não se lança
+      if (start && line.date < start) return { ...line, status: 'antes_inicio' as const, candidates: [] };
       const value = Math.abs(line.amount);
       type Candidate = { type: 'payable' | 'receivable'; mode: 'baixar' | 'vincular'; id: number; label: string; who: string; value: number; date: string; distance: number };
       const candidates: Candidate[] = [];
@@ -162,10 +175,17 @@ export class TreasuryService {
       candidates.sort((a, b) => a.distance - b.distance);
       return { ...line, status: candidates.length ? ('sugerido' as const) : ('sem_par' as const), candidates: candidates.slice(0, 5).map(({ distance: _d, ...c }) => c) };
     });
+    // conferência: saldo do extrato x saldo do sistema na mesma data
+    const checkDate = ledger?.date ?? dates[dates.length - 1];
+    const { rows } = await this.balance.balances(companyId, checkDate, [bankAccountId]);
     return {
-      bankAccountId, bankId, accountId,
+      bankAccountId, bankId, accountId, start,
       period: { from: dates[0], to: dates[dates.length - 1] },
-      totals: { lines: items.length, reconciled: items.filter((i) => i.status === 'conciliado').length, suggested: items.filter((i) => i.status === 'sugerido').length, unmatched: items.filter((i) => i.status === 'sem_par').length },
+      totals: {
+        lines: items.length, reconciled: items.filter((i) => i.status === 'conciliado').length, suggested: items.filter((i) => i.status === 'sugerido').length,
+        unmatched: items.filter((i) => i.status === 'sem_par').length, beforeStart: items.filter((i) => i.status === 'antes_inicio').length,
+      },
+      balance: { date: checkDate, statement: ledger?.amount ?? null, system: rows[0]?.balance ?? 0, opening: rows[0]?.opening ?? 0 },
       items,
     };
   }
@@ -182,6 +202,8 @@ export class TreasuryService {
     await assertClassification(this.prisma, actor.companyId, { bankAccountId });
     const items: Body[] = Array.isArray(body.items) ? body.items : [];
     if (!items.length) fail('Nada para conciliar');
+    const { accounts } = await this.balance.accounts(actor.companyId, [bankAccountId]);
+    const start = accounts[0]?.start ?? null;
     const done: Array<{ fitId: string; action: string; id?: number }> = [];
     const errors: Array<{ fitId: string; reason: string }> = [];
     for (const item of items) {
@@ -193,6 +215,7 @@ export class TreasuryService {
       const amount = Number(item.amount);
       try {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(amount) || amount === 0) fail('Linha do extrato inválida');
+        if (start && date < start && action !== 'vincular') fail('Linha anterior à data inicial da conta: já está no saldo inicial');
         const value = round(Math.abs(amount));
         const already = await this.prisma.financial_Payable.count({ where: { companyId: actor.companyId, statementRef: ref } })
           + await this.prisma.financialRecords.count({ where: { companyId: actor.companyId, statementRef: ref } })
@@ -211,7 +234,24 @@ export class TreasuryService {
           if (!count) fail('Conta não encontrada ou já conciliada');
           done.push({ fitId, action, id: Number(item.targetId) });
         } else if (action === 'criar') {
-          if (amount > 0) fail('Entrada sem par: lance a conta a receber e concilie de novo');
+          if (amount > 0) {
+            // entrada sem par (rendimento, estorno, depósito): conta a receber já recebida
+            await assertClassification(this.prisma, actor.companyId, { chartAccountId: item.chartAccountId || null, costCenterId: item.costCenterId || null });
+            if (item.customerId && !(await this.prisma.customer.count({ where: { id: Number(item.customerId), companyId: actor.companyId } }))) fail('Cliente não encontrado');
+            const noon = new Date(`${paidAt}T12:00:00.000Z`);
+            const record = await this.prisma.financialRecords.create({
+              data: {
+                companyId: actor.companyId, gateway: 'manual', status: 'received', paymentMethod: 'transferencia',
+                description: String(item.description || item.memo || 'Entrada do extrato').slice(0, 255),
+                value, receivedValue: value, dueDate: noon, paidAt: noon, accrualDate: paidAt.slice(0, 7),
+                chartAccountId: item.chartAccountId ? Number(item.chartAccountId) : null, costCenterId: item.costCenterId ? Number(item.costCenterId) : null,
+                customerId: item.customerId ? Number(item.customerId) : null,
+                bankAccountId, statementRef: ref, settledByUserId: actor.userId || null,
+              },
+            });
+            done.push({ fitId, action, id: record.id });
+            continue;
+          }
           const created = await this.prisma.$transaction(async (tx) => {
             const data = await normalizePayable(tx, actor.companyId, {
               description: String(item.description || item.memo || 'Saída do extrato').slice(0, 255), value, dueDate: date,

@@ -282,3 +282,16 @@ model Financial_Transfer {
 
   @@index([companyId, date])
 }
+
+// Configuração do financeiro da empresa. `startDate` é a data de implantação:
+// a partir dela o sistema acompanha o caixa. O saldo inicial de cada conta é o
+// saldo no fim do dia anterior; o que foi pago/recebido antes não mexe no saldo.
+model Financial_Settings {
+  id              Int       @id @default(autoincrement())
+  companyId       Int       @unique
+  startDate       DateTime?
+  updatedByUserId Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
