@@ -570,7 +570,7 @@ export class StockMovementService {
   async employeeOptions(actor: StockActor) {
     const rows = await this.prisma.hr_Employee.findMany({
       where: { companyId: actor.companyId, inactiveAt: null, OR: [{ terminationDate: null }, { terminationDate: { gt: new Date(`${today()}T00:00:00.000Z`) } }] },
-      orderBy: { name: 'asc' }, take: 1000, select: { id: true, name: true },
+      orderBy: { name: 'asc' }, take: 1000, select: { id: true, name: true, userId: true },
     });
     return rows;
   }
