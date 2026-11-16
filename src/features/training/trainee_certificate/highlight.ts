@@ -24,11 +24,11 @@ export interface CertificateHighlight {
   label: string;
   /** Padronagem do centro. */
   pattern: CertificateHighlightPattern;
-  /** Brilho da moldura (padrão: corda). */
+  /** Brilho da moldura (padrão: reflexo). */
   border: CertificateHighlightBorder;
 }
 
-export const DEFAULT_BORDER: CertificateHighlightBorder = 'corda';
+export const DEFAULT_BORDER: CertificateHighlightBorder = 'reflexo';
 
 /** Padronagem de cada tema quando ninguém escolheu uma. */
 export const DEFAULT_PATTERN: Record<

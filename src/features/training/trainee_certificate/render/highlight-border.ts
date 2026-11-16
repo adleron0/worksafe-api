@@ -6,15 +6,15 @@
  * (que vem da chave do certificado) é o mesmo nos quatro cantos.
  *
  * Todos são só partículas por cima da corda (nada de tingir):
- * - corda (padrão, "Trança" na tela): três fios de luz em curvas entrelaçadas
- * - reflexo: faixas inclinadas de poeira brilhante, como luz passando sobre metal
+ * - corda ("Trança" na tela): três fios de luz em curvas entrelaçadas
+ * - reflexo (padrão): faixas inclinadas de poeira brilhante, como luz passando sobre metal
  * - glitter: quadradinhos de tamanhos e brilhos sorteados
  * - cristais: triângulos pequenos de tamanhos e giros sorteados
  * - nenhum: sem brilho (só a moldura do modelo)
  */
 export const FOIL_BORDERS = ['corda', 'reflexo', 'glitter', 'cristais', 'nenhum'] as const;
 export type FoilBorder = (typeof FOIL_BORDERS)[number];
-export const DEFAULT_FOIL_BORDER: FoilBorder = 'corda';
+export const DEFAULT_FOIL_BORDER: FoilBorder = 'reflexo';
 
 type Ctx = CanvasRenderingContext2D;
 
