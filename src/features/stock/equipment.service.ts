@@ -142,7 +142,7 @@ export class StockEquipmentService {
       itemRules: {
         requiresInspection: unit.item.requiresInspection, inspectionIntervalDays: unit.item.inspectionIntervalDays, inspectionBeforeUse: unit.item.inspectionBeforeUse,
         requiresCalibration: unit.item.requiresCalibration, calibrationIntervalMonths: unit.item.calibrationIntervalMonths, lifeMonths: unit.item.lifeMonths, lifeFrom: unit.item.lifeFrom,
-        templateId: unit.item.inspectionTemplateId, isPpe: unit.item.isPpe, rentable: unit.item.rentable,
+        templateId: unit.item.inspectionTemplateId ?? (await this.suggestTemplate(actor.companyId, unit.item.name)), isPpe: unit.item.isPpe, rentable: unit.item.rentable,
       },
       inspections: inspections.map((i) => ({
         id: i.id, kind: i.kind, kindLabel: KINDS[i.kind as keyof typeof KINDS] ?? i.kind, date: d(i.date), result: i.result, resultLabel: RESULTS[i.result as keyof typeof RESULTS] ?? i.result,
@@ -269,6 +269,15 @@ export class StockEquipmentService {
   }
 
   // ------------------------------------------------------------------ roteiros
+
+  /** Item sem roteiro definido: sugere o roteiro cujo nome começa pela mesma palavra (corda, cinturão, mosquetão...). */
+  async suggestTemplate(companyId: number, itemName: string): Promise<number | null> {
+    await this.ensureTemplates(companyId);
+    const word = itemName.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+    if (word.length < 3) return null;
+    const templates = await this.prisma.stock_InspectionTemplate.findMany({ where: { companyId, inactiveAt: null }, select: { id: true, name: true } });
+    return templates.find((t) => t.name.toLowerCase().startsWith(word))?.id ?? null;
+  }
 
   async ensureTemplates(companyId: number) {
     if (await this.prisma.stock_InspectionTemplate.count({ where: { companyId } })) return;
