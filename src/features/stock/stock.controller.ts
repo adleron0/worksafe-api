@@ -43,6 +43,22 @@ export class StockController {
     return this.catalog.lotOptions(actor, q ?? {});
   }
 
+  /** Ordens de serviço abertas que a pessoa vê (entrega de EPI marcada para uma obra, locação junto de serviço). */
+  @Get('service-orders/options')
+  orderOptions(@Req() req: Request) {
+    const actor = stockActorOf(req);
+    requireAny(actor, PICKERS);
+    return this.movements.orderOptions(actor);
+  }
+
+  /** Funcionários ativos (inspetor, quem recebe). */
+  @Get('employees/options')
+  employeeOptions(@Req() req: Request) {
+    const actor = stockActorOf(req);
+    requireAny(actor, PICKERS);
+    return this.movements.employeeOptions(actor);
+  }
+
   /** Fornecedores em Suprimentos (sem dados bancários). */
   @Get('suppliers')
   suppliers(@Req() req: Request, @Query() q: Q) {

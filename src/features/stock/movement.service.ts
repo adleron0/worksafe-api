@@ -559,6 +559,22 @@ export class StockMovementService {
     return entries.length;
   }
 
+  async orderOptions(actor: StockActor) {
+    const rows = await this.prisma.service_Order.findMany({
+      where: { companyId: actor.companyId, inactiveAt: null, status: { notIn: ['cancelada', 'encerrada'] }, AND: [await ordersVisibleTo(this.prisma, { userId: actor.userId, companyId: actor.companyId, seesAll: can(actor, ALL_ORDERS_PERMISSION) })] },
+      orderBy: { id: 'desc' }, take: 300, select: { id: true, number: true, title: true },
+    });
+    return rows.map((row) => ({ id: row.id, name: `${row.number} — ${row.title}` }));
+  }
+
+  async employeeOptions(actor: StockActor) {
+    const rows = await this.prisma.hr_Employee.findMany({
+      where: { companyId: actor.companyId, inactiveAt: null, OR: [{ terminationDate: null }, { terminationDate: { gt: new Date(`${today()}T00:00:00.000Z`) } }] },
+      orderBy: { name: 'asc' }, take: 1000, select: { id: true, name: true },
+    });
+    return rows;
+  }
+
   // ------------------------------------------------------------------ visão geral
 
   async overview(actor: StockActor) {
