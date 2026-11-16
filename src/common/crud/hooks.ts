@@ -123,3 +123,18 @@ export const normalizeDateOnly = (...fields: string[]): EntityHooks<Request> => 
     return patched;
   },
 });
+
+/** Valor em reais vindo do form: vazio, zero ou inválido vira null; texto "1.234,56" ou "1234.56" vira número. */
+export const moneyFields = (...fields: string[]): EntityHooks<Request> => ({
+  preWrite: ({ data }) => {
+    const patched = { ...data };
+    for (const field of fields) {
+      if (!(field in patched)) continue;
+      const raw = patched[field];
+      const text = typeof raw === 'string' ? (raw.includes(',') ? raw.replace(/\./g, '').replace(',', '.') : raw).trim() : raw;
+      const value = text === '' || text === null || text === undefined || text === 'null' ? NaN : Number(text);
+      patched[field] = Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : null;
+    }
+    return patched;
+  },
+});

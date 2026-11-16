@@ -42,7 +42,22 @@ export class PipelineService {
     if (can(DOCUMENTS_VIEW_PERMISSION)) blocks.push(this.documents.pipelineBlocks(actor.companyId));
     // Empresa: documentos da empresa vencidos, a vencer e obrigatórios faltando, só nas pastas que a pessoa vê
     if (can(FILES_VIEW_PERMISSION)) blocks.push(this.files.pipelineBlocks({ userId: actor.userId, companyId: actor.companyId, canWrite: can(FILES_WRITE_PERMISSION), canManage: can(FILES_MANAGE_PERMISSION), permissions: actor.permissions }));
+    // Bots: o que os assistentes prepararam e espera a confirmação da pessoa
+    if (can('usar_bots') || can('usar_mcp')) blocks.push(this.botActions(actor));
     return { today: now, blocks: (await Promise.all(blocks)).flat() };
+  }
+
+  /** Bots: ações preparadas pelos assistentes (no sistema ou pelo MCP) esperando a confirmação da pessoa. */
+  private async botActions(actor: PipelineActor): Promise<PipelineBlock[]> {
+    const where: Prisma.Ai_PendingActionWhereInput = { companyId: actor.companyId, userId: actor.userId, confirmedAt: null, cancelledAt: null, expiresAt: { gt: new Date() } };
+    const [count, rows] = await Promise.all([
+      this.prisma.ai_PendingAction.count({ where }),
+      this.prisma.ai_PendingAction.findMany({ where, orderBy: { id: 'desc' }, take: TOP, select: { id: true, summary: true, expiresAt: true } }),
+    ]);
+    return [{
+      key: 'bots_acoes', area: 'Bots', title: 'Ações dos bots para confirmar', hint: 'Preparadas pelos assistentes: só acontecem depois do seu ok', count, total: null, link: '/bots/acoes',
+      items: rows.map((row) => ({ id: row.id, title: row.summary.slice(0, 120), subtitle: `expira em ${br(iso(row.expiresAt))}`, link: '/bots/acoes', value: null, late: false })),
+    }];
   }
 
   /** Comercial: os retornos da pessoa que venceram ou são para hoje. */

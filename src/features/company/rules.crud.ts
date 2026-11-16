@@ -1,6 +1,6 @@
 import { EntityRules, composeHooks } from '@adleron/crud-core';
 
-import { fileUpload, parseJsonFields, syncActiveFlag } from 'src/common/crud/hooks';
+import { fileUpload, moneyFields, parseJsonFields, syncActiveFlag } from 'src/common/crud/hooks';
 
 /**
  * A própria empresa (tenant). O escopo é a PK: cada usuário só lê/edita a
@@ -26,5 +26,7 @@ export const companyEntity: EntityRules = {
     syncActiveFlag,
     fileUpload({ logo: 'logoUrl', favicon: 'faviconUrl' }),
     parseJsonFields('email_conection'),
+    // meta mensal de faturamento do resumo da tela inicial
+    moneyFields('monthlyRevenueGoal'),
   ),
 };

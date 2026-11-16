@@ -30,6 +30,8 @@ model Company {
   lp_domain              String?     @db.VarChar(255)
   system_domain          String?     @db.VarChar(255)
   websiteUrl             String?     @db.VarChar(255)
+  /// Meta mensal de faturamento, mostrada no resumo da tela inicial (null = sem meta)
+  monthlyRevenueGoal     Decimal?    @db.Decimal(12, 2)
   facebookUrl            String?     @db.VarChar(255)
   instagramUrl           String?     @db.VarChar(255)
   linkedinUrl            String?     @db.VarChar(255)
