@@ -120,6 +120,7 @@ function drawCorda(ctx: Ctx, w: number, h: number, colors: string[], rand: () =>
     ctx.lineJoin = 'round';
     const step = period / 40;
     const crests: Array<[number, number, number]> = []; // x, y, ângulo do fio
+    const along: Array<[number, number, number]> = []; // x, y, luz — para o glitter dos fios
     for (let k = 0; k < 3; k++) {
       const ph = phase0 + (k * Math.PI * 2) / 3;
       let prev: [number, number] | null = null;
@@ -130,9 +131,9 @@ function drawCorda(ctx: Ctx, w: number, h: number, colors: string[], rand: () =>
         const lit = Math.max(0, Math.cos(th - 0.6 - k * 2.1));
         if (prev) {
           // fio dourado bem fino, mais visível onde a luz bate
-          ctx.globalAlpha = 0.18 + lit * lit * 0.75;
+          ctx.globalAlpha = 0.4 + lit * 0.5;
           ctx.strokeStyle = gold;
-          ctx.lineWidth = unit * (0.001 + lit * 0.0013);
+          ctx.lineWidth = unit * (0.0012 + lit * 0.0016);
           ctx.beginPath();
           ctx.moveTo(prev[0], prev[1]);
           ctx.lineTo(x, y);
@@ -147,10 +148,42 @@ function drawCorda(ctx: Ctx, w: number, h: number, colors: string[], rand: () =>
             ctx.lineTo(x, y);
             ctx.stroke();
           }
+          along.push([x, y, lit]);
           // trechos acesos: candidatos a ponto de brilho (espalhados, não só no pico)
           if (lit > 0.75 && rand() < 0.05) crests.push([x, y, Math.atan2(y - prev[1], x - prev[0])]);
         }
         prev = [x, y];
+      }
+    }
+    // glitter preso nos fios: quadradinhos e triângulos pequenos, mais densos
+    // onde a luz bate, alguns desgarrados por perto — dá o brilho da trança
+    for (const [x0, y0, lit] of along) {
+      // pelo fio inteiro; a luz só muda o brilho e o tamanho
+      const n = rand() < 0.75 ? 1 : 2;
+      for (let i = 0; i < n; i++) {
+        const spread = B * (rand() < 0.85 ? 0.05 : 0.18);
+        const x = x0 + (rand() - 0.5) * 2 * spread;
+        const y = y0 + (rand() - 0.5) * 2 * spread;
+        const t = rand();
+        const glint = t > 0.93;
+        const size = unit * (glint ? 0.0034 : 0.0012 + t * t * 0.0022);
+        ctx.globalAlpha = glint ? 1 : 0.4 + (0.3 + lit * 0.3) * rand();
+        ctx.fillStyle = glint || rand() < 0.15 ? light : colors[Math.floor(rand() * colors.length)];
+        if (rand() < 0.6) {
+          ctx.fillRect(x - size / 2, y - size / 2, size, size);
+        } else {
+          const rot = rand() * Math.PI * 2;
+          ctx.beginPath();
+          for (let k = 0; k < 3; k++) {
+            const a = rot + (k * Math.PI * 2) / 3;
+            const px = x + Math.cos(a) * size * 0.75;
+            const py = y + Math.sin(a) * size * 0.75;
+            if (k === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          }
+          ctx.closePath();
+          ctx.fill();
+        }
       }
     }
     // pontos de luz suaves em alguns picos — o "brilho" da trança
@@ -180,7 +213,7 @@ function drawCorda(ctx: Ctx, w: number, h: number, colors: string[], rand: () =>
 
 /**
  * Reflexo: faixas inclinadas de poeira brilhante, como a luz passando sobre
- * metal. Em cada faixa, pontinhos finíssimos se concentram no meio e se
+ * metal. Em cada faixa, quadradinhos finíssimos se concentram no meio e se
  * dissolvem nas bordas (distribuição gaussiana), somando luz ("lighter");
  * um ou dois pontos nítidos marcam o centro do reflexo. Entre as faixas a
  * corda fica limpa.
@@ -206,9 +239,9 @@ function drawReflexo(ctx: Ctx, w: number, h: number, colors: string[], rand: () 
         ctx.globalAlpha = (0.3 + fall * 0.7) * strength;
         // poeira na cor do tema (aparece sobre a prata); pouco branco, só de brilho
         ctx.fillStyle = rand() < 0.15 ? '#ffffff' : colors[Math.floor(rand() * colors.length)];
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fill();
+        // quadradinhos (como o glitter), não bolinhas
+        const side = r * 2;
+        ctx.fillRect(x - side / 2, y - side / 2, side, side);
       }
       // um ou dois pontos nítidos no centro do reflexo, somando luz
       ctx.globalCompositeOperation = 'lighter';
