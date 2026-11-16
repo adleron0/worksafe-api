@@ -245,6 +245,43 @@ function drawCenterPattern(
 }
 
 /**
+ * Máscara esfumada: transparente até `zeroAt` da borda, opaca a partir de
+ * `fullAt`, com transição suave entre os dois (faixas em degradê nos lados e
+ * degradê radial nos cantos).
+ */
+function featherMask(w: number, h: number, zeroAt: number, fullAt: number) {
+  const m = createCanvas(Math.round(w), Math.round(h));
+  const c = m.getContext('2d') as unknown as Ctx;
+  const f = fullAt - zeroAt;
+  c.fillStyle = '#fff';
+  c.fillRect(fullAt, fullAt, w - fullAt * 2, h - fullAt * 2);
+  const side = (x0: number, y0: number, x1: number, y1: number, rx: number, ry: number, rw: number, rh: number) => {
+    const g = c.createLinearGradient(x0, y0, x1, y1);
+    g.addColorStop(0, 'rgba(255,255,255,0)');
+    g.addColorStop(1, 'rgba(255,255,255,1)');
+    c.fillStyle = g;
+    c.fillRect(rx, ry, rw, rh);
+  };
+  side(0, zeroAt, 0, fullAt, fullAt, zeroAt, w - fullAt * 2, f); // topo
+  side(0, h - zeroAt, 0, h - fullAt, fullAt, h - fullAt, w - fullAt * 2, f); // base
+  side(zeroAt, 0, fullAt, 0, zeroAt, fullAt, f, h - fullAt * 2); // esquerda
+  side(w - zeroAt, 0, w - fullAt, 0, w - fullAt, fullAt, f, h - fullAt * 2); // direita
+  for (const [cx, cy] of [
+    [fullAt, fullAt],
+    [w - fullAt, fullAt],
+    [fullAt, h - fullAt],
+    [w - fullAt, h - fullAt],
+  ]) {
+    const g = c.createRadialGradient(cx, cy, 0, cx, cy, f);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    c.fillStyle = g;
+    c.fillRect(cx < w / 2 ? zeroAt : w - fullAt, cy < h / 2 ? zeroAt : h - fullAt, f, f);
+  }
+  return m;
+}
+
+/**
  * Desenha o efeito estático por cima do certificado já renderizado (px do
  * canvas). Chamar antes do selo.
  */
@@ -259,36 +296,38 @@ export function drawStaticFoil(
 ) {
   const colors = PALETTE[theme] ?? PALETTE.ouro;
   const rand = rng(`${seed}|${theme}|${pattern}`);
-  const band = Math.min(width, height) * 0.045;
-
   ctx.save();
+  // A cor do tema e a padronagem do centro somem aos poucos perto da borda
+  // (máscara esfumada): o papel fica tingido por igual, a corda fica limpa e
+  // não sobra a linha reta onde o retângulo terminava.
+  const unit = Math.min(width, height);
+  const mask = featherMask(width, height, unit * 0.05, unit * 0.09);
+  const overlay = (alpha: number, draw: (c: Ctx) => void) => {
+    const layer = createCanvas(Math.round(width), Math.round(height));
+    const lctx = layer.getContext('2d') as unknown as Ctx;
+    draw(lctx);
+    lctx.globalCompositeOperation = 'destination-in';
+    lctx.drawImage(mask as unknown as CanvasImageSource, 0, 0);
+    ctx.save();
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(layer as unknown as CanvasImageSource, 0, 0);
+    ctx.restore();
+  };
   // brilho fixo do tema (o que o visualizador mostra em movimento), para a
   // imagem/PDF baixados e a impressão também levarem a cor do foil
-  {
+  overlay(0.28, (c) => {
     const stops = SHEEN[theme] ?? SHEEN.ouro;
-    const g = ctx.createLinearGradient(0, 0, width, height);
-    stops.forEach((c, i) => g.addColorStop(i / (stops.length - 1), c));
-    ctx.save();
-    ctx.globalCompositeOperation = 'multiply';
-    ctx.globalAlpha = 0.28;
-    ctx.fillStyle = g;
-    ctx.fillRect(band, band, width - band * 2, height - band * 2);
-    ctx.restore();
-  }
+    const g = c.createLinearGradient(0, 0, width, height);
+    stops.forEach((col, i) => g.addColorStop(i / (stops.length - 1), col));
+    c.fillStyle = g;
+    c.fillRect(0, 0, width, height);
+  });
   // centro: suave, multiplicado (tinge o papel e deixa o texto legível)
   if (pattern !== 'nenhum') {
-    // camada própria: a opacidade e o multiply valem para a padronagem toda
-    const cw = Math.max(1, Math.round(width - band * 2));
-    const ch = Math.max(1, Math.round(height - band * 2));
-    const layer = createCanvas(cw, ch);
-    const lctx = layer.getContext('2d') as unknown as Ctx;
-    drawCenterPattern(lctx, 0, 0, cw, ch, pattern, colors, rand);
-    ctx.save();
-    ctx.globalCompositeOperation = 'multiply';
-    ctx.globalAlpha =
-      pattern === 'arco_iris' ? 0.22 : pattern === 'espiral' ? 0.12 : 0.3;
-    ctx.drawImage(layer as unknown as CanvasImageSource, band, band);
-    ctx.restore();
+    overlay(pattern === 'arco_iris' ? 0.22 : pattern === 'espiral' ? 0.12 : 0.3, (c) =>
+      drawCenterPattern(c, 0, 0, width, height, pattern, colors, rand),
+    );
   }
   // moldura: brilho no estilo escolhido, por cima, nítido
   drawFoilBorder(ctx, width, height, colors, () => rng(`${seed}|${theme}|borda`), border);

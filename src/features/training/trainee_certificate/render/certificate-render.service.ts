@@ -40,7 +40,7 @@ import { applyConditionalVisibility } from './conditional-visibility';
  */
 
 /** Suba quando o resultado do render mudar, para invalidar caches/URLs. */
-export const RENDER_VERSION = 13;
+export const RENDER_VERSION = 14;
 
 export type CertificateSide = 'front' | 'back';
 
