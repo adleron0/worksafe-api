@@ -110,67 +110,71 @@ function drawCorda(ctx: Ctx, w: number, h: number, colors: string[], rand: () =>
   const unit = Math.min(w, h);
   const light = colors[colors.length - 1];
   const gold = colors[0];
-  const deep = colors[3] ?? colors[1] ?? gold;
   const yc = B * 0.5;
   const amp = B * 0.3;
   const period = B * 1.35;
   const phase0 = rand() * Math.PI * 2;
   edgeStrips(ctx, w, h, B, (L) => {
-    ctx.lineCap = 'round';
-    const step = period / 28;
+    // fios contínuos e finos (pontas retas: sem o efeito de contas)
+    ctx.lineCap = 'butt';
+    ctx.lineJoin = 'round';
+    const step = period / 40;
+    const crests: Array<[number, number, number]> = []; // x, y, ângulo do fio
     for (let k = 0; k < 3; k++) {
       const ph = phase0 + (k * Math.PI * 2) / 3;
       let prev: [number, number] | null = null;
       for (let x = -period; x <= L + period; x += step) {
         const th = (x / period) * Math.PI * 2 + ph;
         const y = yc + amp * Math.sin(th);
+        // 0..1: onde a luz bate — cada fio acende numa altura, espalhando o brilho
+        const lit = Math.max(0, Math.cos(th - 0.6 - k * 2.1));
         if (prev) {
-          // "por cima" na subida do fio: mais aceso; "por baixo": quase some
-          const lit = Math.max(0, Math.cos(th - 0.6)); // 0..1
-          const a = 0.15 + Math.pow(lit, 1.4) * 0.85;
-          const seg = () => {
+          // fio dourado bem fino, mais visível onde a luz bate
+          ctx.globalAlpha = 0.18 + lit * lit * 0.75;
+          ctx.strokeStyle = gold;
+          ctx.lineWidth = unit * (0.001 + lit * 0.0013);
+          ctx.beginPath();
+          ctx.moveTo(prev[0], prev[1]);
+          ctx.lineTo(x, y);
+          ctx.stroke();
+          // filete claro só no trecho mais aceso
+          if (lit > 0.7) {
+            ctx.globalAlpha = (lit - 0.7) * 3;
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = unit * 0.0006;
             ctx.beginPath();
-            ctx.moveTo(prev![0], prev![1]);
+            ctx.moveTo(prev[0], prev[1]);
             ctx.lineTo(x, y);
             ctx.stroke();
-          };
-          // contorno dourado escuro (dá contraste sobre a corda prateada)
-          ctx.globalAlpha = a * 0.8;
-          ctx.strokeStyle = deep;
-          ctx.lineWidth = unit * (0.0034 + lit * 0.0026);
-          seg();
-          // fio dourado
-          ctx.globalAlpha = a;
-          ctx.strokeStyle = gold;
-          ctx.lineWidth = unit * (0.002 + lit * 0.0018);
-          seg();
-          // núcleo claro onde a luz bate
-          if (lit > 0.55) {
-            ctx.globalAlpha = (lit - 0.55) * 2;
-            ctx.strokeStyle = light;
-            ctx.lineWidth = unit * 0.0011;
-            seg();
           }
+          // trechos acesos: candidatos a ponto de brilho (espalhados, não só no pico)
+          if (lit > 0.75 && rand() < 0.05) crests.push([x, y, Math.atan2(y - prev[1], x - prev[0])]);
         }
         prev = [x, y];
       }
     }
-    // pontos de brilho em alguns cruzamentos (onde dois fios se encontram)
-    for (let x = -period; x <= L + period; x += period / 3) {
-      if (rand() > 0.35) continue;
-      const th = (x / period) * Math.PI * 2 + phase0 + Math.PI / 3;
-      const y = yc + amp * Math.sin(th) * 0.5;
-      const r = unit * (0.005 + rand() * 0.004);
+    // pontos de luz suaves em alguns picos — o "brilho" da trança
+    ctx.globalCompositeOperation = 'lighter';
+    for (const [x, y, ang] of crests) {
+      const r = unit * (0.003 + rand() * 0.004);
       const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-      g.addColorStop(0, rgba('#ffffff', 0.95));
-      g.addColorStop(0.4, rgba(light, 0.6));
+      g.addColorStop(0, rgba('#ffffff', 0.9));
+      g.addColorStop(0.25, rgba(light, 0.55));
       g.addColorStop(1, rgba(light, 0));
       ctx.globalAlpha = 1;
       ctx.fillStyle = g;
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fill();
+      // reflexo fino ao longo do fio (traço curto e aceso)
+      ctx.strokeStyle = rgba('#ffffff', 0.8);
+      ctx.lineWidth = unit * 0.0007;
+      ctx.beginPath();
+      ctx.moveTo(x - Math.cos(ang) * r * 1.4, y - Math.sin(ang) * r * 1.4);
+      ctx.lineTo(x + Math.cos(ang) * r * 1.4, y + Math.sin(ang) * r * 1.4);
+      ctx.stroke();
     }
+    ctx.globalCompositeOperation = 'source-over';
   });
 }
 
