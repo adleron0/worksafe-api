@@ -126,8 +126,12 @@ export class PermissionsService {
       }
     });
 
-    if (target.profileId) await this.authCache.smartInvalidate({ profileId: target.profileId });
-    else await this.authCache.invalidateUserCache(Number(target.userId));
+    // A sessão do refresh guarda as permissões do perfil (cache de 7 dias): só
+    // apagar `user:*:permissions` deixava quem está logado com o acesso antigo.
+    if (target.profileId) {
+      const users = await this.prisma.user.findMany({ where: { profileId: target.profileId }, select: { id: true } });
+      await this.authCache.invalidateMultipleUsersCache(users.map((user) => user.id));
+    } else await this.authCache.invalidateUserCache(Number(target.userId));
     return { granted: grant.length, revoked: revoke.length };
   }
 
