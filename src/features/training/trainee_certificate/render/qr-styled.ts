@@ -25,7 +25,12 @@ export function styledQrPng(
   const color = options.color ?? '#26282b';
   const eye = options.accent ?? color;
   const style = options.style ?? 'suave';
-  const qr = QRCode.create(text, { errorCorrectionLevel: 'H' });
+  // com logo no centro precisa de correção alta (H); sem logo, M basta e
+  // deixa o QR com menos módulos (maiores, mais limpos e fáceis de ler)
+  const withLogo = options.logo ?? style !== 'selo';
+  const qr = QRCode.create(text, {
+    errorCorrectionLevel: withLogo ? 'H' : 'M',
+  });
   const n = qr.modules.size;
   const data = qr.modules.data;
   const cell = size / n;
@@ -33,7 +38,8 @@ export function styledQrPng(
   const ctx = canvas.getContext('2d');
 
   // zona central limpa para o mosquetão (correção H tolera ~30% de perda)
-  const logo = options.logo ?? true;
+  // no estilo "selo" a marca já está ao lado (SELO + mosquetão): QR limpo
+  const logo = withLogo;
   const zone = Math.round(n * 0.26) | 1;
   const z0 = Math.floor((n - zone) / 2);
   const inLogo = (r: number, c: number) =>
