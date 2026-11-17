@@ -23,7 +23,7 @@ import {
   SealBox,
 } from './highlight-seal';
 import { drawStaticFoil } from './highlight-static';
-import { QrStyle, styledQrPng } from './qr-styled';
+import { QR_STYLES, QrStyle, styledQrPng } from './qr-styled';
 import { layoutInstructorSlots } from './instructor-slots';
 import { applyConditionalVisibility } from './conditional-visibility';
 
@@ -40,7 +40,7 @@ import { applyConditionalVisibility } from './conditional-visibility';
  */
 
 /** Suba quando o resultado do render mudar, para invalidar caches/URLs. */
-export const RENDER_VERSION = 15;
+export const RENDER_VERSION = 16;
 
 export type CertificateSide = 'front' | 'back';
 
@@ -350,12 +350,16 @@ export class CertificateRenderService {
       });
     };
 
-    let qr: ReturnType<typeof styledQrPng> | null = null;
-    const qrImage = () =>
-      (qr ??= styledQrPng(`${FRONT_URL}/certificados/${key}`, {
-        size: 600,
-        style: (process.env.CERT_QR_STYLE as QrStyle) || 'suave',
-      }));
+    // um QR por estilo (o marcador pode pedir `qrStyle`, ex.: "selo")
+    const qrs = new Map<QrStyle, ReturnType<typeof styledQrPng>>();
+    const qrImage = (wanted?: string) => {
+      const style: QrStyle = QR_STYLES.includes(wanted as QrStyle)
+        ? (wanted as QrStyle)
+        : (process.env.CERT_QR_STYLE as QrStyle) || 'suave';
+      if (!qrs.has(style))
+        qrs.set(style, styledQrPng(`${FRONT_URL}/certificados/${key}`, { size: 600, style }));
+      return qrs.get(style)!;
+    };
 
     const walk = async (objects: any[], nested = false): Promise<any[]> => {
       const out: any[] = [];
@@ -372,7 +376,7 @@ export class CertificateRenderService {
             angle: obj.angle || 0,
             name: `qrcode_${obj.qrCodeName}`,
           };
-          attach(qrObj, qrImage());
+          attach(qrObj, qrImage(obj.qrStyle));
           out.push(qrObj);
           continue;
         }

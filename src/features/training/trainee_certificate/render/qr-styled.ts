@@ -7,7 +7,9 @@ import { LOGO_GATE, LOGO_INNER, LOGO_OUTER, tracePath } from './highlight-seal';
  * os três "olhos" com cantos suaves, na cor do texto do certificado. Mantém
  * correção de erro alta (H), então continua lendo bem mesmo estilizado.
  */
-export type QrStyle = 'pontos' | 'suave' | 'quadrado';
+export type QrStyle = 'pontos' | 'suave' | 'quadrado' | 'selo';
+/** Estilos aceitos no marcador do QR (`qrStyle`); o resto cai no padrão. */
+export const QR_STYLES: QrStyle[] = ['suave', 'quadrado', 'selo'];
 
 export function styledQrPng(
   text: string,
@@ -79,12 +81,14 @@ export function styledQrPng(
         if (dark(r + 1, c) && !isEye(r + 1, c) && !inLogo(r + 1, c))
           ctx.fillRect(x + g, y + cell / 2, cell - 2 * g, cell);
       } else {
-        ctx.fillRect(x, y, cell, cell);
+        // módulos retos, levemente sobrepostos para não aparecer fresta
+        ctx.fillRect(x - 0.3, y - 0.3, cell + 0.6, cell + 0.6);
       }
     }
   }
 
-  // olhos: anel 7×7 + miolo 3×3, cantos arredondados
+  // olhos: anel 7×7 + miolo 3×3 (retos no "selo"/"quadrado", suaves no resto)
+  const square = style === 'selo' || style === 'quadrado';
   ctx.fillStyle = eye;
   for (const [er, ec] of [
     [0, 0],
@@ -93,14 +97,16 @@ export function styledQrPng(
   ]) {
     const x = ec * cell;
     const y = er * cell;
-    roundRect(x, y, 7 * cell, 7 * cell, cell * 2);
+    const k = square ? 0 : 1;
+    ctx.beginPath();
+    roundRect(x, y, 7 * cell, 7 * cell, cell * 2 * k);
     ctx.fill();
     ctx.save();
     ctx.globalCompositeOperation = 'destination-out';
-    roundRect(x + cell, y + cell, 5 * cell, 5 * cell, cell * 1.3);
+    roundRect(x + cell, y + cell, 5 * cell, 5 * cell, cell * 1.3 * k);
     ctx.fill();
     ctx.restore();
-    roundRect(x + 2 * cell, y + 2 * cell, 3 * cell, 3 * cell, cell * 0.9);
+    roundRect(x + 2 * cell, y + 2 * cell, 3 * cell, 3 * cell, cell * 0.9 * k);
     ctx.fill();
   }
 
