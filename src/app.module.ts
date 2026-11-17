@@ -16,6 +16,7 @@ import { crudEntities, crudExtraControllers, crudExtraImports } from './common/c
 import { CourseModule } from './features/training/course/module';
 import { ClassesModule } from './features/training/classes/module';
 import { LandingModule } from './features/training/landing/landing.module';
+import { HelpModule } from './features/help/help.module';
 import { CacheModule } from './common/cache';
 import { ImageModule } from './features/image/module';
 import { SubscriptionModule } from './features/training/subscription/module';
@@ -61,6 +62,7 @@ import { AIModule } from './common/ai';
     CourseModule,
     ClassesModule,
     LandingModule,
+    HelpModule,
     ImageModule,
     SubscriptionModule,
     AlunosModule,

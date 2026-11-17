@@ -1,0 +1,31 @@
+/// Central de ajuda: os treinos que cada pessoa já concluiu ou dispensou.
+/// `tourId` é o id do treino no front (ex.: "comercial.criar-proposta"). Uma linha por pessoa e treino.
+model Help_State {
+  id          Int       @id @default(autoincrement())
+  companyId   Int
+  userId      Int
+  tourId      String    @db.VarChar(80)
+  completedAt DateTime?
+  dismissedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([userId, tourId])
+  @@index([companyId])
+}
+
+/// Uso da ajuda e dos treinos (onde as pessoas começam, erram ou param). Só registro, nada lê de volta na tela.
+model Help_Event {
+  id        Int      @id @default(autoincrement())
+  companyId Int
+  userId    Int
+  event     String   @db.VarChar(30) // help_open | lesson_start | step_view | wrong_action | lesson_complete | lesson_exit | lesson_restart | video_play
+  tourId    String?  @db.VarChar(80)
+  step      Int?
+  target    String?  @db.VarChar(120)
+  route     String?  @db.VarChar(200)
+  createdAt DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([tourId, event])
+}
