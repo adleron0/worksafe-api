@@ -357,7 +357,10 @@ export class CertificateRenderService {
         ? (wanted as QrStyle)
         : (process.env.CERT_QR_STYLE as QrStyle) || 'suave';
       if (!qrs.has(style))
-        qrs.set(style, styledQrPng(`${FRONT_URL}/certificados/${key}`, { size: 600, style }));
+        qrs.set(
+          style,
+          styledQrPng(`${FRONT_URL}/certificados/${key}`, { size: 600, style }),
+        );
       return qrs.get(style)!;
     };
 
