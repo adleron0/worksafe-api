@@ -9,6 +9,7 @@ import { WRITE_TOOLS } from './write.tools';
 import { IMAGE_TOOLS } from './image.tools';
 import { FINANCE_TOOLS } from './finance.tools';
 import { SCHEDULE_TOOLS } from './schedule.tools';
+import { STATEMENT_TOOLS } from './statement.tools';
 
 /** Resultado de uma chamada, como volta para o modelo. */
 export interface ToolOutcome {
@@ -59,7 +60,7 @@ export class ToolCatalogService {
   private readonly tools = new Map<string, ToolDefinition>();
 
   constructor(private readonly prisma: PrismaService, private readonly deps: ToolDeps) {
-    for (const tool of [...READ_TOOLS, ...WRITE_TOOLS, ...IMAGE_TOOLS, ...FINANCE_TOOLS, ...SCHEDULE_TOOLS]) this.tools.set(tool.name, tool);
+    for (const tool of [...READ_TOOLS, ...WRITE_TOOLS, ...IMAGE_TOOLS, ...FINANCE_TOOLS, ...STATEMENT_TOOLS, ...SCHEDULE_TOOLS]) this.tools.set(tool.name, tool);
   }
 
   all(): ToolDefinition[] {

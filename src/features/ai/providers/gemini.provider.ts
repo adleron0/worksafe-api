@@ -11,6 +11,7 @@ import { callId, ChatMessage, ChatProvider, ChatRequest, ChatResponse, ProviderU
  */
 export class GeminiProvider implements ChatProvider {
   readonly id = 'gemini';
+  readonly readsPdf = true;
   private client: GoogleGenAI | null = null;
 
   private key(): string {
@@ -35,7 +36,7 @@ export class GeminiProvider implements ChatProvider {
       contents,
       config: {
         systemInstruction: request.system,
-        maxOutputTokens: request.maxOutputTokens ?? 8192,
+        maxOutputTokens: request.maxOutputTokens ?? 32768, // extrato lido vira uma chamada de ferramenta grande
         tools: request.tools.length
           ? [{ functionDeclarations: request.tools.map((tool) => ({ name: tool.name, description: tool.description, parametersJsonSchema: tool.inputSchema })) }]
           : undefined,

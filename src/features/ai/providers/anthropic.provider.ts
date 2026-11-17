@@ -9,6 +9,7 @@ import { ChatMessage, ChatProvider, ChatRequest, ChatResponse, ProviderUnavailab
  */
 export class AnthropicProvider implements ChatProvider {
   readonly id = 'anthropic';
+  readonly readsPdf = true;
   private client: Anthropic | null = null;
 
   private key(): string {
@@ -71,10 +72,9 @@ export class AnthropicProvider implements ChatProvider {
     const out: Anthropic.MessageParam[] = [];
     for (const message of messages) {
       if (message.role === 'user') {
-        const content: Anthropic.ContentBlockParam[] = (message.images ?? []).map((image) => ({
-          type: 'image' as const,
-          source: { type: 'base64' as const, media_type: image.mediaType as 'image/png', data: image.base64 },
-        }));
+        const content: Anthropic.ContentBlockParam[] = (message.images ?? []).map((image): Anthropic.ContentBlockParam => (image.mediaType === 'application/pdf'
+          ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: image.base64 } }
+          : { type: 'image', source: { type: 'base64', media_type: image.mediaType as 'image/png', data: image.base64 } }));
         content.push({ type: 'text', text: message.text || ' ' });
         out.push({ role: 'user', content });
       } else if (message.role === 'assistant') {

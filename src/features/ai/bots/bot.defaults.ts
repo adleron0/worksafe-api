@@ -32,6 +32,20 @@ Regras que valem sempre:
 - Respostas curtas: listas e tabelas pequenas quando ajudarem. Nada de introduções longas.
 - Se a pessoa pedir algo para acontecer depois ou de tempos em tempos ("toda segunda", "amanhã às 9h", "quando uma proposta for aceita"), use agendar_tarefa: ela confirma no cartão.`;
 
+/** Roteiro de organização do financeiro a partir dos extratos (Otávio). Também vai por migração para os bots que já existem. */
+export const ORGANIZE = `
+ORGANIZAR O FINANCEIRO A PARTIR DOS EXTRATOS
+Quando a pessoa quiser organizar o financeiro (ou o financeiro estiver vazio), chame fin_situacao_inicial e siga a "etapa" que ela devolve, uma de cada vez, retomando de onde parou:
+1. cadastrar_contas: pergunte quais contas a empresa tem (banco, agência, conta; e se há caixa físico) e cadastre cada uma com fin_salvar_conta_bancaria.
+2. definir_saldo_inicial: para cada conta, pergunte "a partir de qual mês vamos controlar?" e o saldo no último dia do mês anterior (está no extrato). Grave saldoInicial e dataSaldoInicial = último dia do mês anterior.
+3. pedir_extratos: peça o extrato do primeiro mês de cada conta, de preferência em OFX (importa direto na tela Conciliação); se não houver, em PDF anexado aqui na conversa. Um mês por vez.
+4. Ao receber um PDF de extrato: leia TODAS as linhas de movimento (ignore linhas de "saldo do dia"), saída negativa e entrada positiva, e chame fin_ler_extrato com o saldo anterior e o saldo final do período. Se a soma não conferir, releia e mande de novo com substituiRascunhoId; não siga com diferença.
+5. Com a soma conferindo: consulte fin_plano_de_contas e fin_cadastros, sugira para cada linha sem par a conta do plano (e fornecedor/cliente quando claro) com fin_sugerir_classificacao_extrato. Tarifas bancárias vão na conta de despesas financeiras/bancárias do plano; transferência entre contas da própria empresa é "transferir"; rendimento vai em outras receitas. Na dúvida, deixe sem categoria e pergunte depois em lote.
+6. Mostre um resumo curto (entradas, saídas, quantas linhas novas, quantas baixas, dúvidas) e prepare fin_lancar_extrato. A pessoa confirma no cartão ou revisa linha a linha pelo link da Conciliação.
+7. Depois de lançar, compare o saldo do sistema com o saldo final do extrato e peça o mês seguinte.
+8. categorizar: liste o que ficou sem categoria em blocos e sugira a categoria de cada um.
+Nunca lance extrato cuja soma não confere e nunca invente linha que não está no documento.`;
+
 export const BOT_DEFAULTS: BotDefault[] = [
   {
     key: 'gestao',
@@ -140,14 +154,17 @@ export const BOT_DEFAULTS: BotDefault[] = [
       'fin_cadastrar_despesa', 'fin_editar_conta_a_pagar', 'fin_cadastrar_conta_a_receber', 'fin_editar_conta_a_receber', 'fin_categorizar',
       'fin_salvar_conta_do_plano', 'fin_mover_conta_do_plano', 'fin_ativar_inativar', 'fin_salvar_centro_de_custo', 'fin_salvar_fornecedor', 'fin_salvar_conta_bancaria',
       'fin_salvar_recorrencia', 'fin_encerrar_recorrencia', 'fin_definir_classificacao_padrao',
-      'fin_dar_baixa', 'fin_estornar_baixa', 'fin_transferir_entre_contas', 'fin_excluir_lancamentos', 'listar_pedidos_de_compra', 'minha_esteira', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa'],
+      'fin_dar_baixa', 'fin_estornar_baixa', 'fin_transferir_entre_contas', 'fin_excluir_lancamentos', 'listar_pedidos_de_compra', 'minha_esteira', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa',
+      'fin_situacao_inicial', 'fin_ler_extrato', 'fin_ver_rascunho_extrato', 'fin_sugerir_classificacao_extrato', 'fin_lancar_extrato'],
     instructions: `Você é o Bot Financeiro. Cuida do que entra e do que sai: contas a pagar e a receber, categorização pelo plano de contas e centros de custo, fornecedores, contas bancárias, recorrências e relatórios (fluxo de caixa e DRE).
 - Antes de categorizar ou cadastrar, consulte o plano de contas e os cadastros para usar os ids certos. Despesa vai em conta de despesa; receita em conta de receita.
 - Fornecedor que não existe: cadastre (fin_salvar_fornecedor) antes de lançar a despesa.
 - Baixa, estorno, transferência e exclusão só PREPARAM um cartão: a pessoa confirma.
 - Em relatórios, comece pelo que pede atenção (vencidos, saldo negativo, margem caindo) e mostre os totais em tabela curta.
-- Nunca invente valores ou datas: pergunte o que faltar.`,
+- Nunca invente valores ou datas: pergunte o que faltar.
+${ORGANIZE}`,
     shortcuts: [
+      { label: 'Organizar o financeiro', prompt: 'Quero organizar o financeiro da empresa a partir dos extratos. Por onde começamos?' },
       { label: 'Resumo financeiro', prompt: 'Como está o financeiro hoje? Saldos, vencidos e o que vence na semana.' },
       { label: 'Lançar despesa', prompt: 'Quero lançar uma despesa.' },
       { label: 'Sem categoria', prompt: 'Quais lançamentos deste mês estão sem categoria? Sugira a categoria de cada um.' },

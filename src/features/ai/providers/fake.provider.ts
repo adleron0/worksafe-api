@@ -8,6 +8,7 @@ export type FakeStep = (request: ChatRequest) => { text?: string; toolCalls?: Om
  */
 export class FakeProvider implements ChatProvider {
   readonly id = 'fake';
+  readonly readsPdf = true;
   private static steps: FakeStep[] = [];
   static requests: ChatRequest[] = [];
 

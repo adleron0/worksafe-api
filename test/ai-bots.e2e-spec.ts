@@ -69,6 +69,22 @@ describe('Bots de IA (e2e)', () => {
     await api().post(`/ai/bots/${treino.id}/conversations`).set(auth(company.id, ['usar_bots'])).expect(403);
   });
 
+  it('aceita PDF anexado (extrato) e manda ao modelo; recusa arquivo que não é PDF', async () => {
+    const { company } = await cenario();
+    const bot = await botOf(company.id, 'treinamentos');
+    const conversation = (await api().post(`/ai/bots/${bot.id}/conversations`).set(auth(company.id)).expect(201)).body;
+    FakeProvider.script([() => ({ text: 'Li o extrato.' })]);
+    const pdf = Buffer.from('%PDF-1.4\n1 0 obj << >> endobj\ntrailer << >>\n%%EOF');
+    const { runId } = (await api().post(`/ai/conversations/${conversation.id}/messages`).set(auth(company.id)).field('text', 'Lê o extrato').attach('files', pdf, { filename: 'extrato-outubro.pdf', contentType: 'application/pdf' }).expect(201)).body;
+    expect((await waitRun(company.id, runId)).status).toBe('done');
+    const sent = FakeProvider.requests[0].messages[0] as any;
+    expect(sent.images).toEqual([{ mediaType: 'application/pdf', base64: pdf.toString('base64') }]);
+    const view = (await api().get(`/ai/conversations/${conversation.id}`).set(auth(company.id)).expect(200)).body;
+    expect(view.messages[0].attachments).toEqual([{ name: 'extrato-outubro.pdf', mediaType: 'application/pdf', size: pdf.length }]);
+    await api().post(`/ai/conversations/${conversation.id}/messages`).set(auth(company.id)).field('text', 'e este?').attach('files', Buffer.from('não sou pdf'), { filename: 'falso.pdf', contentType: 'application/pdf' }).expect(400);
+    await api().post(`/ai/conversations/${conversation.id}/messages`).set(auth(company.id)).field('text', 'e este?').attach('files', Buffer.from('planilha'), { filename: 'a.csv', contentType: 'text/csv' }).expect(400);
+  });
+
   it('responde consultando dados reais pela ferramenta, com auditoria e gasto', async () => {
     const { company, db } = await cenario();
     const bot = await botOf(company.id, 'treinamentos');

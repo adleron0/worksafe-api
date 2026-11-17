@@ -21,6 +21,9 @@ const MAX_TURNS = 12;
 const HISTORY_LIMIT = 40;
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 const IMAGE_MAX = 5 * 1024 * 1024;
+/** PDF (extrato, nota, boleto): o modelo lê direto. 10 MB cabem no limite de envio inline do Gemini. */
+const PDF_TYPE = 'application/pdf';
+const PDF_MAX = 10 * 1024 * 1024;
 
 const nowBr = () => new Date(Date.now() - 3 * 3600 * 1000);
 
@@ -264,12 +267,20 @@ export class AgentService {
     const bot = await this.bots.usable(actor, conversation.botId);
     const text = String(rawText ?? '').trim().slice(0, 8000);
     if (!text && !files.length) throw new BadRequestException('Escreva a mensagem');
-    if (files.length > 3) throw new BadRequestException('Até 3 imagens por mensagem');
+    if (files.length > 3) throw new BadRequestException('Até 3 arquivos por mensagem');
     for (const file of files) {
-      if (!IMAGE_TYPES.includes(file.mimetype)) throw new BadRequestException('Anexe imagens PNG, JPG ou WEBP');
+      if (file.mimetype === PDF_TYPE) {
+        if (file.size > PDF_MAX) throw new BadRequestException('PDF maior que 10 MB. Divida o extrato em partes menores (por quinzena, por exemplo)');
+        if (!file.buffer.subarray(0, 5).toString('latin1').startsWith('%PDF')) throw new BadRequestException(`"${file.originalname}" não é um PDF válido`);
+        continue;
+      }
+      if (!IMAGE_TYPES.includes(file.mimetype)) throw new BadRequestException('Anexe imagens (PNG, JPG ou WEBP) ou PDF');
       if (file.size > IMAGE_MAX) throw new BadRequestException('Imagem maior que 5 MB');
     }
     const provider = this.providers.get(bot.provider);
+    if (files.some((file) => file.mimetype === PDF_TYPE) && provider && !provider.readsPdf) {
+      throw new BadRequestException(`${bot.persona ?? bot.name} usa um modelo que não lê PDF. Troque o fornecedor dele para Gemini ou Claude em Configurar bots, ou mande o extrato em OFX`);
+    }
     if (!provider?.available()) throw new ServiceUnavailableException(`O bot ${bot.name} usa ${bot.provider}, que ainda não tem chave configurada. Peça ao administrador para configurar.`);
     if (await this.usage.overBudget(actor.companyId)) throw new ForbiddenException('O teto mensal de gasto com IA foi atingido. Peça ao administrador para aumentar o teto.');
     const running = await this.prisma.ai_Run.findFirst({ where: { conversationId, status: 'running' }, select: { id: true } });

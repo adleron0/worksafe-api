@@ -95,6 +95,7 @@ model Financial_BankAccount {
   inactiveAt DateTime?
 
   @@unique([companyId, name])
+  statementDrafts Financial_StatementDraft[]
 }
 
 // Classificação que um recebível ganha sozinho conforme a origem
@@ -294,4 +295,30 @@ model Financial_Settings {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
+}
+
+/// Extrato lido pelo assistente (PDF) ou enviado pelo MCP: rascunho até a pessoa revisar e lançar pela conciliação.
+model Financial_StatementDraft {
+  id              Int                   @id @default(autoincrement())
+  companyId       Int
+  bankAccountId   Int
+  bankAccount     Financial_BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+  source          String                @default("pdf") @db.VarChar(10) // pdf | mcp
+  status          String                @default("rascunho") @db.VarChar(20) // rascunho | nao_confere | parcial | lancado | descartado
+  fileName        String?               @db.VarChar(200)
+  periodFrom      String                @db.VarChar(10)
+  periodTo        String                @db.VarChar(10)
+  openingBalance  Decimal               @db.Decimal(18, 2)
+  closingBalance  Decimal               @db.Decimal(18, 2)
+  difference      Decimal               @default(0) @db.Decimal(18, 2) // saldo inicial + linhas - saldo final
+  lines           Json // [{ fitId, date, amount, memo, suggestion? }]
+  applyResult     Json?
+  botId           Int?
+  createdByUserId Int?
+  appliedAt       DateTime?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  @@index([companyId, status])
+  @@index([bankAccountId])
 }

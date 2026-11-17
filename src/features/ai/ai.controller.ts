@@ -17,7 +17,7 @@ export const actorOf = (req: Request): BotActor => {
   return { userId: Number(user?.sub ?? 0), companyId: Number(user?.companyId ?? 0), permissions: extractUserPermissions(user) };
 };
 type Json = Record<string, unknown>;
-const UPLOAD = { storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 3 } };
+const UPLOAD = { storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 3 } };
 
 /** Área de Bots: bots, conversas, execuções, ações pendentes, auditoria e gasto. */
 @Controller('ai')

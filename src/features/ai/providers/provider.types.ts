@@ -23,6 +23,7 @@ export interface ChatToolCall {
   input: Record<string, unknown>;
 }
 
+/** Anexo enviado ao modelo: imagem (png/jpeg/webp) ou PDF (application/pdf). */
 export interface ChatImage {
   mediaType: string;
   base64: string;
@@ -69,6 +70,8 @@ export interface ChatProvider {
   readonly id: string;
   /** Tem chave configurada? Sem chave o bot avisa em vez de quebrar. */
   available(): boolean;
+  /** Lê PDF direto (Gemini e Claude). Os demais recebem só imagens. */
+  readonly readsPdf?: boolean;
   chat(request: ChatRequest): Promise<ChatResponse>;
 }
 

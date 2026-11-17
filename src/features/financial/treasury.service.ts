@@ -114,6 +114,14 @@ export class TreasuryService {
     await assertClassification(this.prisma, companyId, { bankAccountId });
     const { lines, bankId, accountId, ledger } = parseOfx(content);
     if (!lines.length) fail('Nenhum lançamento encontrado no extrato');
+    return { ...(await this.previewLines(companyId, bankAccountId, lines, ledger)), bankId, accountId };
+  }
+
+  /**
+   * Motor da conciliação: recebe as linhas já prontas (do OFX ou lidas do PDF
+   * pelo assistente) e diz o que já foi conciliado, o que tem par e o que não tem.
+   */
+  async previewLines(companyId: number, bankAccountId: number, lines: StatementLine[], ledger: { amount: number; date: string } | null) {
     const { accounts } = await this.balance.accounts(companyId, [bankAccountId]);
     const start = accounts[0]?.start ?? null;
     const refs = lines.map((l) => this.ref(bankAccountId, l.fitId));
@@ -179,7 +187,7 @@ export class TreasuryService {
     const checkDate = ledger?.date ?? dates[dates.length - 1];
     const { rows } = await this.balance.balances(companyId, checkDate, [bankAccountId]);
     return {
-      bankAccountId, bankId, accountId, start,
+      bankAccountId, start,
       period: { from: dates[0], to: dates[dates.length - 1] },
       totals: {
         lines: items.length, reconciled: items.filter((i) => i.status === 'conciliado').length, suggested: items.filter((i) => i.status === 'sugerido').length,

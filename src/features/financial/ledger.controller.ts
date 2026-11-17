@@ -9,6 +9,7 @@ import { LedgerService, exportName } from './ledger.service';
 import { PayableActor, PayableService } from './payable.service';
 import { RecurrenceService } from './recurrence.service';
 import { ReportService } from './report.service';
+import { StatementDraftService } from './statement-draft.service';
 import { TreasuryService } from './treasury.service';
 
 type Q = Record<string, unknown>;
@@ -38,6 +39,7 @@ export class LedgerController {
     private readonly recurrences: RecurrenceService,
     private readonly reports: ReportService,
     private readonly treasury: TreasuryService,
+    private readonly drafts: StatementDraftService,
   ) {}
 
   // ------------------------------------------------------------ a pagar
@@ -125,6 +127,29 @@ export class LedgerController {
 
   @Permissions('update_financeiro') @Post('reconciliation/apply')
   apply(@Req() req: Request, @Body() body: Q) { return this.treasury.apply(actorOf(req), body ?? {}); }
+
+  // ------------------------------------------------------------ extratos lidos (PDF / MCP)
+
+  @Permissions('list_financeiro') @Get('statement-drafts')
+  listDrafts(@Req() req: Request, @Query() query: Q) { return this.drafts.list(actorOf(req).companyId, query); }
+
+  @Permissions('create_financeiro') @Post('statement-drafts')
+  createDraft(@Req() req: Request, @Body() body: Q) {
+    const source = ['pdf', 'mcp'].includes(String(body?.source)) ? String(body?.source) : 'pdf';
+    return this.drafts.create(actorOf(req), body ?? {}, { source, botId: Number(body?.botId) || null });
+  }
+
+  @Permissions('list_financeiro') @Get('statement-drafts/:id')
+  getDraft(@Req() req: Request, @Param('id', ParseIntPipe) id: number) { return this.drafts.view(actorOf(req).companyId, id); }
+
+  @Permissions('update_financeiro') @Put('statement-drafts/:id/suggestions')
+  suggestDraft(@Req() req: Request, @Param('id', ParseIntPipe) id: number, @Body() body: Q) { return this.drafts.suggest(actorOf(req), id, body ?? {}); }
+
+  @Permissions('update_financeiro') @Post('statement-drafts/:id/apply')
+  applyDraft(@Req() req: Request, @Param('id', ParseIntPipe) id: number, @Body() body: Q) { return this.drafts.apply(actorOf(req), id, body ?? {}); }
+
+  @Permissions('update_financeiro') @Patch('statement-drafts/:id/discard')
+  discardDraft(@Req() req: Request, @Param('id', ParseIntPipe) id: number) { return this.drafts.discard(actorOf(req), id); }
 }
 
 /** OFX de banco brasileiro costuma vir em latin1; UTF-8 quando o cabeçalho diz. */
