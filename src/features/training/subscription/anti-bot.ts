@@ -24,10 +24,10 @@ const SITEVERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverif
 
 const GENERIC_ERROR = 'Não foi possível concluir a inscrição. Recarregue a página e tente novamente.';
 
-export const turnstileEnabled = () => !!process.env.TURNSTILE_SECRET_KEY;
+export const turnstileEnabled = () => !!(process.env.TURNSTILE_SECRET_KEY || '').trim();
 
 const sign = (value: string) =>
-  createHmac('sha256', `human-pass:${process.env.TURNSTILE_SECRET_KEY}`).update(value).digest('hex');
+  createHmac('sha256', `human-pass:${(process.env.TURNSTILE_SECRET_KEY || '').trim()}`).update(value).digest('hex');
 
 export function issueHumanPass(now = Date.now()): string {
   const exp = String(now + PASS_TTL_MS);
@@ -47,18 +47,32 @@ export function isValidHumanPass(pass: unknown, now = Date.now()): boolean {
  * Confere o token do Turnstile com a Cloudflare. Se a Cloudflare não
  * responder, deixa passar: uma queda dela não pode parar as vendas.
  */
-export async function verifyTurnstile(token: unknown, ip?: string): Promise<boolean> {
-  if (typeof token !== 'string' || !token || token.length > 2048) return false;
-  const body = new URLSearchParams({ secret: process.env.TURNSTILE_SECRET_KEY || '', response: token });
+/** Erros que são da nossa configuração, não da pessoa: não podem parar as vendas. */
+const CONFIG_ERRORS = ['missing-input-secret', 'invalid-input-secret', 'internal-error'];
+
+export interface TurnstileResult {
+  ok: boolean;
+  codes: string[];
+}
+
+export async function verifyTurnstile(token: unknown, ip?: string): Promise<TurnstileResult> {
+  if (typeof token !== 'string' || !token || token.length > 2048) return { ok: false, codes: ['missing-input-response'] };
+  const body = new URLSearchParams({ secret: (process.env.TURNSTILE_SECRET_KEY || '').trim(), response: token });
   if (ip) body.set('remoteip', ip);
   try {
     const res = await fetch(SITEVERIFY_URL, { method: 'POST', body, signal: AbortSignal.timeout(8000) });
     const data: any = await res.json();
-    if (data?.success !== true) console.warn('[anti-bot] Turnstile recusou o token:', data?.['error-codes']);
-    return data?.success === true;
+    const codes: string[] = Array.isArray(data?.['error-codes']) ? data['error-codes'] : [];
+    if (data?.success === true) return { ok: true, codes };
+    if (codes.some((c) => CONFIG_ERRORS.includes(c))) {
+      console.error('[anti-bot] TURNSTILE_SECRET_KEY inválida ou Cloudflare com erro, liberando:', codes);
+      return { ok: true, codes };
+    }
+    console.error('[anti-bot] Turnstile recusou o token:', codes);
+    return { ok: false, codes };
   } catch (err) {
     console.error('[anti-bot] Turnstile indisponível, liberando:', (err as Error)?.message);
-    return true;
+    return { ok: true, codes: ['unreachable'] };
   }
 }
 

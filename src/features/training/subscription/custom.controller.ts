@@ -71,8 +71,13 @@ export class SubscriptionCustomController {
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   async humanCheck(@Req() request: Request, @Body() body: any) {
     if (!turnstileEnabled()) return { enabled: false, pass: null };
-    const ok = await verifyTurnstile(body?.token, request.ip);
-    if (!ok) throw new BadRequestException('Não foi possível confirmar que você não é um robô. Recarregue a página.');
+    const result = await verifyTurnstile(body?.token, request.ip);
+    if (!result.ok) {
+      throw new BadRequestException({
+        message: 'Não foi possível confirmar que você não é um robô. Recarregue a página.',
+        codes: result.codes,
+      });
+    }
     return { enabled: true, pass: issueHumanPass() };
   }
 

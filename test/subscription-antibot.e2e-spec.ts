@@ -32,7 +32,7 @@ describe('Inscrição pública: proteção contra robôs (e2e)', () => {
   const count = () => testDb().courseClassSubscription.count();
   // a API chama a Cloudflare com fetch (o nock 13 não intercepta fetch)
   const realFetch = global.fetch;
-  const siteverify = (answer: { success: boolean } | Error) =>
+  const siteverify = (answer: { success: boolean; 'error-codes'?: string[] } | Error) =>
     jest.spyOn(global, 'fetch').mockImplementation(async (url: any, init?: any) => {
       if (!String(url).startsWith('https://challenges.cloudflare.com/')) return realFetch(url, init);
       if (answer instanceof Error) throw answer;
@@ -84,6 +84,13 @@ describe('Inscrição pública: proteção contra robôs (e2e)', () => {
     // mesmo passe numa segunda chamada (o checkout chama de novo ao trocar o método)
     await subscribe({ ...buyer, cpf: '52998224725', classId: String(courseClass.id), humanPass: pass }).expect(201);
     expect(await count()).toBe(2);
+  });
+
+  it('chave secreta errada não trava as vendas (e o código do erro aparece no log)', async () => {
+    process.env.TURNSTILE_SECRET_KEY = 'chave-errada';
+    siteverify({ success: false, 'error-codes': ['invalid-input-secret'] } as any);
+    const res = await request(httpServer()).post('/subscription/human-check').send({ token: 'qualquer' }).expect(201);
+    expect(res.body.enabled).toBe(true);
   });
 
   it('Turnstile fora do ar não trava as vendas', async () => {
