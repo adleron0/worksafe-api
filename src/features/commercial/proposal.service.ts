@@ -650,7 +650,9 @@ export class ProposalService {
     await this.documents.expireDue(actor.companyId);
     const page = Math.max(0, Number(query.page) || 0);
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
-    const status = query.status as CommercialProposalStatus | undefined;
+    // uma ou mais situações separadas por vírgula (ex.: "enviada,visualizada" = em negociação)
+    const statuses = String(query.status ?? '').split(',').map((s) => s.trim())
+      .filter((s): s is CommercialProposalStatus => (Object.values(CommercialProposalStatus) as string[]).includes(s));
     const term = clean(query.search, 80);
     const scope: Prisma.Commercial_ProposalWhereInput = {
       companyId: actor.companyId, AND: [proposalsVisibleTo(actor)],
@@ -664,7 +666,7 @@ export class ProposalService {
       ] } : {}),
     };
     // Versões substituídas só aparecem quando pedidas pelo status.
-    const where: Prisma.Commercial_ProposalWhereInput = { ...scope, status: status && Object.values(CommercialProposalStatus).includes(status) ? status : { not: 'substituida' } };
+    const where: Prisma.Commercial_ProposalWhereInput = { ...scope, status: statuses.length ? { in: statuses } : { not: 'substituida' } };
     const [rows, total, groups] = await Promise.all([
       this.prisma.commercial_Proposal.findMany({
         where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: page * limit, take: limit,

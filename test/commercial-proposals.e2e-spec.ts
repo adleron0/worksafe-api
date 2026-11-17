@@ -368,6 +368,12 @@ describe('Comercial — propostas (e2e)', () => {
     expect(await search('search=jateamento')).toEqual(['Jateamento de estrutura']);
     expect(await search(`search=PC-${YEAR}-0002`)).toEqual(['NR-35 para a equipe']);
     expect(await search('status=enviada')).toEqual(['Jateamento de estrutura']);
+    // várias situações de uma vez (o card "Em negociação" da lista = enviadas + visualizadas)
+    expect(await search('status=enviada,visualizada')).toEqual(['Jateamento de estrutura']);
+    expect((await search('status=rascunho,enviada')).sort()).toEqual(['Jateamento de estrutura', 'NR-35 para a equipe']);
+    expect((await api().get('/commercial/proposals?status=enviada,rascunho').set(h).expect(200)).body.total).toBe(2);
+    // situação inválida é ignorada: volta à lista padrão (sem as substituídas)
+    expect((await search('status=inventada')).sort()).toEqual(['Jateamento de estrutura', 'NR-35 para a equipe']);
     expect(await search('kind=treinamento')).toEqual(['NR-35 para a equipe']);
     expect(await search(`customerId=${beta.id}`)).toEqual(['NR-35 para a equipe']);
 
