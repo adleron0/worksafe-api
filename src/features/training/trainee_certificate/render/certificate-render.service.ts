@@ -26,6 +26,7 @@ import { drawStaticFoil } from './highlight-static';
 import { QR_STYLES, QrStyle, styledQrPng } from './qr-styled';
 import { layoutInstructorSlots } from './instructor-slots';
 import { applyConditionalVisibility } from './conditional-visibility';
+import { drawExpiredMark } from './expired-mark';
 
 /**
  * Render do certificado na API (mesmo JSON do Fabric que o visualizador do
@@ -40,7 +41,7 @@ import { applyConditionalVisibility } from './conditional-visibility';
  */
 
 /** Suba quando o resultado do render mudar, para invalidar caches/URLs. */
-export const RENDER_VERSION = 17;
+export const RENDER_VERSION = 18;
 
 export type CertificateSide = 'front' | 'back';
 
@@ -84,6 +85,7 @@ export class CertificateRenderService {
         key: true,
         updatedAt: true,
         createdAt: true,
+        expirationDate: true,
         fabricJsonFront: true,
         fabricJsonBack: true,
         canvasWidth: true,
@@ -110,11 +112,65 @@ export class CertificateRenderService {
     return cert;
   }
 
+  /**
+   * Certificado cancelado (arquivado): a página pública mostra "cancelado" com
+   * o mínimo — aluno, curso, data, motivo e, se reemitido, a chave do novo.
+   * Nada do desenho nem do CPF.
+   */
+  async findCancelled(key: string) {
+    if (!/^[0-9a-f-]{36}$/i.test(key)) {
+      throw new NotFoundException('Certificado não encontrado');
+    }
+    const cert = await this.prisma.traineeCourseCertificate.findFirst({
+      where: { key, inactiveAt: { not: null } },
+      select: {
+        key: true,
+        inactiveAt: true,
+        cancelReason: true,
+        replacedByKey: true,
+        createdAt: true,
+        trainee: { select: { name: true } },
+        course: { select: { name: true, icon: true, color: true } },
+        company: { select: { comercial_name: true } },
+      },
+    });
+    if (!cert) throw new NotFoundException('Certificado não encontrado');
+    // o substituto só conta se existir e estiver vivo
+    let replacedByKey: string | null = null;
+    if (cert.replacedByKey) {
+      const next = await this.prisma.traineeCourseCertificate.findFirst({
+        where: { key: cert.replacedByKey, inactiveAt: null },
+        select: { key: true },
+      });
+      replacedByKey = next?.key ?? null;
+    }
+    return {
+      status: 'cancelado' as const,
+      key: cert.key,
+      canceledAt: cert.inactiveAt,
+      issuedAt: cert.createdAt,
+      reason: cert.cancelReason,
+      replacedByKey,
+      traineeName: cert.trainee?.name ?? null,
+      course: cert.course,
+      companyName: cert.company?.comercial_name ?? null,
+    };
+  }
+
+  /** Vencido = data de validade já passou (sem validade nunca vence). */
+  isExpired(cert: { expirationDate?: Date | string | null }) {
+    return (
+      !!cert.expirationDate &&
+      new Date(cert.expirationDate).getTime() < Date.now()
+    );
+  }
+
   /** Versão para compor URLs cacheáveis (`?v=`). */
   version(
     cert: { updatedAt: Date | string } & Parameters<typeof resolveHighlight>[0],
   ) {
-    const base = `${new Date(cert.updatedAt).getTime()}-${RENDER_VERSION}`;
+    // vencer muda a imagem (marca VENCIDO) sem tocar no certificado
+    const base = `${new Date(cert.updatedAt).getTime()}-${RENDER_VERSION}${this.isExpired(cert as any) ? '-vencido' : ''}`;
     // o destaque da turma muda sem tocar no certificado: entra na versão
     const h = resolveHighlight(cert);
     return h ? `${base}-${highlightSignature(h)}` : base;
@@ -309,6 +365,15 @@ export class CertificateRenderService {
           highlight.label,
           null, // sem legenda sob o selo (a validação fica na área do QR)
           new Date(cert.createdAt).getFullYear(),
+        );
+      }
+      if (this.isExpired(cert)) {
+        const node = (canvas as any).getNodeCanvas();
+        drawExpiredMark(
+          node.getContext('2d'),
+          node.width,
+          node.height,
+          new Date(cert.expirationDate as any),
         );
       }
       const tRender = Date.now();

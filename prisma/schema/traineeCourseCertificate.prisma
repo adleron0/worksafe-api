@@ -26,6 +26,11 @@ model TraineeCourseCertificate {
   highlightPattern     CertificateHighlightPattern?
   highlightBorder      CertificateHighlightBorder?
 
+  // Cancelamento (inactiveAt preenchido): a página pública mostra "cancelado"
+  // com o motivo e, se houve reemissão, o link para o novo certificado.
+  cancelReason  String? @db.VarChar(255)
+  replacedByKey String? @db.VarChar(36)
+
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?

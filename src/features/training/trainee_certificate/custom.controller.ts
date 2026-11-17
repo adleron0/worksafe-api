@@ -101,6 +101,18 @@ export class TraineeCertificateCustomController {
   // certificado (é a prova de autenticidade). Sem `?v=` o cache é curto; com
   // `?v=<updatedAt>` (o front sempre manda) pode ficar um dia no navegador.
 
+  /**
+   * Certificado cancelado: quem lê o QR de um certificado arquivado vê
+   * "cancelado em …" (com motivo e, se reemitido, o novo) em vez de
+   * "não encontrado", que parece documento falso. Só o mínimo, sem desenho.
+   */
+  @Public()
+  @Throttle({ default: { limit: 60, ttl: 60000 } })
+  @Get('public/:key/status')
+  async getCancelledStatus(@Param('key') key: string) {
+    return this.renderer.findCancelled(key);
+  }
+
   @Public()
   @Throttle({ default: { limit: 60, ttl: 60000 } })
   @Get('public/:key/image.png')
