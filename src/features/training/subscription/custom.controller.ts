@@ -16,6 +16,8 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { Throttle } from '@nestjs/throttler';
+import { checkHuman, issueHumanPass, turnstileEnabled, verifyTurnstile } from './anti-bot';
 import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 // Import entity template
@@ -59,9 +61,26 @@ export class SubscriptionCustomController {
   ) {
   }
 
+  /**
+   * Troca o token do Cloudflare Turnstile por um passe de 1 hora que vai em
+   * cada envio da inscrição. Sem TURNSTILE_SECRET_KEY, responde que a
+   * verificação está desligada.
+   */
+  @Public()
+  @Post('human-check')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  async humanCheck(@Req() request: Request, @Body() body: any) {
+    if (!turnstileEnabled()) return { enabled: false, pass: null };
+    const ok = await verifyTurnstile(body?.token, request.ip);
+    if (!ok) throw new BadRequestException('Não foi possível confirmar que você não é um robô. Recarregue a página.');
+    return { enabled: true, pass: issueHumanPass() };
+  }
+
   // ROTA ABERTA PARA INSCRIÇÃO (com checkout integrado quando allowCheckout = true)
   @Public()
   @Post('subscribe')
+  // checkout troca de método e tenta cartão de novo; RH pode inscrever vários da mesma rede
+  @Throttle({ default: { limit: 30, ttl: 600000 } })
   @CacheEvictAll(
     'subscription:*',
     'cache:*/subscription*',
@@ -77,6 +96,9 @@ export class SubscriptionCustomController {
     @Body() body: any,
     @UploadedFile() file?: Express.MulterS3.File,
   ) {
+    // robô: campo-isca, envio rápido demais ou sem o passe do Turnstile
+    checkHuman(body);
+
     // Converte strings JSON para objetos quando vem do FormData
     if (typeof body.creditCard === 'string') {
       if (
