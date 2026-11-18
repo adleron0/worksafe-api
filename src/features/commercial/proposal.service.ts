@@ -92,6 +92,18 @@ const FULL = {
   customer: { select: { id: true, name: true, corporateName: true, cnpj: true, email: true, phone: true } },
 };
 
+export interface CommissionDefault { rate: number; base: 'faturado' | 'lucro'; inPrice: boolean; source: 'vendedor' | 'padrao' | 'zero' }
+
+/** Padrão da base de cálculo, só quando a diretoria o ligou; desligado (ou ausente) = zero. */
+export function baseCommission(defaults: Record<string, any> | undefined): CommissionDefault {
+  const commission = defaults?.commission;
+  if (commission?.enabled === true) {
+    const base = commission.base === 'faturado' ? 'faturado' : 'lucro';
+    return { rate: Number(commission.rate ?? 0), base, inPrice: base === 'faturado' && commission.inPrice === true, source: 'padrao' };
+  }
+  return { rate: 0, base: 'lucro', inPrice: false, source: 'zero' };
+}
+
 /** Endereço em até duas linhas: "Rua, número, complemento" e "Bairro - Cidade - UF - CEP 00000-000". */
 function addressLines(street: Array<string | number | null | undefined>, neighborhood?: string | null, city?: string | null, uf?: string | null, zip?: string | null): string[] {
   const digits = String(zip ?? '').replace(/\D/g, '');
@@ -194,7 +206,8 @@ export class ProposalService {
     });
 
     const commission = (body.commission ?? {}) as Body;
-    const commissionDefault = defaults.commission ?? {};
+    // o valor inicial (vendedor → padrão da base → zero) é decidido em `applyCommissionDefault`
+    const commissionDefault = { rate: 0, base: 'lucro', inPrice: false };
     const seeCosts = actor.canSeeCosts;
     return {
       kind, customerId, title, referenceDate, workDays, weekendDays,
@@ -331,6 +344,34 @@ export class ProposalService {
   }
 
   // ------------------------------------------------------------------ apoio
+
+  /** Comissão informada à mão por quem pode mexer nela (quem não vê custos nunca informa). */
+  private explicitCommission(actor: Actor, body: Body): boolean {
+    const commission = body.commission as Body | undefined;
+    return actor.canSeeCosts && !!commission && typeof commission === 'object' && !blank(commission.rate);
+  }
+
+  /**
+   * Comissão inicial de uma proposta, em ordem de prioridade: a própria do
+   * vendedor, se houver; senão o padrão da base de cálculo, se a diretoria o
+   * ligou; senão zero.
+   */
+  async commissionDefault(companyId: number, sellerId: number | null, defaults: Record<string, any> | undefined): Promise<CommissionDefault> {
+    if (sellerId) {
+      const seller = await this.prisma.user.findFirst({ where: { id: sellerId, companyId }, select: { commissionRate: true, commissionBase: true } });
+      if (seller?.commissionRate != null) {
+        return { rate: Number(seller.commissionRate), base: seller.commissionBase === 'faturado' ? 'faturado' : 'lucro', inPrice: false, source: 'vendedor' };
+      }
+    }
+    return baseCommission(defaults);
+  }
+
+  private async applyCommissionDefault(companyId: number, draft: Draft, snapshot: PricingSnapshot) {
+    const chosen = await this.commissionDefault(companyId, draft.sellerId, snapshot.defaults);
+    draft.commissionRate = chosen.rate;
+    draft.commissionBase = chosen.base;
+    draft.commissionInPrice = chosen.inPrice;
+  }
 
   private async assertRefs(companyId: number, draft: Draft) {
     const customer = await this.prisma.customer.findFirst({ where: { id: draft.customerId, companyId }, select: { id: true } });
@@ -594,7 +635,7 @@ export class ProposalService {
       this.prisma.course.findMany({ where: { companyId: actor.companyId, inactiveAt: null }, orderBy: { name: 'asc' }, select: { id: true, name: true, hoursDuration: true } }),
       this.prisma.commercial_CoursePrice.findMany({ where: { companyId: actor.companyId } }),
       // vendedor da proposta é qualquer usuário ativo da empresa (não depende da subconta de "seller" do gateway)
-      this.prisma.user.findMany({ where: { companyId: actor.companyId, inactiveAt: null }, orderBy: { name: 'asc' }, select: { id: true, name: true } }),
+      this.prisma.user.findMany({ where: { companyId: actor.companyId, inactiveAt: null }, orderBy: { name: 'asc' }, select: { id: true, name: true, commissionRate: true, commissionBase: true } }),
     ]);
     const priceOf = new Map(prices.map((p) => [p.courseId, p]));
     const defaults = snapshot.defaults ?? {};
@@ -602,7 +643,8 @@ export class ProposalService {
       date, canSeeCosts: actor.canSeeCosts,
       defaults: {
         contingencyLevels: defaults.contingencyLevels ?? [], contingencyRate: defaults.contingencyRate ?? 0,
-        ...(actor.canSeeCosts ? { margins: defaults.margins ?? {}, commission: defaults.commission ?? {} } : {}),
+        // `commission` = o que vale para proposta sem vendedor (ou vendedor sem comissão própria)
+        ...(actor.canSeeCosts ? { margins: defaults.margins ?? {}, commission: baseCommission(defaults) } : {}),
       },
       presets: Object.fromEntries(Object.entries(PRESETS).map(([kind, list]) => [kind, list.map((section) => ({
         ...section, ...(actor.canSeeCosts ? { margin: Number(defaults.margins?.[section.kind] ?? 0) } : {}),
@@ -617,7 +659,10 @@ export class ProposalService {
         return { id: c.id, name: c.name, hoursDuration: c.hoursDuration, classPrice: p?.classPrice == null ? null : Number(p.classPrice),
           includedStudents: p?.includedStudents ?? null, studentPrice: p?.studentPrice == null ? null : Number(p.studentPrice) };
       }),
-      sellers,
+      // a comissão própria do vendedor só vai para quem vê custos; nula = segue o padrão
+      sellers: sellers.map((u) => ({ id: u.id, name: u.name, ...(actor.canSeeCosts ? {
+        commission: u.commissionRate == null ? null : { rate: Number(u.commissionRate), base: u.commissionBase === 'faturado' ? 'faturado' : 'lucro', inPrice: false, source: 'vendedor' },
+      } : {}) })),
       // versões da base para escolher à mão (a automática é a vigente na data prevista)
       costBases: actor.canSeeCosts ? (await this.commercial.listBases(actor.companyId, date)).filter((base) => !base.inactiveAt).map((base) => ({ id: base.id, name: base.name, effectiveFrom: base.effectiveFrom, current: base.current })) : [],
       templates: (await this.documents.listTemplates(actor.companyId)).map((t) => ({ id: t.id, name: t.name, kind: t.kind, isDefault: t.isDefault, body: t.body, itemsMode: t.itemsMode, termIds: t.termIds })),
@@ -733,6 +778,7 @@ export class ProposalService {
     const draft = this.parse(seeded, actor, snapshot);
     // sem vendedor informado, a proposta nasce com quem a está criando
     if (!('sellerId' in body) && actor.userId && (await this.prisma.user.findFirst({ where: { id: actor.userId, companyId: actor.companyId, inactiveAt: null }, select: { id: true } }))) draft.sellerId = actor.userId;
+    if (!this.explicitCommission(actor, body)) await this.applyCommissionDefault(actor.companyId, draft, snapshot);
     await this.assertRefs(actor.companyId, draft);
     await this.fill(actor.companyId, draft, snapshot);
     const result = this.calc(draft, snapshot);
@@ -754,6 +800,8 @@ export class ProposalService {
     if (existing.status !== 'rascunho') throw new ConflictException('Só rascunho pode ser editado. Para mudar uma proposta enviada, crie uma revisão.');
     const snapshot = await this.snapshotFor(actor, body, existing);
     const draft = this.parse(body, actor, snapshot, existing);
+    // trocou o vendedor sem informar a comissão: vale a do novo vendedor (ou o padrão)
+    if ((draft.sellerId ?? null) !== (existing.sellerId ?? null) && !this.explicitCommission(actor, body)) await this.applyCommissionDefault(actor.companyId, draft, snapshot);
     await this.assertRefs(actor.companyId, draft);
     await this.fill(actor.companyId, draft, snapshot);
     const result = this.calc(draft, snapshot);

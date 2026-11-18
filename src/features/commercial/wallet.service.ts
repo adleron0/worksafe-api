@@ -230,7 +230,7 @@ export class SellerWalletService {
   private async sellerOf(companyId: number, userId: number) {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, companyId },
-      select: { id: true, name: true, email: true, phone: true, imageUrl: true, isSeller: true, inactiveAt: true, sellerActivatedAt: true },
+      select: { id: true, name: true, email: true, phone: true, imageUrl: true, isSeller: true, inactiveAt: true, sellerActivatedAt: true, commissionRate: true, commissionBase: true },
     });
     if (!user) throw new NotFoundException('Vendedor não encontrado');
     const wallet = await this.prisma.commercial_SellerWallet.findUnique({ where: { userId } });
@@ -263,12 +263,35 @@ export class SellerWalletService {
     const lastPayment = await this.prisma.commercial_SellerWalletEntry.findFirst({
       where: { walletId: wallet.id, type: 'pagamento', status: 'efetivado' }, orderBy: { occurredAt: 'desc' }, select: { occurredAt: true, amount: true },
     });
+    const { commissionRate, commissionBase, ...seller } = user;
     return {
-      seller: user, walletId: wallet.id, createdAt: wallet.createdAt, ...totals,
+      seller, walletId: wallet.id, createdAt: wallet.createdAt, ...totals,
+      // comissão própria nas propostas; nula = segue o padrão da base de cálculo
+      commission: commissionRate == null ? null : { rate: num(commissionRate), base: commissionBase === 'faturado' ? 'faturado' : 'lucro' },
       averageCommission: totals.sales ? round2(totals.generated / totals.sales) : 0,
       lastPayment: lastPayment ? { at: lastPayment.occurredAt, amount: round2(-num(lastPayment.amount)) } : null,
       months,
     };
+  }
+
+  /**
+   * Comissão própria do vendedor nas propostas (taxa entre 0 e 50%, sobre o
+   * lucro ou o faturado). `rate` vazio apaga: volta a valer o padrão da base.
+   * Só muda o valor inicial das propostas novas (ou quando ele vira o vendedor
+   * de uma); as já gravadas ficam como estão.
+   */
+  async setCommission(actor: WalletActor, userId: number, body: Body) {
+    await this.sellerOf(actor.companyId, userId);
+    let data: { commissionRate: number | null; commissionBase: string | null };
+    if (blank(body.rate)) data = { commissionRate: null, commissionBase: null };
+    else {
+      const rate = Number(body.rate);
+      if (!Number.isFinite(rate) || rate < 0 || rate > 0.5) throw new BadRequestException('Comissão do vendedor deve ficar entre 0% e 50%');
+      if (body.base !== 'lucro' && body.base !== 'faturado') throw new BadRequestException('Escolha se a comissão é sobre o lucro ou sobre o faturado');
+      data = { commissionRate: Math.round(rate * 10000) / 10000, commissionBase: body.base };
+    }
+    await this.prisma.user.update({ where: { id: userId }, data });
+    return this.detail(actor.companyId, userId);
   }
 
   /** Histórico da carteira, do mais novo para o mais antigo. */

@@ -21,6 +21,10 @@ model User {
   isSeller        Boolean                  @default(false)
   sellerStatus    sellerStatusTypes        @default(PENDING)
   sellerConfig    Json?
+  /// comissão própria do vendedor nas propostas (nula = usa o padrão da base de cálculo)
+  commissionRate  Decimal?                 @db.Decimal(6, 4)
+  /// base da comissão própria: 'lucro' ou 'faturado'
+  commissionBase  String?                  @db.VarChar(20)
   bankAccount    Json?
   address           String?         @db.VarChar(255)
   addressNumber     String?         @db.VarChar(255)

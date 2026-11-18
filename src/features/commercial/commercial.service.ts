@@ -279,6 +279,8 @@ export class CommercialService {
       }),
       contingencyRate: rate(source.contingencyRate, 'Imprevisibilidade padrão', 1),
       commission: {
+        // desligado = proposta nova começa com comissão zero (salvo a comissão própria do vendedor)
+        enabled: source.commission?.enabled === true || source.commission?.enabled === 'true',
         rate: rate(source.commission?.rate, 'Comissão padrão', 0.5),
         // padrão da empresa: comissão sobre o lucro; sobre o faturado só quando escolhido
         base: source.commission?.base === 'faturado' ? 'faturado' : 'lucro',

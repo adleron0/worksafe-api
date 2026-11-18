@@ -75,7 +75,8 @@ describe('Comercial — propostas (e2e)', () => {
     const servico = await criar(company.id, { kind: 'servico', customerId: customer.id, title: 'Pintura de tanque' });
     expect(servico).toMatchObject({ number: `PC-${YEAR}-0001`, status: 'rascunho', revision: 0, editable: true });
     expect(servico.draft.sections.map((s: any) => [s.title, s.margin])).toEqual([['Mão de obra', 0.26], ['Locações', 0.05], ['Materiais de consumo', 0]]);
-    expect(servico.draft).toMatchObject({ contingencyRate: 0.05, commissionRate: 0.02, commissionBase: 'lucro' });
+    // comissão nasce zerada: o padrão da base vem desligado (ver commercial-commission.e2e-spec)
+    expect(servico.draft).toMatchObject({ contingencyRate: 0.05, commissionRate: 0, commissionBase: 'lucro' });
     const treino = await criar(company.id, { kind: 'treinamento', customerId: customer.id, title: 'NR-35 in company' });
     expect(treino.number).toBe(`PC-${YEAR}-0002`);
     expect(treino.draft.sections.map((s: any) => s.kind)).toEqual(['treinamento']);
@@ -126,7 +127,7 @@ describe('Comercial — propostas (e2e)', () => {
     expect(options.professionals[0].hourCost).toBeUndefined();
     expect(options.defaults.margins).toBeUndefined();
 
-    // tenta impor margem 90% e comissão 40%: ficam os padrões da base
+    // tenta impor margem 90% e comissão 40%: ficam os padrões
     const created = await criar(company.id, exemplo(customer.id, pro('Alpinista N1'), {
       commission: { rate: 0.4, base: 'lucro' },
       sections: [{ title: 'Mão de obra', kind: 'mao_de_obra', margin: 0.9, items: [{ type: 'mao_de_obra', professionalId: pro('Alpinista N1'), quantity: 1, margin: 0.9 }] }],
@@ -148,7 +149,8 @@ describe('Comercial — propostas (e2e)', () => {
     expect(updated.calc.totals.total).toBe(22050);
     const stored = await testDb().commercial_ProposalSection.findFirstOrThrow({ where: { proposalId: created.id } });
     expect(Number(stored.margin)).toBe(0.26);
-    expect(Number((await testDb().commercial_Proposal.findUniqueOrThrow({ where: { id: created.id } })).commissionRate)).toBe(0.02);
+    // a comissão de 40% pedida foi ignorada: ficou o valor inicial (zero, padrão desligado)
+    expect(Number((await testDb().commercial_Proposal.findUniqueOrThrow({ where: { id: created.id } })).commissionRate)).toBe(0);
 
     // o gestor vê tudo na mesma proposta
     const manager = (await api().get(`/commercial/proposals/${created.id}`).set(auth(company.id)).expect(200)).body;

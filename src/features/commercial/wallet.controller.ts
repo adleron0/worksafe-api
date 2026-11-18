@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, Req } from '@nestjs/common';
 import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { SellerWalletService, WalletActor } from './wallet.service';
@@ -38,6 +38,10 @@ export class SellerWalletController {
 
   @Permissions('update_comercial') @Delete(':id')
   unmark(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.wallets.unmark(actorOf(req), id); }
+
+  // comissão própria do vendedor muda o preço/margem das propostas: é decisão da diretoria (mesma permissão da base de cálculo)
+  @Permissions('update_base_calculo') @Put(':id/commission')
+  commission(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.wallets.setCommission(actorOf(req), id, body ?? {}); }
 
   @Permissions('update_comercial') @Post(':id/payments')
   pay(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.wallets.pay(actorOf(req), id, body ?? {}); }

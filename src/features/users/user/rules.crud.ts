@@ -71,7 +71,8 @@ export const userEntity: EntityRules = {
   },
   // Senha e config de gateway nunca saem na resposta (era omitAttributes).
   maskedFields: ['password', 'sellerConfig'],
-  neverWritable: ['active', 'searchName', 'sellerActivatedAt'],
+  // comissão própria do vendedor só pela rota da carteira (permissão da diretoria)
+  neverWritable: ['active', 'searchName', 'sellerActivatedAt', 'commissionRate', 'commissionBase'],
   // Achado nº 1: PUT /user/self não muda papel, empresa nem status de seller.
   selfRestricted: ['profileId', 'sellerStatus', 'sellerConfig', 'isSeller'],
   softDelete: { field: 'inactiveAt' },
