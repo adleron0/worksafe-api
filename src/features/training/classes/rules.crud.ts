@@ -46,6 +46,51 @@ const gatewayCompatibility = {
   },
 };
 
+const dayOf = (value: unknown) => (value ? new Date(value as string).toISOString().slice(0, 10) : null);
+const br = (day: string | null) => (day ? day.split('-').reverse().join('/') : 'sem data');
+
+/**
+ * Turma com vagas reservadas para empresas: virar turma fechada não pode (as
+ * vagas são avulsas, de turma aberta); mudar a data ou cancelar a turma cria
+ * uma tarefa no acompanhamento do cliente para o vendedor avisar a empresa.
+ */
+const reservationGuards = {
+  preWrite: async ({ op, data, existing, deps }: any) => {
+    if (op !== 'update' || !existing || !data.customerId || data.customerId === 'null') return undefined;
+    const active = await deps.prisma.courseClassReservation.count({ where: { classId: Number(existing.id), inactiveAt: null } });
+    if (active) throw new CrudError('CONFLICT', 'A turma tem vagas reservadas para empresas: transfira ou cancele as reservas antes de torná-la fechada', 'customerId');
+    return undefined;
+  },
+  postWrite: async ({ op, result, existing, scopeId, deps, context }: any) => {
+    if (!existing || (op !== 'update' && op !== 'archive')) return;
+    const before = dayOf(existing.initialDate);
+    const after = dayOf(result?.initialDate);
+    const cancelled = op === 'archive' || (result?.inactiveAt && !existing.inactiveAt);
+    if (!cancelled && before === after) return;
+    try {
+      const prisma = deps.prisma;
+      const reservations = await prisma.courseClassReservation.findMany({ where: { classId: Number(existing.id), inactiveAt: null }, select: { id: true, customerId: true, contractId: true, seats: true } });
+      if (!reservations.length) return;
+      const contracts = await prisma.commercial_Contract.findMany({ where: { id: { in: reservations.map((r: any) => r.contractId).filter(Boolean) } }, select: { id: true, number: true, sellerId: true } });
+      const today = new Date(new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10) + 'T00:00:00.000Z');
+      const name = result?.name ?? existing.name;
+      for (const r of reservations) {
+        const contract = contracts.find((c: any) => c.id === r.contractId);
+        const what = cancelled ? `foi cancelada` : `mudou de ${br(before)} para ${br(after)}`;
+        await prisma.commercial_Activity.create({ data: {
+          companyId: Number(scopeId), customerId: r.customerId, type: 'tarefa',
+          subject: cancelled ? 'Turma cancelada: transferir as vagas da empresa' : 'Avisar a empresa: a turma mudou de data',
+          notes: `A turma "${name}" ${what}. A empresa tem ${r.seats} vaga(s) reservada(s)${contract ? ` pela venda ${contract.number}` : ''}.` +
+            (cancelled ? ' Transfira a reserva para outra turma (Turmas → Vagas de empresas).' : ''),
+          dueDate: today, userId: contract?.sellerId ?? null, createdByUserId: Number(context?.user?.sub ?? 0) || null,
+        } });
+      }
+    } catch (error) {
+      console.error('[classes] aviso de reservas:', error);
+    }
+  },
+};
+
 /**
  * Turmas. A listagem é pública (site) — o admin usa a mesma rota autenticado,
  * agora escopado pela empresa (antes noCompany=true listava tudo para todos).
@@ -70,7 +115,7 @@ export const classEntity: EntityRules = {
     _count: { select: { subscriptions: { where: { subscribeStatus: 'confirmed' } } } },
   },
   neverWritable: ['active'], softDelete: { field: 'inactiveAt' },
-  hooks: composeHooks(syncActiveFlag, imageUpload(), parseJsonFields('faq', 'whyUs', 'landingContent', 'landingAbLayouts'), landingFields, {
+  hooks: composeHooks(syncActiveFlag, imageUpload(), parseJsonFields('faq', 'whyUs', 'landingContent', 'landingAbLayouts'), landingFields, reservationGuards, {
     preWrite: ({ op, data }) => op === 'update'
       ? { ...data, ...('price' in data && !data.price ? { price: null } : {}), ...('discountPrice' in data && !data.discountPrice ? { discountPrice: null } : {}) }
       : undefined,

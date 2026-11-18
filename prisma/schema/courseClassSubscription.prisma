@@ -17,6 +17,20 @@ model CourseClassSubscription {
   class             CourseClass?    @relation(fields: [classId], references: [id])
   traineeId         Int?
   trainee           Trainee?        @relation(fields: [traineeId], references: [id])
+
+  // Empresa contratante desta inscrição (vaga comprada por um cliente, ou
+  // turma fechada). É o que sai no certificado: a empresa é da INSCRIÇÃO e
+  // não do aluno, que pode estudar por empresas diferentes em turmas diferentes.
+  customerId        Int?
+  customer          Customer?               @relation(fields: [customerId], references: [id])
+  // Venda (contrato) que paga esta vaga. Sem relação de propósito: o módulo
+  // comercial muda muito e a inscrição só precisa saber o número.
+  contractId        Int?
+  // Reserva de vagas da empresa que esta inscrição ocupa (turma aberta).
+  reservationId     Int?
+  reservation       CourseClassReservation? @relation(fields: [reservationId], references: [id])
+  // site | sistema | contrato | cortesia — só para relatórios
+  origin            String?                 @db.VarChar(20)
   subscribeStatus   SubscribeStatus @default(pending)
   confirmedAt       DateTime?
   declinedReason    String?
@@ -53,4 +67,7 @@ model CourseClassSubscription {
   @@index([createdAt]) // Ordenação temporal
   @@index([phone]) // Busca por telefone
   @@index([classId, landingLayout]) // Inscrições por layout da página
+  @@index([reservationId])
+  @@index([customerId])
+  @@index([contractId])
 }

@@ -1,0 +1,33 @@
+/// Vagas de uma turma aberta reservadas para uma empresa cliente (compradas por
+/// proposta/venda, ou cortesia). A reserva ocupa vagas da turma desde já: o
+/// site para de vender essas vagas mesmo antes de a empresa mandar os nomes.
+/// Os alunos da empresa são inscrições com `reservationId`, sem checkout.
+model CourseClassReservation {
+  id                Int         @id @default(autoincrement())
+  companyId         Int
+  classId           Int
+  class             CourseClass @relation(fields: [classId], references: [id])
+  customerId        Int
+  customer          Customer    @relation(fields: [customerId], references: [id])
+  // venda que paga as vagas e o item de treinamento dela (índice no JSON `classes`)
+  contractId        Int?
+  contractSlotIndex Int?
+  seats             Int
+  // valor de cada vaga combinado na venda (informativo: a cobrança é a do contrato)
+  unitValue         Decimal?    @db.Decimal(18, 2)
+  notes             String?     @db.VarChar(300)
+  userId            Int?
+
+  subscriptions CourseClassSubscription[]
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @default(now()) @updatedAt
+  // cancelada (só sem alunos)
+  inactiveAt   DateTime?
+  cancelReason String?   @db.VarChar(300)
+
+  @@index([classId, inactiveAt])
+  @@index([contractId])
+  @@index([customerId])
+  @@index([companyId, inactiveAt])
+}

@@ -67,6 +67,8 @@ export class TraineeCertificateService {
           course: true,
           certificate: true,
           company: true,
+          // turma fechada: o cliente da turma é a empresa no certificado
+          customer: { select: { id: true, name: true, corporateName: true, cnpj: true } },
           instructors: {
             include: {
               instructor: true,
@@ -107,6 +109,8 @@ export class TraineeCertificateService {
                 state: true,
               },
             },
+            // empresa contratante da vaga (sai no certificado)
+            customer: { select: { id: true, name: true, corporateName: true, cnpj: true } },
           },
         },
       );

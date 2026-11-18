@@ -12,6 +12,7 @@ import { CacheService } from 'src/common/cache/cache.service';
 import { AlunosService } from '../trainees/service';
 import { CouponService } from '../coupon/service';
 import { CheckoutLockService } from 'src/payments/application/checkout-lock.service';
+import { seatsOfClass } from '../reservation/seats';
 
 type entity = {
   model: keyof PrismaClient;
@@ -191,21 +192,11 @@ export class SubscriptionService {
       }
     }
 
-    // Validação de limite de inscrições
+    // Validação de limite de inscrições: as vagas reservadas para empresas
+    // (mesmo ainda sem nome) já estão vendidas e não entram no site.
     if (!courseClass.unlimitedSubscriptions && courseClass.maxSubscriptions) {
-      const subscriptions = await this.prisma.select(
-        'courseClassSubscription',
-        {
-          where: {
-            classId: Number(search.classId),
-            subscribeStatus: 'confirmed',
-          },
-        },
-      );
-
-      const totalConfirmed = subscriptions.length;
-
-      if (totalConfirmed >= courseClass.maxSubscriptions) {
+      const seats = await seatsOfClass(this.prisma, Number(search.classId));
+      if (seats && seats.free !== null && seats.free <= 0) {
         throw new BadRequestException(
           `O limite de ${courseClass.maxSubscriptions} inscrições para a turma "${courseClass.name}" foi atingido`,
         );
@@ -328,6 +319,7 @@ export class SubscriptionService {
       zipCode: dto.zipCode,
       occupation: dto.occupation,
       workedAt: dto.workedAt,
+      origin: 'site',
       // de qual layout da página e de onde veio (só informativo, teste A/B)
       ...landingFieldsForSubscription(dto),
     };

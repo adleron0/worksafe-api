@@ -10,7 +10,7 @@ import { removeCorrectAnswers } from 'src/helpers/exameHelper';
 import { TraineeCertificateService } from '../trainee_certificate/service';
 
 /** Nota da prova (0–10, uma casa) a partir das respostas corrigidas gravadas. */
-function examScoreOf(responses: unknown): number | null {
+export function examScoreOf(responses: unknown): number | null {
   const questions = Array.isArray(responses) ? responses : null;
   if (!questions || questions.length === 0) return null;
   const correct = questions.filter(
@@ -339,7 +339,9 @@ export class ClassesService {
           cpf: true,
           workedAt: true,
           traineeId: true,
+          reservationId: true,
           trainee: { select: { id: true, name: true, imageUrl: true } },
+          customer: { select: { name: true, corporateName: true, cnpj: true } },
         },
       }),
       this.prisma.traineeCourseCertificate.findMany({
@@ -376,6 +378,9 @@ export class ClassesService {
         name: s.trainee?.name || s.name,
         cpf: s.cpf,
         workedAt: s.workedAt,
+        // empresa que vai no certificado: a contratante da vaga (ou a digitada)
+        company: s.customer ? (s.customer.corporateName || s.customer.name) : s.workedAt,
+        companyFromContract: Boolean(s.customer),
         imageUrl: s.trainee?.imageUrl ?? null,
         certificate: (s.traineeId && certByTrainee.get(s.traineeId)) || null,
         examScore: s.traineeId
