@@ -1,15 +1,30 @@
 model Customer_Contacts {
-  id         Int       @id @default(autoincrement())
+  id         Int        @id @default(autoincrement())
   companyId  Int
   customerId Int
-  roleId     Int
-  company    Company   @relation(fields: [companyId], references: [id])
-  role       DOM_Roles @relation(fields: [roleId], references: [id])
-  customer   Customer  @relation(fields: [customerId], references: [id])
-  name       String    @db.VarChar(255)
-  email      String    @db.VarChar(255)
-  phone      String    @db.VarChar(255)
+  // cargo da pessoa (comprador, engenheiro...): opcional
+  roleId     Int?
+  company    Company    @relation(fields: [companyId], references: [id])
+  role       DOM_Roles? @relation(fields: [roleId], references: [id])
+  customer   Customer   @relation(fields: [customerId], references: [id])
+  name       String     @db.VarChar(255)
+  email      String     @db.VarChar(255)
+  phone      String     @db.VarChar(255)
+  notes      String?    @db.VarChar(255)
+
+  // Papéis: para que o contato é usado. Uma pessoa pode ter vários.
+  // Comercial → proposta; Financeiro → cobrança; Fiscal → nota fiscal.
+  isCommercial      Boolean @default(false)
+  isFinancial       Boolean @default(false)
+  isFiscal          Boolean @default(false)
+  // O padrão de cada papel (um por cliente; mantido pelo hook do CRUD).
+  defaultCommercial Boolean @default(false)
+  defaultFinancial  Boolean @default(false)
+  defaultFiscal     Boolean @default(false)
+
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
+
+  @@index([customerId])
 }

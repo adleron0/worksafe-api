@@ -14,7 +14,7 @@ import { blockRealNetwork, resetAsaasMock } from './setup/asaas-mock';
  * documento inválido que não mudou.
  */
 describe('Clientes — CPF ou CNPJ (e2e)', () => {
-  const PERMS = ['list_clientes', 'create_clientes', 'update_clientes'];
+  const PERMS = ['list_clientes', 'create_clientes', 'update_clientes', 'inactive_clientes', 'activate_clientes', 'list_comercial'];
   let jwt: JwtService;
   let userId = 0;
 
@@ -77,5 +77,53 @@ describe('Clientes — CPF ou CNPJ (e2e)', () => {
     // trocar para outro inválido não passa
     const res = await api().put(`/customer/${old.id}`).set(auth(company.id)).send({ ...base, cnpj: '55555555555555' });
     expect(res.status).toBe(400);
+  });
+
+  describe('contatos com papéis (comercial, financeiro, fiscal)', () => {
+    async function clienteComBase() {
+      const { db, company, base } = await cenario();
+      const customer = await db.customer.create({ data: { ...base, cnpj: '33714458000161', companyId: company.id } });
+      const novo = (body: Record<string, unknown>) =>
+        api().post('/customer-contacts').set(auth(company.id))
+          .send({ customerId: customer.id, email: 'c@x.local', phone: '81999990000', ...body }).expect(201).then((r) => r.body);
+      const contatos = async () => db.customer_Contacts.findMany({ where: { customerId: customer.id }, orderBy: { id: 'asc' } });
+      return { db, company, customer, novo, contatos };
+    }
+
+    it('primeiro contato do papel vira padrão; marcar outro como padrão tira do anterior', async () => {
+      const { company, novo, contatos } = await clienteComBase();
+      const ana = await novo({ name: 'Ana', isCommercial: true, isFinancial: true });
+      const bia = await novo({ name: 'Bia', isCommercial: true });
+      let rows = await contatos();
+      expect(rows.find((r) => r.id === ana.id)).toMatchObject({ defaultCommercial: true, defaultFinancial: true, defaultFiscal: false });
+      expect(rows.find((r) => r.id === bia.id)).toMatchObject({ defaultCommercial: false });
+
+      await api().put(`/customer-contacts/${bia.id}`).set(auth(company.id)).send({ defaultCommercial: true }).expect(200);
+      rows = await contatos();
+      expect(rows.find((r) => r.id === bia.id)?.defaultCommercial).toBe(true);
+      expect(rows.find((r) => r.id === ana.id)).toMatchObject({ defaultCommercial: false, defaultFinancial: true });
+    });
+
+    it('não é padrão sem o papel; inativar o padrão passa para outro', async () => {
+      const { company, novo, contatos } = await clienteComBase();
+      const ana = await novo({ name: 'Ana', isCommercial: true, defaultFiscal: true });
+      const bia = await novo({ name: 'Bia', isCommercial: true });
+      expect((await contatos()).find((r) => r.id === ana.id)).toMatchObject({ defaultCommercial: true, defaultFiscal: false });
+
+      await api().patch(`/customer-contacts/inactive/${ana.id}`).set(auth(company.id)).expect(200);
+      const rows = await contatos();
+      expect(rows.find((r) => r.id === ana.id)?.defaultCommercial).toBe(false);
+      expect(rows.find((r) => r.id === bia.id)?.defaultCommercial).toBe(true);
+    });
+
+    it('a proposta recebe os contatos com o comercial padrão primeiro', async () => {
+      const { company, customer, novo } = await clienteComBase();
+      await novo({ name: 'Aaron', isFinancial: true });
+      await novo({ name: 'Zeca', isCommercial: true });
+      const res = await api().get('/commercial/proposals/customers').set(auth(company.id)).expect(200);
+      const row = res.body.find((c: any) => c.id === customer.id);
+      expect(row.contacts.map((c: any) => c.name)).toEqual(['Zeca', 'Aaron']);
+      expect(row.contacts[0]).toMatchObject({ isCommercial: true, defaultCommercial: true });
+    });
   });
 });

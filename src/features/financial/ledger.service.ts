@@ -285,7 +285,10 @@ export class LedgerService {
 
   private readonly receivableInclude = {
     trainee: { select: { id: true, name: true, cpf: true, email: true, phone: true } },
-    customer: { select: { id: true, name: true, cnpj: true, email: true, phone: true } },
+    // contatos padrão do cliente para cobrança (financeiro) e para a nota (fiscal)
+    customer: { select: { id: true, name: true, cnpj: true, email: true, phone: true,
+      contacts: { where: { inactiveAt: null, OR: [{ defaultFinancial: true }, { defaultFiscal: true }] },
+        select: { id: true, name: true, email: true, phone: true, defaultFinancial: true, defaultFiscal: true } } } },
     subscription: { select: { id: true, name: true, email: true, phone: true } },
     seller: { select: { id: true, name: true } },
     chartAccount: { select: { id: true, code: true, name: true } },
