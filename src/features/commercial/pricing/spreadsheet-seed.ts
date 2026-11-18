@@ -1,4 +1,5 @@
 import { CostBaseParams, CostItem, TaxBracket } from './engine';
+import { RENTAL_DEFAULTS } from './rental';
 
 /**
  * Valores da planilha FORM-COM-001 (abas CALC e MDO), lidos em 13/11/2026.
@@ -87,13 +88,15 @@ export const SHEET_BRACKETS: TaxBracket[] = [
 export const SHEET_RBT12 = 3600000;
 
 export const SHEET_DEFAULTS = {
-  margins: { mao_de_obra: 0.26, locacao: 0.05, material: 0, treinamento: 0, avulso: 0 },
+  // locacao_cliente: equipamento próprio alugado ao cliente (plano 09); não vem da planilha
+  margins: { mao_de_obra: 0.26, locacao: 0.05, material: 0, treinamento: 0, avulso: 0, locacao_cliente: 0.25 },
   contingencyLevels: [
     { label: 'Nula', rate: 0 }, { label: 'Baixa', rate: 0.05 }, { label: 'Normal', rate: 0.1 },
     { label: 'Média', rate: 0.15 }, { label: 'Alta', rate: 0.2 },
   ],
   contingencyRate: 0.05,
   commission: { enabled: false, rate: 0.02, base: 'lucro', inPrice: false },
+  rental: RENTAL_DEFAULTS,
 };
 
 /** Tabela MDO da planilha: [nome, custo hora, noturno, viagem, FDS/feriado]. */

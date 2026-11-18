@@ -104,6 +104,12 @@ export class StockController {
     requireAny(actor, ['list_itens_estoque', 'movimentar_estoque', 'create_pedidos_de_compra', 'update_pedidos_de_compra', 'create_entregas_epi', 'create_locacoes', 'update_comercial']);
     return this.catalog.itemOptions(actor, q ?? {});
   }
+  /** Valores de pesquisa da locação (plano 09) para preencher item ou categoria. */
+  @Permissions('list_itens_estoque') @Get('items/rental-presets')
+  rentalPresets() { return this.catalog.rentalPresets(); }
+  /** Recalcula dia/semana/mês dos itens alugáveis no modo "calculado" (depois de mudar a base de cálculo). */
+  @Permissions('update_itens_estoque') @Post('items/rental-prices/refresh') @HttpCode(200)
+  refreshRentPrices(@Req() req: Request) { return this.catalog.refreshAllRentPrices(stockActorOf(req)); }
   @Permissions('list_itens_estoque') @Get('items/:id')
   item(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.catalog.item(stockActorOf(req), id); }
   @Permissions('list_itens_estoque') @Get('items/:id/movements')

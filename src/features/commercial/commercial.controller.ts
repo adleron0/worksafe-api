@@ -74,4 +74,8 @@ export class CommercialController {
 
   @Permissions('list_comercial') @Post('pricing/preview')
   preview(@Req() req: Request, @Body() body: Json) { return this.commercial.preview(companyOf(req), body ?? {}); }
+
+  /** Aba "Locação" da base: tabela de preços dos equipamentos com os parâmetros da tela (sem gravar). */
+  @Permissions('list_comercial') @Post('rental/preview')
+  rentalPreview(@Req() req: Request, @Body() body: Json) { return this.commercial.rentalPreview(companyOf(req), body ?? {}); }
 }

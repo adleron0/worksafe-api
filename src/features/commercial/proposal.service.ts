@@ -7,7 +7,9 @@ import { ContractService } from './contract.service';
 import { installmentValues } from './installments';
 import { ProposalImage, Schedule } from './document.blocks';
 import { DocumentData, DocumentService, ITEMS_MODES, ItemsMode, VARIABLES, renderDocument, sanitizeBody, sha256 } from './document.service';
-import { computeBase, price, PriceInput, PriceItemInput, PriceResult, PricingError, professionalCost, resolveTax, round2 } from './pricing/engine';
+import { computeBase, price, PriceInput, PriceItemInput, PriceResult, PricingError, professionalCost, resolveRentalTax, resolveTax, round2 } from './pricing/engine';
+import { RentalError, RentalLine, RentPeriod, rentalCost, rentalDefaultsOf, rentalLine } from './pricing/rental';
+import { loadRentalItems } from './rental.items';
 
 type Body = Record<string, any>;
 type Tx = Prisma.TransactionClient;
@@ -69,15 +71,39 @@ function dateOf(value: unknown, label: string): string {
 
 export { installmentValues };
 
-/** Locação a cliente: quantidade × valor do período × períodos (vira o preço de tabela do item). */
-export const rentPrice = (item: Pick<DraftItem, 'quantity' | 'extra'>) => round2(Number(item.quantity) * Number(item.extra?.rate ?? 0) * Number(item.extra?.periods ?? 1));
+/**
+ * Locação a cliente com valor do período digitado na proposta: quantidade ×
+ * valor × períodos (vira o preço de tabela do item). Sem valor digitado, o
+ * preço sai da base de cálculo da locação (`rentalOf`).
+ */
+export const rentPrice = (item: Pick<DraftItem, 'quantity' | 'extra'>) => {
+  const rate = Number(item.extra?.rate ?? 0);
+  return rate > 0 ? round2(Number(item.quantity) * rate * Number(item.extra?.periods ?? 1)) : null;
+};
+
+/** Conta da locação de uma linha: custo pela base, ou nulo quando o item não tem dados para a conta. */
+export function rentalOf(item: DraftItem, snapshot: PricingSnapshot): { line: RentalLine; perRentedMonth: number; handling: number; value: number } | { error: string } | null {
+  if (item.type !== 'locacao_cliente' || !item.stockItemId) return null;
+  const stock = snapshot.rentals?.[item.stockItemId];
+  if (!stock) return null;
+  const defaults = rentalDefaultsOf(snapshot.defaults?.rental);
+  try {
+    const cost = rentalCost(stock.input, defaults);
+    const period = (RENT_PERIODS.includes(String(item.extra?.period)) ? item.extra!.period : 'mes') as RentPeriod;
+    const line = rentalLine(cost, { quantity: item.quantity, period, periods: Number(item.extra?.periods ?? 1), closed: item.extra?.closed === true }, defaults);
+    return { line, perRentedMonth: cost.perRentedMonth, handling: cost.handling, value: cost.value };
+  } catch (error) {
+    if (error instanceof RentalError) return { error: error.message };
+    throw error;
+  }
+}
 
 export interface DraftItem {
   id?: number; type: CommercialItemType; description: string; unit: string | null; quantity: number;
   professionalId: number | null; night: boolean; travel: boolean; weekend: boolean;
   workDays: number | null; weekendDays: number | null; hoursPerDay: number | null; overtimeHours: number;
   courseId: number | null; stockItemId: number | null;
-  extra: { students?: number | null; workload?: number | null; dates?: string; location?: string; period?: string; periods?: number | null; rate?: number | null } | null;
+  extra: { students?: number | null; workload?: number | null; dates?: string; location?: string; period?: string; periods?: number | null; rate?: number | null; closed?: boolean } | null;
   unitCost: number; extraCost: number; margin: number | null; finalValue: number | null; showInDocument: boolean;
 }
 export interface DraftSection { id?: number; title: string; kind: CommercialItemType; margin: number; showInDocument: boolean; items: DraftItem[] }
@@ -178,7 +204,10 @@ export class ProposalService {
         const rentExtra = type === 'locacao_cliente' ? {
           period: RENT_PERIODS.includes(entry.extra?.period) ? String(entry.extra.period) : 'mes',
           periods: optional(entry.extra?.periods, `Períodos de ${label}`, 0, 100000) ?? 1,
-          rate: optional(entry.extra?.rate, `Valor do período de ${label}`, 0, 1e10) ?? 0,
+          // valor do período digitado na proposta; vazio = o preço sai da base de cálculo da locação
+          rate: optional(entry.extra?.rate, `Valor do período de ${label}`, 0, 1e10),
+          // período fechado (em meses): ganha o desconto do prazo da base
+          closed: bool(entry.extra?.closed),
         } : null;
         const extra = entry.extra && typeof entry.extra === 'object' ? {
           students: optional(entry.extra.students, 'Alunos', 0, 100000),
@@ -282,7 +311,18 @@ export class ProposalService {
         };
       }
     }
+    const rentalIds = [...new Set(items.map((i) => (i.type === 'locacao_cliente' ? i.stockItemId : null)).filter((id): id is number => !!id && !snapshot.rentals?.[id]))];
+    if (rentalIds.length) {
+      const loaded = await loadRentalItems(this.prisma, companyId, rentalIds);
+      snapshot.rentals = { ...(snapshot.rentals ?? {}), ...loaded };
+    }
     for (const item of items) {
+      if (item.type === 'locacao_cliente' && item.stockItemId) {
+        const stock = snapshot.rentals?.[item.stockItemId];
+        if (!stock) throw new BadRequestException('Item do estoque não encontrado');
+        if (stock.rentMode === 'com_operador') throw new BadRequestException(`${stock.name} só sai com operador da empresa: venda como serviço, não como locação`);
+        if (!item.description) item.description = stock.name;
+      }
       if (item.type === 'mao_de_obra') {
         if (!item.professionalId || !snapshot.salaries[item.professionalId]) throw new BadRequestException('Escolha o profissional de cada linha de mão de obra');
         if (!item.description) item.description = snapshot.salaries[item.professionalId].name;
@@ -305,10 +345,30 @@ export class ProposalService {
     return item.quantity * table.classPrice + (table.studentPrice ?? 0) * beyond;
   }
 
+  /**
+   * Linha de locação ao cliente: o custo sai da base da locação (peças × mês
+   * alugado × meses + preparação). O preço é o sugerido pelo divisor, salvo
+   * valor do período digitado na proposta ou preço manual do cadastro.
+   */
+  private rentalInput(item: DraftItem, snapshot: PricingSnapshot): PriceItemInput {
+    const rental = rentalOf(item, snapshot);
+    const typed = rentPrice(item);
+    const stock = item.stockItemId ? snapshot.rentals?.[item.stockItemId] : undefined;
+    const period = (item.extra?.period ?? 'mes') as 'dia' | 'semana' | 'mes';
+    const manual = stock?.priceMode === 'manual' && stock.rent[period] ? round2(item.quantity * stock.rent[period]! * Number(item.extra?.periods ?? 1)) : null;
+    const computed = rental && 'line' in rental;
+    return {
+      type: item.type, quantity: item.quantity, margin: item.margin, finalValue: item.finalValue,
+      unitCost: computed ? 0 : item.unitCost, extraCost: computed ? rental.line.cost : item.extraCost,
+      listPrice: typed ?? manual,
+    };
+  }
+
   private calc(draft: Draft, snapshot: PricingSnapshot): PriceResult & { taxResult: ReturnType<typeof resolveTax> } {
     try {
       const base = computeBase(snapshot.params, snapshot.items, snapshot.date);
-      const tax = resolveTax(snapshot.tax.input);
+      // proposta de locação usa a alíquota da locação do perfil (sem ISS), quando cadastrada
+      const tax = draft.kind === 'locacao' ? resolveRentalTax(snapshot.tax.input) : resolveTax(snapshot.tax.input);
       const input: PriceInput = {
         workDays: draft.workDays, weekendDays: draft.weekendDays, contingencyRate: draft.contingencyRate, discount: draft.discount,
         commission: { rate: draft.commissionRate, base: draft.commissionBase, inPrice: draft.commissionInPrice },
@@ -318,8 +378,9 @@ export class ProposalService {
             ? { type: item.type, quantity: item.quantity, salary: snapshot.salaries[item.professionalId!].salary, night: item.night, travel: item.travel, weekend: item.weekend,
               workDays: item.workDays ?? undefined, weekendDays: item.weekendDays ?? undefined, hoursPerDay: item.hoursPerDay ?? undefined,
               overtimeHours: item.overtimeHours, margin: item.margin, finalValue: item.finalValue }
+            : item.type === 'locacao_cliente' ? this.rentalInput(item, snapshot)
             : { type: item.type, quantity: item.quantity, unitCost: item.unitCost, extraCost: item.extraCost, margin: item.margin, finalValue: item.finalValue,
-              listPrice: item.type === 'treinamento' ? this.listPrice(item, snapshot) : item.type === 'locacao_cliente' ? rentPrice(item) : null }),
+              listPrice: item.type === 'treinamento' ? this.listPrice(item, snapshot) : null }),
         })),
       };
       return { ...price(input, { params: snapshot.params, base, tax }), taxResult: tax };
@@ -346,6 +407,7 @@ export class ProposalService {
           suggested: r(line.suggested), value: r(line.value), hours: line.hours ?? null,
           listPrice: draft.sections[s].items[i].type === 'treinamento' ? r(this.listPrice(draft.sections[s].items[i], snapshot)) : draft.sections[s].items[i].type === 'locacao_cliente' ? r(rentPrice(draft.sections[s].items[i])) : null,
           ...(see ? { cost: r(line.cost), margin: rate(line.margin), hourCost: r(line.hourCost) } : {}),
+          ...(draft.sections[s].items[i].type === 'locacao_cliente' ? { rental: this.rentalView(draft.sections[s].items[i], snapshot, line, see) } : {}),
         })),
       })),
       totals: {
@@ -361,6 +423,32 @@ export class ProposalService {
         costBase: snapshot.costBase.name,
       } : { tax: { regime: result.taxResult.regime, outside: rate(result.taxResult.outside) } }),
     };
+  }
+
+  /** Detalhe da locação de uma linha: valor por período para todos; custo, piso e mercado só para quem vê custos. */
+  private rentalView(item: DraftItem, snapshot: PricingSnapshot, line: PriceResult['sections'][number]['lines'][number], see: boolean) {
+    const rental = rentalOf(item, snapshot);
+    if (!rental) return null;
+    if ('error' in rental) return { error: rental.error };
+    const r = (n: number) => round2(n);
+    const periods = Math.max(1, Number(item.extra?.periods ?? 1));
+    const quantity = Math.max(item.quantity, 0) || 1;
+    const out: Record<string, unknown> = {
+      months: Math.round(rental.line.months * 1e4) / 1e4, discountRate: rental.line.discountRate,
+      periodValue: r(line.value / quantity / periods),
+    };
+    if (see) {
+      // preço do mês implícito no valor em uso (mesma proporção valor ÷ custo da linha)
+      const defaults = rentalDefaultsOf(snapshot.defaults?.rental);
+      const month = line.cost > 0 ? (line.value / line.cost) * rental.perRentedMonth : 0;
+      const share = rental.value > 0 ? month / rental.value : 0;
+      Object.assign(out, {
+        perRentedMonth: r(rental.perRentedMonth), handling: r(rental.handling), value: r(rental.value),
+        floorCost: r(rental.line.floorCost), monthPrice: r(month), valueShare: Math.round(share * 1e4) / 1e4,
+        market: share < defaults.marketBand.min ? 'abaixo' : share > defaults.marketBand.max ? 'acima' : 'dentro',
+      });
+    }
+    return out;
   }
 
   // ------------------------------------------------------------------ apoio
@@ -507,9 +595,26 @@ export class ProposalService {
         id: e.id, type: e.type, at: e.createdAt, name: e.name, role: e.role, email: e.email, cpf: e.cpf, ip: e.ip, userAgent: e.userAgent,
         note: e.note, codeVerified: e.codeVerified, documentHash: e.documentHash,
       })),
+      // serviço e locação do mesmo cliente perto da mesma data: confirmar que o equipamento é operado pelo cliente (plano 09, 4.3)
+      overlap: await this.serviceRentalOverlap(row),
       draft: actor.canSeeCosts ? draft : this.hideMargins(draft),
       calc: this.view(draft, result, snapshot, actor),
     };
+  }
+
+  private async serviceRentalOverlap(row: ProposalRow) {
+    if (row.kind !== 'locacao' && row.kind !== 'servico') return [];
+    const day = 86400000;
+    const ref = row.referenceDate.getTime();
+    const others = await this.prisma.commercial_Proposal.findMany({
+      where: {
+        companyId: row.companyId, customerId: row.customerId, kind: row.kind === 'locacao' ? 'servico' : 'locacao', inactiveAt: null,
+        status: { in: ['rascunho', 'enviada', 'visualizada', 'aceita'] },
+        referenceDate: { gte: new Date(ref - 60 * day), lte: new Date(ref + 60 * day) },
+      },
+      select: { id: true, number: true, title: true, status: true, kind: true }, orderBy: { referenceDate: 'asc' }, take: 5,
+    });
+    return others;
   }
 
   private hideMargins(draft: Draft) {
@@ -555,7 +660,7 @@ export class ProposalService {
           const detail = item.type === 'mao_de_obra'
             ? [days ? `${days} dia${days === 1 ? '' : 's'} útei${days === 1 ? 'l' : 's'}` : '', item.night ? 'noturno' : '', item.weekend ? 'inclui fim de semana/feriado' : ''].filter(Boolean).join(' · ')
             : item.type === 'locacao_cliente'
-              ? `${item.extra?.periods ?? 1} ${({ dia: 'dia(s)', semana: 'semana(s)', mes: 'mês(es)' } as Record<string, string>)[item.extra?.period ?? 'mes']} de locação`
+              ? `${item.extra?.periods ?? 1} ${({ dia: 'dia(s)', semana: 'semana(s)', mes: 'mês(es)' } as Record<string, string>)[item.extra?.period ?? 'mes']} de locação${item.extra?.closed ? ', período fechado' : ''} · entregue inspecionado`
             : item.type === 'treinamento'
               ? [item.extra?.students ? `${item.extra.students} alunos` : '', item.extra?.workload ? `${item.extra.workload} h` : '', item.extra?.dates ?? '', item.extra?.location ?? ''].filter(Boolean).join(' · ')
               : '';

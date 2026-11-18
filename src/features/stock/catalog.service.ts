@@ -3,6 +3,8 @@ import { Prisma, Stock_Item } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { holderKey, holderNames } from './ledger';
 import { DEFAULT_TEMPLATES } from './equipment.templates';
+import { suggestedRentPrices } from '../commercial/rental.items';
+import { RENTAL_PRESETS } from '../commercial/pricing/rental';
 import {
   Body, Holder, HolderType, MOVEMENT_TYPES, PERM, StockActor, TRACKINGS, UNIT_STATUS, blank, can, clean, d, dueState, fail, idOf, num,
   optionalDate, optionalNumber, round2, round3, text, today,
@@ -268,6 +270,11 @@ export class StockCatalogService {
       isPpe: item.isPpe, caNumber: item.caNumber, caExpiry: d(item.caExpiry), caState: dueState(d(item.caExpiry), item.warnDays), replaceEveryDays: item.replaceEveryDays,
       rentable: item.rentable, rentDaily: item.rentDaily === null ? null : num(item.rentDaily), rentWeekly: item.rentWeekly === null ? null : num(item.rentWeekly),
       rentMonthly: item.rentMonthly === null ? null : num(item.rentMonthly), replacementValue: item.replacementValue === null ? null : num(item.replacementValue),
+      rentPriceMode: item.rentPriceMode, rentMode: item.rentMode, minRentPeriod: item.minRentPeriod, economicLifeMonths: item.economicLifeMonths,
+      residualRate: item.residualRate === null ? null : num(item.residualRate), maintenanceRate: item.maintenanceRate === null ? null : num(item.maintenanceRate),
+      inspectionCost: costs && item.inspectionCost !== null ? num(item.inspectionCost) : null, calibrationCost: costs && item.calibrationCost !== null ? num(item.calibrationCost) : null,
+      lossRate: item.lossRate === null ? null : num(item.lossRate), handlingCost: costs && item.handlingCost !== null ? num(item.handlingCost) : null,
+      occupancy: item.occupancy === null ? null : num(item.occupancy),
       siteProductId: item.siteProductId, notes: item.notes, active: !item.inactiveAt,
       averageCost: costs ? num(item.averageCost) : null, lastCost: costs && item.lastCost !== null ? num(item.lastCost) : null,
       lastPurchaseAt: d(item.lastPurchaseAt),
@@ -318,7 +325,7 @@ export class StockCatalogService {
         companyId: actor.companyId, inactiveAt: null,
         ...(query.flag === 'epi' ? { isPpe: true } : query.flag === 'alugavel' ? { rentable: true } : query.flag === 'retornavel' ? { returnable: true } : {}),
       },
-      orderBy: { name: 'asc' }, select: { id: true, code: true, name: true, unit: true, tracking: true, returnable: true, isPpe: true, rentable: true, lastCost: true, rentDaily: true, rentWeekly: true, rentMonthly: true, averageCost: true },
+      orderBy: { name: 'asc' }, select: { id: true, code: true, name: true, unit: true, tracking: true, returnable: true, isPpe: true, rentable: true, lastCost: true, rentDaily: true, rentWeekly: true, rentMonthly: true, averageCost: true, rentPriceMode: true, rentMode: true, minRentPeriod: true, _count: { select: { components: true } } },
     });
     const balances = await this.prisma.stock_Balance.groupBy({
       by: ['itemId'], where: { companyId: actor.companyId, holderType: 'local', quantity: { gt: 0 }, ...(locationId ? { holderId: locationId } : {}) }, _sum: { quantity: true },
@@ -330,6 +337,7 @@ export class StockCatalogService {
       isPpe: row.isPpe, rentable: row.rentable, available: has.get(row.id) ?? 0,
       lastCost: row.lastCost === null ? null : num(row.lastCost), averageCost: costs ? num(row.averageCost) : null,
       rent: { dia: row.rentDaily === null ? null : num(row.rentDaily), semana: row.rentWeekly === null ? null : num(row.rentWeekly), mes: row.rentMonthly === null ? null : num(row.rentMonthly) },
+      rentPriceMode: row.rentPriceMode, rentMode: row.rentMode, minRentPeriod: row.minRentPeriod, isKit: row._count.components > 0,
     }));
   }
 
@@ -393,6 +401,18 @@ export class StockCatalogService {
     if ('caExpiry' in input) data.caExpiry = optionalDate(input.caExpiry, 'Validade do CA');
     if ('replaceEveryDays' in input) data.replaceEveryDays = optionalNumber(input.replaceEveryDays, 'Troca a cada', { min: 1, max: 3650, int: true });
     for (const key of ['rentDaily', 'rentWeekly', 'rentMonthly', 'replacementValue'] as const) if (key in input) data[key] = optionalNumber(input[key], 'Valor');
+    // base de cálculo da locação (plano 09): vazio = padrão da categoria e da base
+    if ('rentPriceMode' in input) data.rentPriceMode = input.rentPriceMode === 'manual' ? 'manual' : 'calculado';
+    if ('rentMode' in input) data.rentMode = ['locacao', 'com_operador'].includes(String(input.rentMode)) ? String(input.rentMode) : 'ambos';
+    if ('minRentPeriod' in input) data.minRentPeriod = ['dia', 'semana', 'mes'].includes(String(input.minRentPeriod)) ? String(input.minRentPeriod) : null;
+    if ('economicLifeMonths' in input) data.economicLifeMonths = optionalNumber(input.economicLifeMonths, 'Vida econômica', { min: 1, max: 600, int: true });
+    if ('residualRate' in input) data.residualRate = optionalNumber(input.residualRate, 'Valor residual', { min: 0, max: 1 });
+    if ('maintenanceRate' in input) data.maintenanceRate = optionalNumber(input.maintenanceRate, 'Manutenção ao ano', { min: 0, max: 2 });
+    if ('inspectionCost' in input) data.inspectionCost = optionalNumber(input.inspectionCost, 'Custo da inspeção');
+    if ('calibrationCost' in input) data.calibrationCost = optionalNumber(input.calibrationCost, 'Custo da calibração');
+    if ('lossRate' in input) data.lossRate = optionalNumber(input.lossRate, 'Perdas por mês alugado', { min: 0, max: 1 });
+    if ('handlingCost' in input) data.handlingCost = optionalNumber(input.handlingCost, 'Preparação por locação');
+    if ('occupancy' in input) data.occupancy = optionalNumber(input.occupancy, 'Ocupação', { min: 0.01, max: 1 });
     if ('siteProductId' in input) {
       const productId = idOf(input.siteProductId);
       if (productId) {
@@ -423,12 +443,62 @@ export class StockCatalogService {
       data.inspectionTemplateId = category?.inspectionTemplateId ?? byName?.id ?? null;
     }
     const row = await this.prisma.stock_Item.create({ data: { ...(data as Prisma.Stock_ItemUncheckedCreateInput), code, companyId: actor.companyId } });
+    if ('components' in body) await this.saveComponents(actor.companyId, row.id, body.components);
+    await this.refreshRentPrices(actor.companyId, row.id);
     return this.item(actor, row.id);
+  }
+
+  /** Componentes do kit (substitui a lista). Um kit não entra em outro kit. */
+  private async saveComponents(companyId: number, kitId: number, raw: unknown) {
+    const list: Body[] = Array.isArray(raw) ? raw : [];
+    if (list.length > 60) fail('Componentes demais no kit');
+    const seen = new Set<number>();
+    const rows: Array<{ componentId: number; quantity: number }> = [];
+    for (const [index, entry] of list.entries()) {
+      const componentId = idOf(entry.itemId ?? entry.componentId);
+      if (!componentId) fail(`Componente ${index + 1}: escolha o item`);
+      if (componentId === kitId) fail('O kit não pode ser componente dele mesmo');
+      if (seen.has(componentId!)) fail('Componente repetido no kit');
+      seen.add(componentId!);
+      const component = await this.prisma.stock_Item.findFirst({ where: { id: componentId!, companyId }, select: { id: true, name: true, _count: { select: { components: true } } } });
+      if (!component) fail(`Componente ${index + 1}: item não encontrado`);
+      if (component!._count.components) fail(`${component!.name} já é um kit: kit não entra em outro kit`);
+      const quantity = optionalNumber(entry.quantity ?? 1, `Quantidade de ${component!.name}`, { min: 0.001 }) ?? 1;
+      rows.push({ componentId: componentId!, quantity });
+    }
+    if (rows.length && (await this.prisma.stock_KitComponent.count({ where: { componentId: kitId } }))) fail('Este item é componente de um kit: ele não pode ser um kit também');
+    await this.prisma.$transaction([
+      this.prisma.stock_KitComponent.deleteMany({ where: { kitItemId: kitId } }),
+      this.prisma.stock_KitComponent.createMany({ data: rows.map((r, order) => ({ ...r, companyId, kitItemId: kitId, order })) }),
+    ]);
+  }
+
+  /** Modo "calculado": grava dia, semana e mês sugeridos pela base (a loja e a locação avulsa leem daqui). */
+  private async refreshRentPrices(companyId: number, id: number) {
+    const item = await this.prisma.stock_Item.findUnique({ where: { id }, select: { rentable: true, rentPriceMode: true } });
+    if (!item?.rentable || item.rentPriceMode !== 'calculado') return;
+    const prices = await suggestedRentPrices(this.prisma, companyId, id);
+    if (!prices || prices.error || !('month' in prices)) return;
+    await this.prisma.stock_Item.update({ where: { id }, data: { rentDaily: prices.day, rentWeekly: prices.week, rentMonthly: prices.month } });
+  }
+
+  /** Recalcula os preços de todos os itens alugáveis no modo calculado (depois de mudar a base). */
+  async refreshAllRentPrices(actor: StockActor) {
+    const rows = await this.prisma.stock_Item.findMany({ where: { companyId: actor.companyId, rentable: true, rentPriceMode: 'calculado', inactiveAt: null }, select: { id: true } });
+    for (const row of rows) await this.refreshRentPrices(actor.companyId, row.id);
+    return { updated: rows.length };
+  }
+
+  /** Valores de pesquisa (plano 09) para preencher item ou categoria. */
+  rentalPresets() {
+    return Object.entries(RENTAL_PRESETS).map(([key, preset]) => ({ key, ...preset }));
   }
 
   async updateItem(actor: StockActor, id: number, body: Body) {
     const current = await this.byItem(actor.companyId, id);
     await this.prisma.stock_Item.update({ where: { id }, data: await this.itemData(actor, body, current) });
+    if ('components' in body) await this.saveComponents(actor.companyId, id, body.components);
+    await this.refreshRentPrices(actor.companyId, id);
     return this.item(actor, id);
   }
 
@@ -456,7 +526,12 @@ export class StockCatalogService {
     const lotOf = new Map(lots.map((l) => [l.id, l]));
     const totals = (await this.totals(actor.companyId, [id])).get(id) ?? { inStock: 0, out: 0 };
     const available = item.tracking === 'unidade' ? (await this.available(actor.companyId, [id])).get(id) ?? 0 : totals.inStock;
+    const components = await this.prisma.stock_KitComponent.findMany({ where: { kitItemId: id }, include: { component: { select: { id: true, code: true, name: true } } }, orderBy: [{ order: 'asc' }, { id: 'asc' }] });
+    const partOf = await this.prisma.stock_KitComponent.findMany({ where: { componentId: id }, include: { kit: { select: { id: true, code: true, name: true } } } });
     return this.present(item, actor, {
+      components: components.map((c) => ({ itemId: c.componentId, code: c.component.code, name: c.component.name, quantity: num(c.quantity) })),
+      partOf: partOf.map((p) => ({ id: p.kit.id, code: p.kit.code, name: p.kit.name })),
+      rentalPrice: item.rentable && can(actor, PERM.costs) ? await suggestedRentPrices(this.prisma, actor.companyId, id) : null,
       category: category?.name ?? null, inStock: totals.inStock, out: totals.out, available,
       low: item.minQuantity !== null && available < num(item.minQuantity),
       product, balances: balances.map((b) => ({

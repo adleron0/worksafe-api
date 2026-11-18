@@ -142,6 +142,11 @@ model Commercial_TaxProfile {
   outsideRate   Decimal             @default(0) @db.Decimal(7, 6)
   // [{ limit, rate, deduction }] em ordem crescente de limite
   brackets      Json
+  // Locação de bens móveis (sem ISS no Simples: Anexo III menos a parcela do
+  // ISS). Nulo = a mesma do serviço, até o contador confirmar o número.
+  rentalRate        Decimal? @db.Decimal(7, 6)
+  // no híbrido: CBS + IBS por fora da locação; nulo = o mesmo do serviço
+  rentalOutsideRate Decimal? @db.Decimal(7, 6)
   isDefault     Boolean             @default(false)
   notes         String?             @db.VarChar(500)
 

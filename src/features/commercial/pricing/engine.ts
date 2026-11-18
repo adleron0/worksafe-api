@@ -164,6 +164,10 @@ export interface TaxProfileInput {
   ibsCbsShare: number;
   outsideRate: number;
   brackets: TaxBracket[];
+  /** Locação de bens móveis: alíquota por dentro (sem ISS). Nulo = a do serviço. */
+  rentalRate?: number | null;
+  /** Locação no híbrido: CBS + IBS por fora. Nulo = o do serviço. */
+  rentalOutsideRate?: number | null;
 }
 
 export interface TaxResult {
@@ -200,6 +204,26 @@ export function resolveTax(profile: TaxProfileInput): TaxResult {
     regime: profile.regime, nominal, effective, das, inside, outside, realInside,
     // tradicional: só a fatia de IBS/CBS que está no DAS; híbrido: o destacado por fora
     creditOnNet: hybrid ? outside : real * share,
+  };
+}
+
+/**
+ * Imposto de uma proposta de locação: a alíquota da locação no lugar do DAS
+ * do serviço, quando o perfil tem uma (o contador confirma o número). Sem
+ * ela, vale o imposto do serviço, que é o lado conservador.
+ */
+export function resolveRentalTax(profile: TaxProfileInput): TaxResult & { rental: boolean } {
+  const service = resolveTax(profile);
+  const rate = profile.rentalRate;
+  if (rate === null || rate === undefined || !Number.isFinite(Number(rate))) return { ...service, rental: false };
+  const inside = num(rate);
+  if (inside < 0 || inside >= 1) throw new PricingError('Alíquota da locação deve ficar entre 0% e 99%', 'rentalRate');
+  const hybrid = profile.regime === 'hibrido';
+  const outsideRaw = profile.rentalOutsideRate;
+  const outside = hybrid ? (outsideRaw === null || outsideRaw === undefined ? service.outside : Math.max(0, num(outsideRaw))) : 0;
+  const share = Math.min(1, Math.max(0, num(profile.ibsCbsShare)));
+  return {
+    ...service, das: inside, inside, outside, realInside: inside, creditOnNet: hybrid ? outside : inside * share, rental: true,
   };
 }
 

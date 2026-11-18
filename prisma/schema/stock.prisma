@@ -92,6 +92,27 @@ model Stock_Item {
   rentMonthly      Decimal? @db.Decimal(14, 2)
   replacementValue Decimal? @db.Decimal(14, 2)
 
+  // Base de cálculo da locação (comercial-planejamento/09): vazio = o padrão
+  // da categoria (`defaults.rental`) e, depois, o da base de cálculo.
+  // calculado = rentDaily/Weekly/Monthly saem da conta; manual = digitados
+  rentPriceMode      String   @default("calculado") @db.VarChar(10)
+  // locacao (o cliente opera) | com_operador (é serviço) | ambos
+  rentMode           String   @default("ambos") @db.VarChar(12)
+  // dia | semana | mes
+  minRentPeriod      String?  @db.VarChar(8)
+  // vida até descartar por desgaste (a conta usa a menor entre ela e lifeMonths)
+  economicLifeMonths Int?
+  residualRate       Decimal? @db.Decimal(7, 6)
+  // manutenção ao ano, % do valor
+  maintenanceRate    Decimal? @db.Decimal(7, 6)
+  inspectionCost     Decimal? @db.Decimal(12, 2)
+  calibrationCost    Decimal? @db.Decimal(12, 2)
+  // perdas não recuperadas, % do valor por mês alugado
+  lossRate           Decimal? @db.Decimal(7, 6)
+  // preparação por peça e por locação: inspeção de devolução, higienização
+  handlingCost       Decimal? @db.Decimal(12, 2)
+  occupancy          Decimal? @db.Decimal(7, 6)
+
   // produto da loja do site ligado a este item (um para um)
   siteProductId Int? @unique
 
@@ -104,6 +125,10 @@ model Stock_Item {
 
   units Stock_Unit[]
   lots  Stock_Lot[]
+
+  // kit: este item é um conjunto de outros (componentes); a peça física é o componente
+  components Stock_KitComponent[] @relation("Stock_KitComponents")
+  partOf     Stock_KitComponent[] @relation("Stock_KitPart")
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
@@ -453,4 +478,21 @@ model Stock_CountLine {
   note     String? @db.VarChar(300)
 
   @@index([countId])
+}
+
+// Kit (ex.: kit de resgate): o item "kit" não tem saldo próprio; alugar o kit
+// entrega e devolve os componentes, peça a peça. O custo da locação do kit é a
+// soma dos componentes, com a ocupação e a preparação do kit.
+model Stock_KitComponent {
+  id          Int        @id @default(autoincrement())
+  companyId   Int
+  kitItemId   Int
+  kit         Stock_Item @relation("Stock_KitComponents", fields: [kitItemId], references: [id], onDelete: Cascade)
+  componentId Int
+  component   Stock_Item @relation("Stock_KitPart", fields: [componentId], references: [id], onDelete: Restrict)
+  quantity    Decimal    @default(1) @db.Decimal(12, 3)
+  order       Int        @default(0)
+
+  @@unique([kitItemId, componentId])
+  @@index([componentId])
 }

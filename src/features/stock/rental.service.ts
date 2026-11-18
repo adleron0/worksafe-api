@@ -45,7 +45,14 @@ export async function rentalsFromContract(tx: Tx, contractId: number) {
   for (let i = 0; i < periods; i++) end = periodEnd(i === 0 ? start : addDays(end, 1), period);
   return createRental(tx, contract.companyId, null, {
     customerId: contract.customerId, contractId: contract.id, proposalId: contract.proposalId, startDate: start, expectedEnd: end, period, billing: 'periodo',
-    lines: items.map((item) => ({ itemId: item.stockItemId, quantity: Number(item.quantity), rate: Number((item.extra as Body | null)?.rate ?? 0) })),
+    // valor de cada período por peça: o valor da linha na proposta (já com desconto e preparação) ÷ peças ÷ períodos
+    lines: items.map((item) => {
+      const periodsOf = Math.max(1, Number((item.extra as Body | null)?.periods ?? 1));
+      const quantity = Number(item.quantity) || 1;
+      // linha antiga sem valor gravado: vale o valor do período digitado
+      const rate = Number(item.value) > 0 ? round2(Number(item.value) / quantity / periodsOf) : Number((item.extra as Body | null)?.rate ?? 0);
+      return { itemId: item.stockItemId, quantity, rate };
+    }),
     notes: 'Criada pela venda',
   }, true);
 }
@@ -65,6 +72,22 @@ async function createRental(tx: Tx, companyId: number, userId: number | null, bo
     const item = await tx.stock_Item.findFirst({ where: { id: Number(raw.itemId) || 0, companyId } });
     if (!item) fail(`Linha ${index + 1}: item não encontrado`);
     if (!item!.rentable && !fromContract) fail(`${item!.name} não está marcado como alugável`);
+    const kit = await tx.stock_KitComponent.findMany({ where: { kitItemId: item!.id }, include: { component: true }, orderBy: [{ order: 'asc' }, { id: 'asc' }] });
+    if (kit.length) {
+      // kit não tem saldo: sai e volta peça a peça; o valor do período é repartido pelo valor de cada componente
+      const quantity = positive(raw.quantity ?? 1, `Linha ${index + 1}`);
+      const worth = kit.map((k) => num(k.quantity) * (num(k.component.replacementValue) || num(k.component.averageCost) || num(k.component.lastCost) || 1));
+      const total = worth.reduce((sum, w) => sum + w, 0) || 1;
+      const rate = Math.max(0, Number(raw.rate) || 0);
+      let left = round2(rate * quantity);
+      kit.forEach((k, i) => {
+        const componentQuantity = round3(num(k.quantity) * quantity);
+        const lineTotal = i === kit.length - 1 ? left : round2((rate * quantity * worth[i]) / total);
+        left = round2(left - lineTotal);
+        lines.push({ itemId: k.componentId, quantity: componentQuantity, rate: componentQuantity > 0 ? round2(lineTotal / componentQuantity) : 0, note: `Do kit ${item!.name}` });
+      });
+      continue;
+    }
     const unitId = idOf(raw.unitId);
     if (unitId && !(await tx.stock_Unit.count({ where: { id: unitId, itemId: item!.id, status: { not: 'baixado' } } }))) fail(`Linha ${index + 1}: peça não encontrada`);
     lines.push({ itemId: item!.id, unitId, lotId: idOf(raw.lotId), quantity: unitId ? 1 : positive(raw.quantity ?? 1, `Linha ${index + 1}`), rate: round2(Math.max(0, Number(raw.rate) || 0)) });

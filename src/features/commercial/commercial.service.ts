@@ -3,8 +3,10 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import {
   BaseResult, computeBase, CostBaseParams, CostItem, price, PriceInput, PricingError, professionalCost,
-  resolveTax, rounded, TaxBracket, TaxProfileInput,
+  resolveRentalTax, resolveTax, rounded, TaxBracket, TaxProfileInput,
 } from './pricing/engine';
+import { RentalSnapshotItem } from './rental.items';
+import { RENTAL_PRESETS, RentalDefaults, rentalCost, rentalDefaultsOf, RentalError, rentalTable } from './pricing/rental';
 import {
   SHEET_BRACKETS, SHEET_DEFAULTS, SHEET_ITEMS, SHEET_PARAMS, SHEET_PROFESSIONALS, SHEET_RBT12,
 } from './pricing/spreadsheet-seed';
@@ -54,7 +56,7 @@ function dateOf(value: unknown, label: string): string {
 /** Erro de conta do motor vira 400 legível, não 500. */
 function guarded<T>(run: () => T): T {
   try { return run(); } catch (error) {
-    if (error instanceof PricingError) throw new BadRequestException(error.message);
+    if (error instanceof PricingError || error instanceof RentalError) throw new BadRequestException(error.message);
     throw error;
   }
 }
@@ -68,6 +70,8 @@ export interface PricingSnapshot {
   salaries: Record<string, { name: string; salary: number }>;
   /** tabela in-company de cada curso usado, por id */
   coursePrices: Record<string, { name: string; classPrice: number | null; includedStudents: number | null; studentPrice: number | null }>;
+  /** parâmetros de locação de cada item do estoque usado, por id (fotografias antigas não têm) */
+  rentals?: Record<string, RentalSnapshotItem>;
 }
 
 type BaseRow = Prisma.Commercial_CostBaseGetPayload<{ include: { items: true } }>;
@@ -91,6 +95,8 @@ const taxInputOf = (row: TaxRow): TaxProfileInput => ({
   manualRate: row.manualRate === null ? null : Number(row.manualRate),
   ibsCbsShare: Number(row.ibsCbsShare), outsideRate: Number(row.outsideRate),
   brackets: (row.brackets as unknown as TaxBracket[]) ?? [],
+  rentalRate: row.rentalRate === null ? null : Number(row.rentalRate),
+  rentalOutsideRate: row.rentalOutsideRate === null ? null : Number(row.rentalOutsideRate),
 });
 
 @Injectable()
@@ -113,7 +119,7 @@ export class CommercialService {
       await tx.commercial_CostBase.create({ data: {
         companyId, name: 'Base da planilha FORM-COM-001', effectiveFrom: start,
         notes: 'Carga inicial com os valores da planilha de formação de preços.',
-        ...SHEET_PARAMS, defaults: SHEET_DEFAULTS,
+        ...SHEET_PARAMS, defaults: SHEET_DEFAULTS as unknown as Prisma.InputJsonValue,
         items: { create: SHEET_ITEMS.map((item, order) => ({
           companyId, group: item.group, subgroup: item.subgroup, name: item.name, rate: item.rate ?? null, amount: item.amount ?? null,
           quantity: item.quantity ?? 1, withCharges: item.withCharges !== false, kind: item.kind ?? 'fixo', isDebt: item.isDebt === true, order,
@@ -286,7 +292,72 @@ export class CommercialService {
         base: source.commission?.base === 'faturado' ? 'faturado' : 'lucro',
         inPrice: bool(source.commission?.inPrice),
       },
+      rental: this.parseRental(source.rental ?? (fallback as Record<string, any> | undefined)?.rental),
     };
+  }
+
+  /** Parâmetros comuns da locação (plano 09). Campo ausente fica com o padrão. */
+  private parseRental(raw: unknown): RentalDefaults {
+    const source = rentalDefaultsOf(raw);
+    const rate = (value: number, label: string, min: number, max: number) => number(value, label, min, max);
+    const discounts = source.longDiscounts;
+    if (discounts.length > 12) throw new BadRequestException('Faixas de desconto demais');
+    const band = { min: rate(source.marketBand.min, 'Faixa de mercado — mínimo', 0, 1), max: rate(source.marketBand.max, 'Faixa de mercado — máximo', 0, 1) };
+    if (band.min > band.max) throw new BadRequestException('Faixa de mercado: o mínimo passa do máximo');
+    return {
+      capitalRate: rate(source.capitalRate, 'Custo de capital ao mês', 0, 0.2),
+      insuranceRate: rate(source.insuranceRate, 'Seguro ao ano', 0, 1),
+      residualRate: rate(source.residualRate, 'Valor residual', 0, 1),
+      maintenanceRate: rate(source.maintenanceRate, 'Manutenção ao ano', 0, 2),
+      occupancy: rate(source.occupancy, 'Ocupação esperada', 0.01, 1),
+      lossRate: rate(source.lossRate, 'Perdas por mês alugado', 0, 1),
+      handlingCost: Math.round(rate(source.handlingCost, 'Preparação por locação', 0, 1e7) * 100) / 100,
+      inspectionMonths: rate(source.inspectionMonths, 'Intervalo de inspeção', 0.25, 120),
+      calibrationMonths: rate(source.calibrationMonths, 'Intervalo de calibração', 0.25, 120),
+      weekFactor: rate(source.weekFactor, 'Fator da semana', 0.01, 1),
+      dayFactor: rate(source.dayFactor, 'Fator do dia', 0.001, 1),
+      longDiscounts: discounts.map((d, i) => ({
+        fromMonths: Math.round(rate(d.fromMonths, `Desconto ${i + 1} — a partir de (meses)`, 1, 600)),
+        rate: rate(d.rate, `Desconto ${i + 1}`, 0, 0.9),
+      })),
+      marketBand: band,
+      depositRate: rate(source.depositRate, 'Caução', 0, 5),
+    };
+  }
+
+  /**
+   * Tabela viva da aba "Locação": os parâmetros (os da tela, sem gravar, ou os
+   * da base vigente), o imposto da locação do perfil padrão e a margem da
+   * seção, aplicados aos valores de pesquisa e aos itens alugáveis do estoque.
+   */
+  async rentalPreview(companyId: number, body: Body) {
+    const date = blank(body.date) ? today() : dateOf(body.date, 'Data');
+    const baseRow = blank(body.costBaseId) ? await this.currentBase(companyId, date) : await this.baseById(companyId, Number(body.costBaseId));
+    const stored = (baseRow.defaults ?? {}) as Record<string, any>;
+    const defaults = 'rental' in body ? this.parseRental(body.rental) : rentalDefaultsOf(stored.rental);
+    const margin = blank(body.margin) ? Number(stored.margins?.locacao_cliente ?? 0.25) : number(body.margin, 'Margem', 0, 0.95);
+    const taxRow = await this.currentTax(companyId, date, body.regime as string | undefined);
+    const input = taxInputOf(taxRow);
+    if ('rentalRate' in body) input.rentalRate = blank(body.rentalRate) ? null : number(body.rentalRate, 'Alíquota da locação', 0, 0.99);
+    return guarded(() => {
+      const tax = resolveRentalTax(input);
+      const service = resolveTax(input);
+      const divisor = 1 - margin - tax.inside;
+      const serviceDivisor = 1 - margin - service.inside;
+      const row = (key: string, label: string, item: Parameters<typeof rentalCost>[0], source?: string) => {
+        const cost = rentalCost(item, defaults);
+        const table = rentalTable(cost, defaults, divisor);
+        const steps = [0.3, 0.4, 0.6, 0.8].map((occupancy) => ({ occupancy, month: rentalTable(rentalCost({ ...item, occupancy }, defaults), defaults, divisor).month }));
+        // percentuais com 4 casas (o `rounded` deixaria 0,207 como 0,21)
+        return { ...rounded({ key, label, source: source ?? null, cost, ...table, monthWithServiceTax: rentalTable(cost, defaults, serviceDivisor).month, sensitivity: steps }),
+          valueShare: Math.round(table.valueShare * 1e4) / 1e4 };
+      };
+      return {
+        date, margin, defaults,
+        tax: { profile: taxRow.name, regime: taxRow.regime, rental: tax.rental, inside: tax.inside, service: service.inside },
+        presets: Object.entries(RENTAL_PRESETS).map(([key, preset]) => row(key, preset.label, preset, preset.source)),
+      };
+    });
   }
 
   /** Conta ao vivo: recebe o rascunho da tela e devolve A–E e a tabela de custo hora, sem gravar. */
@@ -341,7 +412,7 @@ export class CommercialService {
       await tx.commercial_CostBase.update({ where: { id }, data: {
         ...params, name: name.slice(0, 120), effectiveFrom: asDate(effectiveFrom),
         ...('notes' in body ? { notes: clean(body.notes).slice(0, 500) || null } : {}),
-        ...(defaults ? { defaults } : {}),
+        ...(defaults ? { defaults: defaults as unknown as Prisma.InputJsonValue } : {}),
       } });
       if (items) {
         await tx.commercial_CostBaseItem.deleteMany({ where: { costBaseId: id } });
@@ -371,7 +442,9 @@ export class CommercialService {
       id: row.id, name: row.name, regime: row.regime, effectiveFrom: iso(row.effectiveFrom), mode: row.mode, rbt12: input.rbt12,
       manualRate: input.manualRate, ibsCbsShare: input.ibsCbsShare, outsideRate: input.outsideRate, brackets: input.brackets,
       isDefault: row.isDefault, notes: row.notes, inactiveAt: row.inactiveAt, current: row.id === currentId,
+      rentalRate: input.rentalRate ?? null, rentalOutsideRate: input.rentalOutsideRate ?? null,
       tax: rounded(guarded(() => resolveTax(input))),
+      rentalTax: rounded(guarded(() => resolveRentalTax(input))),
     };
   }
 
@@ -396,6 +469,10 @@ export class CommercialService {
       rate: number(entry.rate, `Faixa ${index + 1} — alíquota`, 0, 0.99),
       deduction: number(entry.deduction ?? 0, `Faixa ${index + 1} — parcela a deduzir`, 0, 1e12),
     })).sort((a, b) => a.limit - b.limit);
+    const rentalRaw = pick('rentalRate', existing?.rentalRate ?? null);
+    const rentalRate = blank(rentalRaw) ? null : number(rentalRaw, 'Alíquota da locação', 0, 0.99);
+    const rentalOutsideRaw = pick('rentalOutsideRate', existing?.rentalOutsideRate ?? null);
+    const rentalOutsideRate = blank(rentalOutsideRaw) ? null : number(rentalOutsideRaw, 'CBS + IBS por fora da locação', 0, 0.99);
     const manualRaw = pick('manualRate', existing?.manualRate ?? null);
     const manualRate = blank(manualRaw) ? null : number(manualRaw, 'Alíquota manual', 0, 0.99);
     if (mode === 'manual' && manualRate === null) throw new BadRequestException('Informe a alíquota manual');
@@ -406,7 +483,7 @@ export class CommercialService {
       rbt12: number(pick('rbt12', existing?.rbt12 ?? 0), 'RBT12', 0, 1e12), manualRate,
       ibsCbsShare: number(pick('ibsCbsShare', existing?.ibsCbsShare ?? 0), 'Parte do DAS que é IBS/CBS', 0, 1),
       outsideRate: number(pick('outsideRate', existing?.outsideRate ?? 0), 'CBS + IBS por fora', 0, 0.99),
-      brackets: brackets as unknown as Prisma.InputJsonValue,
+      brackets: brackets as unknown as Prisma.InputJsonValue, rentalRate, rentalOutsideRate,
       notes: clean(pick('notes', existing?.notes)).slice(0, 500) || null,
     };
     guarded(() => resolveTax({ ...data, rbt12: data.rbt12, brackets }));
@@ -469,7 +546,7 @@ export class CommercialService {
       params: paramsOf(base), items: base.items.map(itemOf).map(({ id: _id, ...item }) => item),
       defaults: base.defaults as Record<string, any>,
       tax: { id: tax.id, name: tax.name, updatedAt: tax.updatedAt.toISOString(), input: taxInputOf(tax) },
-      salaries: {}, coursePrices: {},
+      salaries: {}, coursePrices: {}, rentals: {},
     };
   }
 
