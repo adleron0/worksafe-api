@@ -73,7 +73,12 @@ export interface ChatProvider {
   /** Lê PDF direto (Gemini e Claude). Os demais recebem só imagens. */
   readonly readsPdf?: boolean;
   chat(request: ChatRequest): Promise<ChatResponse>;
+  /** Testa uma chave antes de salvar (lista os modelos, sem gastar tokens). Lança erro se não funcionar. */
+  verify?(key: string): Promise<void>;
 }
+
+/** De onde vem a chave do fornecedor (tela de configuração ou variável do servidor). */
+export type KeyResolver = (provider: string) => string;
 
 export class ProviderUnavailableError extends Error {
   constructor(provider: string) {

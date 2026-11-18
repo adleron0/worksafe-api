@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { ChatMessage, ChatProvider, ChatRequest, ChatResponse, ProviderUnavailableError, rawFor } from './provider.types';
+import { ChatMessage, ChatProvider, ChatRequest, ChatResponse, KeyResolver, ProviderUnavailableError, rawFor } from './provider.types';
 
 interface CompatConfig {
   id: string;
@@ -15,13 +15,18 @@ interface CompatConfig {
 export class OpenAICompatProvider implements ChatProvider {
   readonly id: string;
   private client: OpenAI | null = null;
+  private clientKey = '';
 
-  constructor(private readonly config: CompatConfig) {
+  constructor(private readonly config: CompatConfig, private readonly keyOf: KeyResolver = () => process.env[config.keyEnv] || '') {
     this.id = config.id;
   }
 
   private key(): string {
-    return process.env[this.config.keyEnv] || '';
+    return this.keyOf(this.id);
+  }
+
+  async verify(key: string): Promise<void> {
+    await new OpenAI({ apiKey: key, baseURL: this.config.baseURL }).models.list();
   }
 
   available(): boolean {
@@ -29,8 +34,9 @@ export class OpenAICompatProvider implements ChatProvider {
   }
 
   private sdk(): OpenAI {
-    if (!this.available()) throw new ProviderUnavailableError(this.id);
-    if (!this.client) this.client = new OpenAI({ apiKey: this.key(), baseURL: this.config.baseURL });
+    const key = this.key();
+    if (!key) throw new ProviderUnavailableError(this.id);
+    if (!this.client || this.clientKey !== key) { this.client = new OpenAI({ apiKey: key, baseURL: this.config.baseURL }); this.clientKey = key; }
     return this.client;
   }
 

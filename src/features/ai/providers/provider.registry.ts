@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { AnthropicProvider } from './anthropic.provider';
 import { FakeProvider } from './fake.provider';
 import { GeminiProvider } from './gemini.provider';
 import { OpenAICompatProvider } from './openai-compat.provider';
+import { ProviderKeyStore } from './provider-keys.service';
 import { ChatProvider } from './provider.types';
 
 /** Preço em dólar por milhão de tokens (entrada, saída, entrada em cache). */
@@ -57,15 +58,17 @@ export const PROVIDER_LABELS: Record<string, string> = {
 export class ProviderRegistry {
   private readonly providers = new Map<string, ChatProvider>();
 
-  constructor() {
+  constructor(private readonly keys: ProviderKeyStore) {
+    // a chave vem da tela de configuração (se cadastrada) ou da variável do servidor
+    const keyOf = (id: string) => keys.key(id);
     const all: ChatProvider[] = [
-      new GeminiProvider(),
-      new AnthropicProvider(),
-      new OpenAICompatProvider({ id: 'openai', keyEnv: 'OPENAI_API_KEY', baseURL: process.env.AI_OPENAI_BASE_URL || 'https://api.openai.com/v1' }),
-      new OpenAICompatProvider({ id: 'openrouter', keyEnv: 'OPENROUTER_API_KEY', baseURL: 'https://openrouter.ai/api/v1' }),
-      new OpenAICompatProvider({ id: 'groq', keyEnv: 'GROQ_API_KEY', baseURL: 'https://api.groq.com/openai/v1' }),
+      new GeminiProvider(keyOf),
+      new AnthropicProvider(keyOf),
+      new OpenAICompatProvider({ id: 'openai', keyEnv: 'OPENAI_API_KEY', baseURL: process.env.AI_OPENAI_BASE_URL || 'https://api.openai.com/v1' }, keyOf),
+      new OpenAICompatProvider({ id: 'openrouter', keyEnv: 'OPENROUTER_API_KEY', baseURL: 'https://openrouter.ai/api/v1' }, keyOf),
+      new OpenAICompatProvider({ id: 'groq', keyEnv: 'GROQ_API_KEY', baseURL: 'https://api.groq.com/openai/v1' }, keyOf),
       // DeepSeek só por um provedor fora da China (decisão de LGPD): a URL é obrigatória
-      new OpenAICompatProvider({ id: 'deepseek', keyEnv: 'DEEPSEEK_API_KEY', baseURL: process.env.DEEPSEEK_BASE_URL || 'https://invalid.local' }),
+      new OpenAICompatProvider({ id: 'deepseek', keyEnv: 'DEEPSEEK_API_KEY', baseURL: process.env.DEEPSEEK_BASE_URL || 'https://invalid.local' }, keyOf),
       new FakeProvider(),
     ];
     for (const provider of all) this.providers.set(provider.id, provider);
@@ -79,6 +82,36 @@ export class ProviderRegistry {
   /** Fornecedores com chave configurada (para a tela e para o aviso de "sem chave"). */
   status(): { id: string; label: string; available: boolean }[] {
     return Object.entries(PROVIDER_LABELS).map(([id, label]) => ({ id, label, available: !!this.get(id)?.available() }));
+  }
+
+  /** Chaves por fornecedor: de onde vem (tela/servidor) e o final da cadastrada na tela. */
+  async keyList() {
+    const rows = await this.keys.list();
+    return rows.filter((row) => PROVIDER_LABELS[row.provider]).map((row) => ({ ...row, label: PROVIDER_LABELS[row.provider], unavailableReason: row.provider === 'deepseek' && !process.env.DEEPSEEK_BASE_URL ? 'Falta DEEPSEEK_BASE_URL no servidor' : null }));
+  }
+
+  /** Testa a chave no fornecedor (sem gastar tokens) e guarda criptografada. */
+  async saveKey(id: string, rawKey: unknown, userId: number | null) {
+    const key = typeof rawKey === 'string' ? rawKey.trim() : '';
+    if (!PROVIDER_LABELS[id]) throw new BadRequestException('Fornecedor de IA inválido');
+    if (key.length < 10 || key.length > 400 || /\s/.test(key)) throw new BadRequestException('Cole a chave inteira, sem espaços');
+    const provider = this.providers.get(id);
+    if (provider?.verify && process.env.NODE_ENV !== 'test') {
+      try {
+        await provider.verify(key);
+      } catch (error) {
+        const detail = String((error as Error)?.message ?? error).split(key).join('***').slice(0, 200);
+        throw new BadRequestException(`A chave não funcionou no ${PROVIDER_LABELS[id]}: ${detail}`);
+      }
+    }
+    await this.keys.set(id, key, userId);
+    return (await this.keyList()).find((row) => row.provider === id);
+  }
+
+  async removeKey(id: string) {
+    if (!PROVIDER_LABELS[id]) throw new BadRequestException('Fornecedor de IA inválido');
+    await this.keys.remove(id);
+    return (await this.keyList()).find((row) => row.provider === id);
   }
 
   price(provider: string, model: string): ModelPrice {

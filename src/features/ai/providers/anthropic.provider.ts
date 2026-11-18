@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { ChatMessage, ChatProvider, ChatRequest, ChatResponse, ProviderUnavailableError, rawFor } from './provider.types';
+import { ChatMessage, ChatProvider, ChatRequest, ChatResponse, KeyResolver, ProviderUnavailableError, rawFor } from './provider.types';
 
 /**
  * Claude pelo SDK oficial. A resposta crua (com os blocos de thinking) volta
@@ -11,9 +11,21 @@ export class AnthropicProvider implements ChatProvider {
   readonly id = 'anthropic';
   readonly readsPdf = true;
   private client: Anthropic | null = null;
+  private clientKey = '';
+
+  constructor(private readonly keyOf: KeyResolver = () => process.env.ANTHROPIC_API_KEY || '') {}
 
   private key(): string {
-    return process.env.ANTHROPIC_API_KEY || '';
+    return this.keyOf(this.id);
+  }
+
+  // endereço explícito: não herda ANTHROPIC_BASE_URL de outro programa da máquina
+  private build(apiKey: string): Anthropic {
+    return new Anthropic({ apiKey, baseURL: process.env.AI_ANTHROPIC_BASE_URL || 'https://api.anthropic.com' });
+  }
+
+  async verify(key: string): Promise<void> {
+    await this.build(key).models.list({ limit: 1 });
   }
 
   available(): boolean {
@@ -21,9 +33,9 @@ export class AnthropicProvider implements ChatProvider {
   }
 
   private sdk(): Anthropic {
-    if (!this.available()) throw new ProviderUnavailableError(this.id);
-    // endereço explícito: não herda ANTHROPIC_BASE_URL de outro programa da máquina
-    if (!this.client) this.client = new Anthropic({ apiKey: this.key(), baseURL: process.env.AI_ANTHROPIC_BASE_URL || 'https://api.anthropic.com' });
+    const key = this.key();
+    if (!key) throw new ProviderUnavailableError(this.id);
+    if (!this.client || this.clientKey !== key) { this.client = this.build(key); this.clientKey = key; }
     return this.client;
   }
 

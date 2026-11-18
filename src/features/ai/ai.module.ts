@@ -8,6 +8,7 @@ import { BotService } from './bots/bot.service';
 import { AgentService } from './engine/agent.service';
 import { UsageService } from './engine/usage.service';
 import { ProviderRegistry } from './providers/provider.registry';
+import { ProviderKeyStore } from './providers/provider-keys.service';
 import { ToolCatalogService } from './tools/tool-catalog.service';
 import { ToolDeps } from './tools/tool.deps';
 import { McpOAuthService } from './mcp/mcp-oauth.service';
@@ -22,7 +23,7 @@ import { InternalApiService } from './tools/internal-api.service';
 /** Bots de IA: catálogo de ferramentas, motor, fornecedores e gasto. */
 @Module({
   imports: [ScheduleModule.forRoot(), EmailModule, UploadModule, CommercialModule, OperationsModule, HrModule, FinancialModule, PrivateStorageModule],
-  providers: [ProviderRegistry, ToolDeps, ToolCatalogService, BotService, UsageService, AgentService, McpOAuthService, NotifyService, ReportService, ImageIntakeService, InternalApiService],
+  providers: [ProviderKeyStore, ProviderRegistry, ToolDeps, ToolCatalogService, BotService, UsageService, AgentService, McpOAuthService, NotifyService, ReportService, ImageIntakeService, InternalApiService],
   exports: [ProviderRegistry, ToolDeps, ToolCatalogService, BotService, UsageService, AgentService, McpOAuthService, NotifyService, ReportService, ImageIntakeService, InternalApiService],
 })
 export class BotsAiModule {}

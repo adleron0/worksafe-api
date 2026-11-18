@@ -327,3 +327,17 @@ model Ai_UploadLink {
 
   @@index([companyId, userId])
 }
+
+// Chave de fornecedor de IA cadastrada pela tela de configuração dos bots. Vale
+// para o sistema todo e tem prioridade sobre a variável do servidor; sem ela,
+// volta a valer a variável (GEMINI_API_KEY etc.). Guardada criptografada, a tela
+// só vê os últimos caracteres.
+model Ai_ProviderKey {
+  id              Int      @id @default(autoincrement())
+  provider        String   @unique @db.VarChar(20)
+  keyEncrypted    String   @db.Text
+  hint            String   @db.VarChar(12)
+  updatedByUserId Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
+}

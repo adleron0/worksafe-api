@@ -1,5 +1,5 @@
 import { GoogleGenAI, type Content, type Part } from '@google/genai';
-import { callId, ChatMessage, ChatProvider, ChatRequest, ChatResponse, ProviderUnavailableError, rawFor } from './provider.types';
+import { callId, ChatMessage, ChatProvider, ChatRequest, ChatResponse, KeyResolver, ProviderUnavailableError, rawFor } from './provider.types';
 
 /**
  * Gemini pelo SDK atual (@google/genai). Substitui o fornecedor antigo, que
@@ -13,9 +13,21 @@ export class GeminiProvider implements ChatProvider {
   readonly id = 'gemini';
   readonly readsPdf = true;
   private client: GoogleGenAI | null = null;
+  private clientKey = '';
+
+  constructor(private readonly keyOf: KeyResolver = () => process.env.GEMINI_API_KEY || '') {}
 
   private key(): string {
-    return process.env.GEMINI_API_KEY || '';
+    return this.keyOf(this.id);
+  }
+
+  private build(apiKey: string): GoogleGenAI {
+    // v1beta: os modelos preview (gemini-3-*-preview) só existem nela; o SDK usa v1 por padrão
+    return new GoogleGenAI({ apiKey, httpOptions: { apiVersion: process.env.AI_GEMINI_API_VERSION || 'v1beta', ...(process.env.AI_GEMINI_BASE_URL ? { baseUrl: process.env.AI_GEMINI_BASE_URL } : {}) } });
+  }
+
+  async verify(key: string): Promise<void> {
+    await this.build(key).models.list({ config: { pageSize: 1 } });
   }
 
   available(): boolean {
@@ -23,9 +35,10 @@ export class GeminiProvider implements ChatProvider {
   }
 
   private sdk(): GoogleGenAI {
-    if (!this.available()) throw new ProviderUnavailableError(this.id);
-    // v1beta: os modelos preview (gemini-3-*-preview) só existem nela; o SDK usa v1 por padrão
-    if (!this.client) this.client = new GoogleGenAI({ apiKey: this.key(), httpOptions: { apiVersion: process.env.AI_GEMINI_API_VERSION || 'v1beta', ...(process.env.AI_GEMINI_BASE_URL ? { baseUrl: process.env.AI_GEMINI_BASE_URL } : {}) } });
+    const key = this.key();
+    if (!key) throw new ProviderUnavailableError(this.id);
+    // a chave pode ser trocada pela tela: refaz o cliente quando muda
+    if (!this.client || this.clientKey !== key) { this.client = this.build(key); this.clientKey = key; }
     return this.client;
   }
 

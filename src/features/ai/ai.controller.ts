@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Put, Query, Req, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Put, Query, Req, UploadedFiles, UseInterceptors } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { Prisma } from '@prisma/client';
 import { Request } from 'express';
@@ -72,6 +72,19 @@ export class AiController {
 
   @Permissions('update_bots') @Post('bots/:id/reset') @HttpCode(200)
   reset(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.bots.reset(actorOf(req), id); }
+
+  // ---------------------------------------------------------------- chaves dos fornecedores
+
+  @Permissions('chaves_ia_bots') @Get('provider-keys')
+  providerKeys() { return this.providers.keyList(); }
+
+  @Permissions('chaves_ia_bots') @Put('provider-keys/:provider')
+  saveProviderKey(@Param('provider') provider: string, @Req() req: Request, @Body() body: Json) {
+    return this.providers.saveKey(provider, body?.key, actorOf(req).userId || null);
+  }
+
+  @Permissions('chaves_ia_bots') @Delete('provider-keys/:provider')
+  removeProviderKey(@Param('provider') provider: string) { return this.providers.removeKey(provider); }
 
   // ---------------------------------------------------------------- conversas
 

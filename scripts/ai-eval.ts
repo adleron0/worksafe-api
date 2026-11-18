@@ -17,6 +17,7 @@ import { writeFileSync } from 'fs';
 import { join } from 'path';
 import { BASE_RULES, BOT_DEFAULTS } from '../src/features/ai/bots/bot.defaults';
 import { ProviderRegistry } from '../src/features/ai/providers/provider.registry';
+import { PROVIDER_ENV_KEYS, ProviderKeyStore } from '../src/features/ai/providers/provider-keys.service';
 import { READ_TOOLS } from '../src/features/ai/tools/read.tools';
 import { WRITE_TOOLS } from '../src/features/ai/tools/write.tools';
 
@@ -63,7 +64,8 @@ async function main() {
     console.log('Informe os modelos: npm run ai:eval -- gemini:gemini-3-flash-preview anthropic:claude-haiku-5-5');
     process.exit(1);
   }
-  const registry = new ProviderRegistry();
+  // só as chaves das variáveis do servidor (sem banco)
+  const registry = new ProviderRegistry({ key: (id: string) => process.env[PROVIDER_ENV_KEYS[id]] || '' } as unknown as ProviderKeyStore);
   const today = new Date(Date.now() - 3 * 3600000).toISOString().slice(0, 10);
   const lines: string[] = [`# Teste comparativo dos bots — ${today}`, '', `${cases.length} casos por modelo.`, ''];
   const summary: string[] = ['| Modelo | Acertos | Custo total (US$) | Tempo médio |', '|---|---|---|---|'];
