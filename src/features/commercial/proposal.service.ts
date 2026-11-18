@@ -15,7 +15,7 @@ import { proposalsVisibleTo } from './ownership';
 
 export interface Actor { userId: number; companyId: number; canSeeCosts: boolean; seesAll: boolean }
 
-const KINDS: CommercialProposalKind[] = ['servico', 'treinamento', 'misto'];
+const KINDS: CommercialProposalKind[] = ['servico', 'treinamento', 'locacao'];
 const ITEM_TYPES: CommercialItemType[] = ['mao_de_obra', 'locacao', 'material', 'treinamento', 'avulso', 'locacao_cliente'];
 const RENT_PERIODS = ['dia', 'semana', 'mes'];
 const DUE_RULES: CommercialDueRule[] = ['data_fixa', 'dias_apos_aceite', 'dias_apos_nf', 'dias_apos_conclusao'];
@@ -27,7 +27,22 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const PRESETS: Record<CommercialProposalKind, Array<{ title: string; kind: CommercialItemType }>> = {
   servico: [{ title: 'Mão de obra', kind: 'mao_de_obra' }, { title: 'Locações', kind: 'locacao' }, { title: 'Materiais de consumo', kind: 'material' }],
   treinamento: [{ title: 'Treinamentos', kind: 'treinamento' }],
-  misto: [{ title: 'Treinamentos', kind: 'treinamento' }, { title: 'Mão de obra', kind: 'mao_de_obra' }, { title: 'Locações', kind: 'locacao' }, { title: 'Materiais de consumo', kind: 'material' }],
+  locacao: [{ title: 'Equipamentos', kind: 'locacao_cliente' }, { title: 'Frete e mobilização', kind: 'avulso' }],
+};
+
+/**
+ * Itens que cada tipo aceita. O tipo decide o que nasce do aceite (OS, turma,
+ * ordem de locação), então um tipo não carrega itens de outro: serviço e
+ * locação juntos são duas propostas (duas notas).
+ */
+export const KIND_ITEMS: Record<CommercialProposalKind, CommercialItemType[]> = {
+  servico: ['mao_de_obra', 'locacao', 'material', 'avulso'],
+  treinamento: ['treinamento', 'material', 'avulso'],
+  locacao: ['locacao_cliente', 'material', 'avulso'],
+};
+const KIND_LABEL: Record<CommercialProposalKind, string> = { servico: 'serviço', treinamento: 'treinamento', locacao: 'locação' };
+const ITEM_LABEL: Record<CommercialItemType, string> = {
+  mao_de_obra: 'mão de obra', locacao: 'locação de terceiros', material: 'material', treinamento: 'treinamento', avulso: 'outros', locacao_cliente: 'equipamento para locação',
 };
 
 const clean = (value: unknown, max = 255) => String(value ?? '').trim().replace(/\s+/g, ' ').slice(0, max);
@@ -191,6 +206,11 @@ export class ProposalService {
       });
       return { id, title: sectionTitle, kind: sectionKind, margin, showInDocument: raw.showInDocument !== false && raw.showInDocument !== 'false', items };
     });
+    const allowed = KIND_ITEMS[kind];
+    for (const section of sections) {
+      const wrong = [section.kind, ...section.items.map((item) => item.type)].find((type) => !allowed.includes(type));
+      if (wrong) throw new BadRequestException(`Proposta de ${KIND_LABEL[kind]} não leva itens de ${ITEM_LABEL[wrong]} (seção "${section.title}"). Para vender os dois, faça uma proposta de cada tipo.`);
+    }
 
     const rawInstallments = Array.isArray(body.installments) ? body.installments : [];
     if (rawInstallments.length > 60) throw new BadRequestException('Parcelas demais');
@@ -919,6 +939,59 @@ export class ProposalService {
       }
     }
     return this.get(actor, id);
+  }
+
+  /**
+   * Venda rápida: treinamento combinado fora do sistema (WhatsApp, telefone).
+   * Cria por baixo uma proposta já aceita (registro manual, sem documento
+   * enviado) e o contrato, para a turma cair no mesmo faturamento das outras
+   * vendas. Com `classId`, a turma fechada já sai ligada à venda.
+   */
+  async quickSale(actor: Actor, body: Body) {
+    const classId = optional(body.classId, 'Turma', 1, 2147483647);
+    const klass = classId ? await this.prisma.courseClass.findFirst({
+      where: { id: classId, companyId: actor.companyId }, select: { id: true, name: true, courseId: true, customerId: true, maxSubscriptions: true },
+    }) : null;
+    if (classId && !klass) throw new NotFoundException('Turma não encontrada');
+    if (klass) {
+      const billing = await this.prisma.commercial_ClassBilling.findUnique({ where: { classId: klass.id } });
+      if (billing?.mode === 'contrato') throw new ConflictException('Esta turma já está ligada a uma venda');
+    }
+    const customerId = number(body.customerId ?? klass?.customerId, 'Cliente', 1, 2147483647);
+    if (klass?.customerId && klass.customerId !== customerId) throw new BadRequestException('A turma é de outro cliente');
+    const value = round2(number(body.value, 'Valor da venda', 0.01, 1e11));
+    const title = clean(body.title, 200) || (klass ? `Turma fechada — ${klass.name}` : '');
+    if (title.length < 2) throw new BadRequestException('Informe o que foi vendido');
+    const installments = Array.isArray(body.installments) && body.installments.length ? body.installments : [{ percent: 1, dueRule: 'dias_apos_nf', dueDays: 0 }];
+    const courseId = klass?.courseId ?? optional(body.courseId, 'Curso', 1, 2147483647);
+    const item = (finalValue: number) => ({
+      type: 'treinamento', description: clean(body.description, 300) || title, quantity: 1, courseId,
+      extra: { students: optional(body.students, 'Alunos', 0, 100000) ?? klass?.maxSubscriptions ?? null }, finalValue,
+    });
+    const draftBody = (finalValue: number) => ({
+      kind: 'treinamento', customerId, title, referenceDate: body.referenceDate, contingencyRate: 0, discount: 0, installments,
+      ...('sellerId' in body ? { sellerId: body.sellerId } : {}),
+      internalNotes: 'Venda rápida: registrada sem proposta enviada ao cliente.',
+      sections: [{ title: 'Treinamentos', kind: 'treinamento', items: [item(finalValue)] }],
+    });
+    const created = await this.create(actor, draftBody(value));
+    const id = Number(created.id);
+    // imposto "por fora" (regime híbrido) entra no total: ajusta o item para o total bater com o valor combinado
+    const stored = await this.prisma.commercial_Proposal.findUniqueOrThrow({ where: { id }, select: { total: true } });
+    if (Number(stored.total) > 0 && Math.abs(Number(stored.total) - value) > 0.005) {
+      await this.update(actor, id, draftBody(round2((value * value) / Number(stored.total))));
+    }
+    const row = await this.byId(actor, id);
+    if (!row.installments.length) throw new BadRequestException('Defina as condições de pagamento');
+    const note = clean(body.note, 500) || 'Venda rápida';
+    const contract = await this.prisma.$transaction(async (tx) => {
+      await tx.commercial_Proposal.update({ where: { id }, data: { status: 'aceita', statusNote: note, decidedAt: new Date() } });
+      await this.documents.event(row, 'aceita', { userId: actor.userId || null, note }, tx);
+      const made = await this.contracts.createFromProposal(tx, id, { manual: true, quick: true, userId: actor.userId || null, note, at: new Date().toISOString() });
+      if (klass) await this.contracts.attachClass(tx, actor.companyId, made.id, klass.id, actor.userId || null);
+      return made;
+    });
+    return { proposalId: id, proposalNumber: row.number, contractId: contract.id, contractNumber: contract.number, total: Number(row.total) };
   }
 
   async setActive(actor: Actor, id: number, active: boolean) {

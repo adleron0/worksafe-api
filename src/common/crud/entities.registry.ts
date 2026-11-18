@@ -116,7 +116,7 @@ import { StockEquipmentController } from 'src/features/stock/equipment.controlle
 import { StockPpeController } from 'src/features/stock/ppe.controller';
 import { StockRentalController } from 'src/features/stock/rental.controller';
 import { StockInventoryController } from 'src/features/stock/inventory.controller';
-import { ContractController } from 'src/features/commercial/contract.controller';
+import { ClassBillingController, ContractController } from 'src/features/commercial/contract.controller';
 import { SellerWalletController } from 'src/features/commercial/wallet.controller';
 import { DocumentController, PublicProposalController } from 'src/features/commercial/document.controller';
 import { CommercialModule } from 'src/features/commercial/module';
@@ -302,6 +302,7 @@ export const crudExtraControllers = [
   ReportController,
   ImageLinkController,
   ContractController,
+  ClassBillingController,
   SellerWalletController,
   DocumentController,
   PublicProposalController,

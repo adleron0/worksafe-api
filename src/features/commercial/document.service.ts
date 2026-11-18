@@ -11,7 +11,7 @@ export * from './document.render';
 export { Brand, ProposalImage, Schedule } from './document.blocks';
 
 type Body = Record<string, any>;
-const KINDS: CommercialProposalKind[] = ['servico', 'treinamento', 'misto'];
+const KINDS: CommercialProposalKind[] = ['servico', 'treinamento', 'locacao'];
 const CODE_TTL_MINUTES = 15;
 const CODE_MAX_ATTEMPTS = 5;
 

@@ -221,13 +221,16 @@ export class ContractService {
       classes: ((row.classes as unknown as ClassSlot[]) ?? []).map((slot, index) => ({
         index, ...slot, classes: (slot.classIds ?? []).map((id) => classById.get(id)).filter(Boolean),
       })),
+      // turmas ligadas à venda pela própria turma (venda rápida, "ligar a uma venda") que não ocupam um item
+      otherClasses: classRows.filter((c) => !((row.classes as unknown as ClassSlot[]) ?? []).some((slot) => (slot.classIds ?? []).includes(c.id))),
     };
   }
 
   private async classesOf(row: ContractRow) {
-    const ids = ((row.classes as unknown as ClassSlot[]) ?? []).flatMap((slot) => slot.classIds ?? []);
+    const linked = await this.prisma.commercial_ClassBilling.findMany({ where: { contractId: row.id, mode: 'contrato' }, select: { classId: true } });
+    const ids = [...new Set([...((row.classes as unknown as ClassSlot[]) ?? []).flatMap((slot) => slot.classIds ?? []), ...linked.map((l) => l.classId)])];
     if (!ids.length) return [];
-    return this.prisma.courseClass.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, initialDate: true, inactiveAt: true } });
+    return this.prisma.courseClass.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, initialDate: true, inactiveAt: true }, orderBy: { id: 'asc' } });
   }
 
   async get(actor: ContractActor, id: number) {
@@ -295,7 +298,7 @@ export class ContractService {
     const contracts = await this.prisma.commercial_Contract.findMany({
       where: {
         companyId: actor.companyId, inactiveAt: null, status: { not: 'cancelado' },
-        ...(['servico', 'treinamento', 'misto'].includes(query.kind) ? { kind: query.kind as ContractRow['kind'] } : {}),
+        ...(['servico', 'treinamento', 'locacao'].includes(query.kind) ? { kind: query.kind as ContractRow['kind'] } : {}),
         ...(term ? { OR: [
           { number: { contains: term, mode: 'insensitive' } }, { title: { contains: term, mode: 'insensitive' } }, { customerOrderNumber: { contains: term, mode: 'insensitive' } },
           { customer: { name: { contains: term, mode: 'insensitive' } } }, { customer: { corporateName: { contains: term, mode: 'insensitive' } } },
@@ -461,10 +464,129 @@ export class ContractService {
       } });
       slot.classIds.push(klass.id);
       await tx.commercial_Contract.update({ where: { id }, data: { classes: slots as unknown as Prisma.InputJsonValue } });
+      await tx.commercial_ClassBilling.create({ data: { companyId: actor.companyId, classId: klass.id, mode: 'contrato', contractId: id, userId: actor.userId || null } });
       return klass;
     });
     // a listagem de turmas é cacheada: sem isto a turma nova não aparece
     await Promise.all(['training-classes:*', 'cache:*/classes*'].map((pattern) => this.cache.reset(pattern).catch(() => undefined)));
     return { ...(await this.get(actor, id)), classId: created.id };
+  }
+
+  // ------------------------------------------------------------------ turma fechada × venda
+
+  /**
+   * Liga uma turma a uma venda: grava a origem do dinheiro da turma e, se a
+   * venda tiver um item de treinamento do mesmo curso com vaga, ocupa esse item.
+   * Se a turma estava em outra venda, sai do item de lá.
+   */
+  async attachClass(tx: Tx, companyId: number, contractId: number, classId: number, userId: number | null): Promise<void> {
+    const contract = await tx.commercial_Contract.findFirst({ where: { id: contractId, companyId, inactiveAt: null } });
+    if (!contract) throw new NotFoundException('Venda não encontrada');
+    if (contract.status === 'cancelado') throw new ConflictException('Esta venda está cancelada');
+    const klass = await tx.courseClass.findFirst({ where: { id: classId, companyId }, select: { id: true, courseId: true, customerId: true } });
+    if (!klass) throw new NotFoundException('Turma não encontrada');
+    if (klass.customerId && klass.customerId !== contract.customerId) throw new BadRequestException('A venda é de outro cliente');
+    if (!klass.customerId) await tx.courseClass.update({ where: { id: classId }, data: { customerId: contract.customerId } });
+
+    const previous = await tx.commercial_ClassBilling.findUnique({ where: { classId } });
+    if (previous?.mode === 'contrato' && previous.contractId && previous.contractId !== contractId) await this.releaseSlot(tx, previous.contractId, classId);
+    const slots = ((contract.classes as unknown as ClassSlot[]) ?? []).map((slot) => ({ ...slot, classIds: [...(slot.classIds ?? [])] }));
+    if (!slots.some((slot) => slot.classIds.includes(classId))) {
+      const free = slots.find((slot) => slot.courseId === klass.courseId && slot.classIds.length < Math.max(1, Math.ceil(slot.quantity)));
+      if (free) {
+        free.classIds.push(classId);
+        await tx.commercial_Contract.update({ where: { id: contractId }, data: { classes: slots as unknown as Prisma.InputJsonValue } });
+      }
+    }
+    await tx.commercial_ClassBilling.upsert({
+      where: { classId },
+      create: { companyId, classId, mode: 'contrato', contractId, userId },
+      update: { mode: 'contrato', contractId, reason: null, userId },
+    });
+  }
+
+  private async releaseSlot(tx: Tx, contractId: number, classId: number) {
+    const contract = await tx.commercial_Contract.findUnique({ where: { id: contractId }, select: { classes: true } });
+    const slots = ((contract?.classes as unknown as ClassSlot[]) ?? []);
+    if (!slots.some((slot) => (slot.classIds ?? []).includes(classId))) return;
+    const next = slots.map((slot) => ({ ...slot, classIds: (slot.classIds ?? []).filter((id) => id !== classId) }));
+    await tx.commercial_Contract.update({ where: { id: contractId }, data: { classes: next as unknown as Prisma.InputJsonValue } });
+  }
+
+  /** De onde vem o dinheiro da turma e as vendas do mesmo cliente a que ela pode ser ligada. */
+  async classBilling(actor: ContractActor, classId: number) {
+    const klass = await this.prisma.courseClass.findFirst({
+      where: { id: classId, companyId: actor.companyId },
+      select: { id: true, name: true, courseId: true, customerId: true, customer: { select: { id: true, name: true } } },
+    });
+    if (!klass) throw new NotFoundException('Turma não encontrada');
+    const billing = await this.prisma.commercial_ClassBilling.findUnique({ where: { classId } });
+    const [contract, user, candidates] = await Promise.all([
+      billing?.contractId ? this.prisma.commercial_Contract.findUnique({ where: { id: billing.contractId }, select: { id: true, number: true, title: true, value: true, status: true, proposalId: true } }) : null,
+      billing?.userId ? this.prisma.user.findUnique({ where: { id: billing.userId }, select: { id: true, name: true } }) : null,
+      klass.customerId ? this.prisma.commercial_Contract.findMany({
+        where: { companyId: actor.companyId, customerId: klass.customerId, inactiveAt: null, status: { not: 'cancelado' } },
+        orderBy: [{ acceptedAt: 'desc' }, { id: 'desc' }], take: 30,
+        select: { id: true, number: true, title: true, kind: true, value: true, acceptedAt: true, classes: true },
+      }) : [],
+    ]);
+    return {
+      class: { id: klass.id, name: klass.name, customer: klass.customer },
+      // sem cliente a turma é aberta: o dinheiro vem das inscrições
+      closed: Boolean(klass.customerId),
+      billing: billing ? {
+        mode: billing.mode, reason: billing.reason, at: billing.updatedAt, user,
+        contract: contract ? { ...contract, value: Number(contract.value) } : null,
+      } : null,
+      candidates: candidates.map(({ classes, ...row }) => ({
+        ...row, value: Number(row.value),
+        // itens de treinamento do mesmo curso ainda sem turma
+        freeSlots: ((classes as unknown as ClassSlot[]) ?? []).filter((slot) => slot.courseId === klass.courseId && (slot.classIds ?? []).length < Math.max(1, Math.ceil(slot.quantity))).length,
+      })),
+    };
+  }
+
+  /** contrato = ligar a uma venda · sem_cobranca = decisão registrada, com motivo · nenhum = desfazer. */
+  async setClassBilling(actor: ContractActor, classId: number, body: Body) {
+    const klass = await this.prisma.courseClass.findFirst({ where: { id: classId, companyId: actor.companyId }, select: { id: true, customerId: true } });
+    if (!klass) throw new NotFoundException('Turma não encontrada');
+    const mode = String(body.mode ?? '');
+    await this.prisma.$transaction(async (tx) => {
+      const previous = await tx.commercial_ClassBilling.findUnique({ where: { classId } });
+      if (mode === 'contrato') {
+        const contractId = Number(body.contractId);
+        if (!(contractId > 0)) throw new BadRequestException('Escolha a venda');
+        await this.attachClass(tx, actor.companyId, contractId, classId, actor.userId || null);
+        return;
+      }
+      if (previous?.mode === 'contrato' && previous.contractId) await this.releaseSlot(tx, previous.contractId, classId);
+      if (mode === 'sem_cobranca') {
+        if (!klass.customerId) throw new BadRequestException('Só turma fechada (com cliente) fica sem cobrança: turma aberta cobra pelas inscrições');
+        const reason = clean(body.reason, 300);
+        if (reason.length < 3) throw new BadRequestException('Diga o motivo de a turma ficar sem cobrança (cortesia, treinamento interno...)');
+        await tx.commercial_ClassBilling.upsert({
+          where: { classId },
+          create: { companyId: actor.companyId, classId, mode, reason, userId: actor.userId || null },
+          update: { mode, reason, contractId: null, userId: actor.userId || null },
+        });
+        return;
+      }
+      if (mode === 'nenhum') {
+        if (previous) await tx.commercial_ClassBilling.delete({ where: { classId } });
+        return;
+      }
+      throw new BadRequestException('Escolha: ligar a uma venda ou sem cobrança');
+    });
+    return this.classBilling(actor, classId);
+  }
+
+  /** Turmas fechadas (com cliente) que não têm venda nem "sem cobrança": o financeiro não fica sabendo delas. */
+  async unbilledClasses(companyId: number) {
+    const billed = (await this.prisma.commercial_ClassBilling.findMany({ where: { companyId }, select: { classId: true } })).map((b) => b.classId);
+    return this.prisma.courseClass.findMany({
+      where: { companyId, customerId: { not: null }, inactiveAt: null, ...(billed.length ? { id: { notIn: billed } } : {}) },
+      orderBy: [{ initialDate: 'asc' }, { id: 'asc' }], take: 50,
+      select: { id: true, name: true, initialDate: true, customer: { select: { id: true, name: true } } },
+    });
   }
 }

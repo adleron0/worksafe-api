@@ -107,6 +107,18 @@ export class TrainingSection {
       }
     }
     const rank: Record<Tone, number> = { danger: 0, warning: 1, info: 2 };
+    // turma fechada sem venda nem "sem cobrança": a turma acontece e o financeiro não fica sabendo
+    if (canSeeMoney || actor.permissions.includes('list_comercial')) {
+      const billed = (await this.prisma.commercial_ClassBilling.findMany({ where: { companyId }, select: { classId: true } })).map((b) => b.classId);
+      const unbilled = await this.prisma.courseClass.findMany({
+        where: { companyId, inactiveAt: null, customerId: { not: null }, ...(billed.length ? { id: { notIn: billed } } : {}) },
+        orderBy: [{ initialDate: 'asc' }, { id: 'asc' }], take: 20,
+        select: { id: true, name: true, initialDate: true, customer: { select: { name: true } } },
+      });
+      for (const c of unbilled) {
+        actions.push({ key: `nosale-${c.id}`, tone: 'danger', title: `${c.name}: turma fechada sem venda`, detail: `${c.customer?.name ?? 'cliente'}${c.initialDate ? ` · ${brShort(iso(c.initialDate)!)}` : ''} · ligue a uma venda ou marque "sem cobrança"`, count: 1, link: classLink(c.id, 'venda') });
+      }
+    }
     actions.sort((a, b) => rank[a.tone] - rank[b.tone] || b.count - a.count);
 
     /* ---------------- indicadores ---------------- */

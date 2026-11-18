@@ -62,3 +62,19 @@ export class ContractController {
     return this.contracts.createClass(actorOf(req), id, index, body ?? {});
   }
 }
+
+/** Turma fechada × venda: de onde vem o dinheiro da turma (uma venda ou "sem cobrança", com motivo). */
+@Controller('commercial/classes')
+export class ClassBillingController {
+  constructor(private readonly contracts: ContractService) {}
+
+  /** Turmas fechadas sem venda nem "sem cobrança" (aviso do painel). Antes de `:classId`. */
+  @Permissions('list_comercial') @Get('unbilled')
+  unbilled(@Req() req: Request) { return this.contracts.unbilledClasses(actorOf(req).companyId); }
+
+  @Permissions('list_comercial') @Get(':classId/billing')
+  get(@Param('classId', ParseIntPipe) classId: number, @Req() req: Request) { return this.contracts.classBilling(actorOf(req), classId); }
+
+  @Permissions('update_comercial') @Put(':classId/billing')
+  set(@Param('classId', ParseIntPipe) classId: number, @Req() req: Request, @Body() body: Json) { return this.contracts.setClassBilling(actorOf(req), classId, body ?? {}); }
+}

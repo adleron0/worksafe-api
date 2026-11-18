@@ -59,7 +59,11 @@ export function proposalBody(input: Record<string, any>) {
     if (Number(raw?.valorFinal) > 0) item.finalValue = Number(raw.valorFinal);
     groups.set(type, [...(groups.get(type) ?? []), item]);
   }
-  const kind = ['servico', 'treinamento', 'misto'].includes(input.tipo) ? input.tipo : groups.has('treinamento') && groups.size === 1 ? 'treinamento' : groups.has('treinamento') ? 'misto' : 'servico';
+  // serviço e treinamento não vão juntos: o tipo decide o que nasce do aceite (OS ou turma)
+  if (groups.has('treinamento') && [...groups.keys()].some((type) => type !== 'treinamento' && type !== 'material' && type !== 'avulso')) {
+    throw new ToolRefusal('Treinamento e serviço são propostas separadas: crie uma de cada tipo');
+  }
+  const kind = ['servico', 'treinamento'].includes(input.tipo) ? input.tipo : groups.has('treinamento') ? 'treinamento' : 'servico';
   return {
     kind,
     title: text(input.titulo, 200) || 'Proposta',
@@ -84,7 +88,7 @@ export const WRITE_TOOLS: ToolDefinition[] = [
     inputSchema: obj({
       clienteId: int('Id do cliente'),
       titulo: str('Título da proposta'),
-      tipo: str('servico | treinamento | misto', { enum: ['servico', 'treinamento', 'misto'] }),
+      tipo: str('servico | treinamento (locação de equipamento ao cliente se faz pela tela, escolhendo os itens do estoque)', { enum: ['servico', 'treinamento'] }),
       descricao: str('Escopo, em texto'),
       prazoDiasUteis: int('Prazo em dias úteis'),
       contatoNome: str('Nome do contato no cliente'),

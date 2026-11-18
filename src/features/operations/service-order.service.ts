@@ -93,8 +93,8 @@ export class ServiceOrderService {
     const existing = await tx.service_Order.findUnique({ where: { contractId }, select: { id: true, number: true } });
     if (existing) return existing;
     const contract = await tx.commercial_Contract.findUniqueOrThrow({ where: { id: contractId } });
-    // treinamento segue pelo caminho das turmas, sem OS
-    if (contract.kind === 'treinamento' || contract.status === 'cancelado') return null;
+    // só venda de serviço abre OS: treinamento segue pelas turmas e locação pela ordem de locação
+    if (contract.kind !== 'servico' || contract.status === 'cancelado') return null;
     const proposal = await tx.commercial_Proposal.findUniqueOrThrow({
       where: { id: contract.proposalId },
       include: { sections: { orderBy: [{ order: 'asc' }, { id: 'asc' }], include: { items: { orderBy: [{ order: 'asc' }, { id: 'asc' }] } } }, customer: { include: { city: true, state: true } } },
@@ -167,7 +167,7 @@ export class ServiceOrderService {
   /** Vendas de serviço fechadas antes de existir OS ganham a sua na primeira abertura do quadro. */
   private async backfill(companyId: number): Promise<void> {
     const pending = await this.prisma.commercial_Contract.findMany({
-      where: { companyId, kind: { not: 'treinamento' }, status: 'vigente', inactiveAt: null, id: { notIn: (await this.prisma.service_Order.findMany({ where: { companyId }, select: { contractId: true } })).map((o) => o.contractId) } },
+      where: { companyId, kind: 'servico', status: 'vigente', inactiveAt: null, id: { notIn: (await this.prisma.service_Order.findMany({ where: { companyId }, select: { contractId: true } })).map((o) => o.contractId) } },
       select: { id: true },
     });
     for (const contract of pending) await this.prisma.$transaction((tx) => this.createFromContract(tx, contract.id));

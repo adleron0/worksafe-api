@@ -493,7 +493,7 @@ describe('Comercial — documento, link público e aceite (e2e)', () => {
       expect((await db.commercial_ProposalTemplate.findUniqueOrThrow({ where: { id: service.id } })).body).toBe(service.body);
     }
     // proposta de treinamento usa a caixa de treinamentos; os termos chegam à tela com o texto, para a edição livre
-    const training = (await api().post(`/commercial/proposals/${proposal.id}/document-preview`).set(h).send({ ...proposal.draft, kind: 'treinamento' }).expect(201)).body.html as string;
+    const training = (await api().post(`/commercial/proposals/${proposal.id}/document-preview`).set(h).send({ ...proposal.draft, kind: 'treinamento', sections: [{ title: 'Treinamentos', kind: 'treinamento', items: [{ type: 'treinamento', description: 'NR-35', finalValue: 1000 }] }] }).expect(201)).body.html as string;
     expect(training).toContain('pelo e-mail treina@teste.local');
     await api().put('/commercial/brand').set(h).send({ serviceEmail: 'sem-arroba' }).expect(400);
     const terms = (await api().get('/commercial/proposals/options').set(h).expect(200)).body.terms;

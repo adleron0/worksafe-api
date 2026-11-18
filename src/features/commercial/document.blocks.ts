@@ -48,7 +48,7 @@ export interface BlockData {
   images: ProposalImage[];
   schedule?: Schedule;
   /** tipo da proposta: define o e-mail de tratativas */
-  kind?: 'servico' | 'treinamento' | 'misto';
+  kind?: 'servico' | 'treinamento' | 'locacao';
 }
 
 const esc = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));

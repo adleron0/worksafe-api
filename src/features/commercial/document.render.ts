@@ -25,7 +25,7 @@ export interface DocumentData {
   brand?: Brand;
   images?: ProposalImage[];
   schedule?: Schedule;
-  kind?: 'servico' | 'treinamento' | 'misto';
+  kind?: 'servico' | 'treinamento' | 'locacao';
   seller?: { name: string | null; email: string | null; phone: string | null };
 }
 

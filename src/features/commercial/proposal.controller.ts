@@ -57,6 +57,10 @@ export class ProposalController {
   @Permissions('list_comercial') @Get('proposals/:id')
   get(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.proposals.get(actorOf(req), id); }
 
+  /** Venda rápida (treinamento combinado fora do sistema): proposta já aceita + contrato, sem documento enviado. */
+  @Permissions('create_comercial', 'update_comercial') @Post('quick-sale')
+  quickSale(@Req() req: Request, @Body() body: Json) { return this.proposals.quickSale(actorOf(req), body ?? {}); }
+
   @Permissions('create_comercial') @Post('proposals')
   create(@Req() req: Request, @Body() body: Json) { return this.proposals.create(actorOf(req), body ?? {}); }
 

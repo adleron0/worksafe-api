@@ -154,10 +154,12 @@ model Commercial_TaxProfile {
 
 // ---------------------------------------------------------------- propostas
 
+// O tipo decide o que nasce do aceite: serviço → OS, treinamento → turma(s)
+// fechada(s), locação → ordem de locação (Stock_Rental).
 enum CommercialProposalKind {
   servico
   treinamento
-  misto
+  locacao
 }
 
 enum CommercialProposalStatus {
@@ -639,4 +641,25 @@ model Commercial_Activity {
   @@index([companyId, proposalId])
   @@index([companyId, customerId])
   @@index([companyId, doneAt, dueDate])
+}
+
+// ---------------------------------------------------------------- turma fechada × venda
+
+/// De onde vem o dinheiro de uma turma fechada (turma com cliente): de uma
+/// venda (contrato) ou de nenhuma, por decisão registrada (cortesia, interno).
+/// Fica fora de `CourseClass` de propósito: a listagem de turmas é pública.
+model Commercial_ClassBilling {
+  id         Int      @id @default(autoincrement())
+  companyId  Int
+  classId    Int      @unique
+  // contrato | sem_cobranca
+  mode       String   @db.VarChar(20)
+  contractId Int?
+  reason     String?  @db.VarChar(300)
+  userId     Int?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  @@index([companyId, mode])
+  @@index([contractId])
 }

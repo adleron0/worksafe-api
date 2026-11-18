@@ -57,7 +57,7 @@ export const READ_TOOLS: ToolDefinition[] = [
     inputSchema: obj({
       situacao: str('Filtra pela situação', { enum: PROPOSAL_STATUS }),
       busca: str('Número, título ou cliente'),
-      tipo: str('Tipo da proposta', { enum: ['servico', 'treinamento', 'misto'] }),
+      tipo: str('Tipo da proposta', { enum: ['servico', 'treinamento', 'locacao'] }),
       clienteId: int('Id do cliente'),
       pagina: int('Página, começando em 0'),
     }),
@@ -129,7 +129,7 @@ export const READ_TOOLS: ToolDefinition[] = [
     description: 'Calcula o valor de uma proposta SEM gravar nada, pela base de cálculo da empresa. Use para responder "quanto fica" antes de criar o rascunho. Mesmos campos de criar_rascunho_proposta.',
     inputSchema: obj({
       clienteId: int('Id do cliente'),
-      tipo: str('Tipo', { enum: ['servico', 'treinamento', 'misto'] }),
+      tipo: str('Tipo', { enum: ['servico', 'treinamento', 'locacao'] }),
       itens: { type: 'array', items: { type: 'object' }, description: 'Itens como em criar_rascunho_proposta' },
       prazoDiasUteis: int('Prazo em dias úteis'),
     }, ['itens']),
