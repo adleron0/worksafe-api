@@ -486,7 +486,13 @@ export class ContractService {
     const klass = await tx.courseClass.findFirst({ where: { id: classId, companyId }, select: { id: true, courseId: true, customerId: true } });
     if (!klass) throw new NotFoundException('Turma não encontrada');
     if (klass.customerId && klass.customerId !== contract.customerId) throw new BadRequestException('A venda é de outro cliente');
-    if (!klass.customerId) await tx.courseClass.update({ where: { id: classId }, data: { customerId: contract.customerId } });
+    if (!klass.customerId) {
+      // turma aberta com vagas de empresas não vira turma fechada de um cliente
+      if (await tx.courseClassReservation.count({ where: { classId, inactiveAt: null } })) {
+        throw new ConflictException('A turma tem vagas reservadas para empresas: use a reserva da venda (Vagas de empresas), não a turma inteira');
+      }
+      await tx.courseClass.update({ where: { id: classId }, data: { customerId: contract.customerId } });
+    }
 
     const previous = await tx.commercial_ClassBilling.findUnique({ where: { classId } });
     if (previous?.mode === 'contrato' && previous.contractId && previous.contractId !== contractId) await this.releaseSlot(tx, previous.contractId, classId);
