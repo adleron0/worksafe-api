@@ -10,6 +10,7 @@ import { IMAGE_TOOLS } from './image.tools';
 import { FINANCE_TOOLS } from './finance.tools';
 import { SCHEDULE_TOOLS } from './schedule.tools';
 import { STATEMENT_TOOLS } from './statement.tools';
+import { TEAM_TOOLS } from './team.tools';
 
 /** Resultado de uma chamada, como volta para o modelo. */
 export interface ToolOutcome {
@@ -60,7 +61,7 @@ export class ToolCatalogService {
   private readonly tools = new Map<string, ToolDefinition>();
 
   constructor(private readonly prisma: PrismaService, private readonly deps: ToolDeps) {
-    for (const tool of [...READ_TOOLS, ...WRITE_TOOLS, ...IMAGE_TOOLS, ...FINANCE_TOOLS, ...STATEMENT_TOOLS, ...SCHEDULE_TOOLS]) this.tools.set(tool.name, tool);
+    for (const tool of [...READ_TOOLS, ...WRITE_TOOLS, ...IMAGE_TOOLS, ...FINANCE_TOOLS, ...STATEMENT_TOOLS, ...SCHEDULE_TOOLS, ...TEAM_TOOLS]) this.tools.set(tool.name, tool);
   }
 
   all(): ToolDefinition[] {
@@ -78,7 +79,8 @@ export class ToolCatalogService {
 
   /** As ferramentas que a pessoa pode usar, dentro de uma lista (a do bot). O modelo nem vê as outras. */
   visible(names: string[] | null, permissions: string[]): ToolDefinition[] {
-    const list = names ? names.map((name) => this.tools.get(name)).filter((tool): tool is ToolDefinition => !!tool) : this.all();
+    // sem lista = MCP: as ferramentas só da área de Bots ficam de fora
+    const list = names ? names.map((name) => this.tools.get(name)).filter((tool): tool is ToolDefinition => !!tool) : this.all().filter((tool) => !tool.botsOnly);
     return list.filter((tool) => this.allowed(tool, permissions));
   }
 

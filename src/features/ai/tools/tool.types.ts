@@ -21,6 +21,8 @@ export interface ToolContext {
   runId?: number | null;
   conversationId?: number | null;
   mcpTokenId?: number | null;
+  /** Execução feita a pedido de outro bot (pedir_ao_colega): não pode pedir a um terceiro. */
+  delegated?: boolean;
 }
 
 /** O que a ferramenta sensível mostra no cartão de confirmação. */
@@ -49,6 +51,10 @@ export interface ToolDefinition {
   /** E, se houver, de PELO MENOS UMA destas. */
   anyPermissions?: string[];
   risk: ToolRisk;
+  /** Rótulo do passo conforme a entrada ("Perguntando ao Otávio"); sem ele, vale o title. */
+  label?: (input: Record<string, any>) => string;
+  /** Só na área de Bots e nos agendamentos: não aparece para apps de IA pelo MCP. */
+  botsOnly?: boolean;
   /** read e draft: executa e devolve o resultado (JSON). */
   run?: (ctx: ToolContext, input: Record<string, any>, deps: ToolDeps) => Promise<unknown>;
   /** sensitive: valida e descreve, sem efeito nenhum. */

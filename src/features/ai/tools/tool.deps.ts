@@ -17,8 +17,16 @@ import { InternalApiService } from './internal-api.service';
  * Os serviços de domínio que as ferramentas usam. As ferramentas não
  * duplicam regra: chamam o mesmo serviço que a tela chama.
  */
+/** A equipe de bots, para as ferramentas de colega (preenchido pelo AgentService ao iniciar). */
+export interface TeamPort {
+  askColleague(ctx: import('./tool.types').ToolContext, input: Record<string, any>): Promise<unknown>;
+  handOff(ctx: import('./tool.types').ToolContext, input: Record<string, any>): Promise<unknown>;
+}
+
 @Injectable()
 export class ToolDeps {
+  team?: TeamPort;
+
   constructor(
     readonly prisma: PrismaService,
     readonly proposals: ProposalService,

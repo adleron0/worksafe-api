@@ -8,7 +8,9 @@ import { BotActor, BotService } from '../bots/bot.service';
 import { ProviderRegistry } from '../providers/provider.registry';
 import { ChatImage, ChatMessage, ChatResponse, ChatToolResult } from '../providers/provider.types';
 import { ToolCatalogService } from '../tools/tool-catalog.service';
-import { ToolContext } from '../tools/tool.types';
+import { TeamPort, ToolDeps } from '../tools/tool.deps';
+import { ToolContext, ToolRefusal } from '../tools/tool.types';
+import { TEAM_TOOL_NAMES } from '../tools/team.tools';
 import { UsageService } from './usage.service';
 
 export interface RunStep { at: string; kind: 'tool' | 'notice'; label: string; tool?: string; status: 'running' | 'ok' | 'refused' | 'denied' | 'error' | 'pending'; pendingActionId?: number }
@@ -35,8 +37,11 @@ export const botsEnabled = () => process.env.AI_BOTS_ENABLED !== 'false';
  * resposta final. Roda fora da requisição; a tela acompanha pelos passos
  * gravados em Ai_Run.
  */
+/** Idas ao modelo do colega num pedido (ele só consulta). */
+const COLLEAGUE_TURNS = 6;
+
 @Injectable()
-export class AgentService {
+export class AgentService implements TeamPort {
   constructor(
     private readonly prisma: PrismaService,
     private readonly bots: BotService,
@@ -44,7 +49,10 @@ export class AgentService {
     private readonly providers: ProviderRegistry,
     private readonly usage: UsageService,
     private readonly storage: PrivateStorageService,
-  ) {}
+    deps: ToolDeps,
+  ) {
+    deps.team = this;
+  }
 
   // ---------------------------------------------------------------- equipe
 
@@ -232,13 +240,22 @@ export class AgentService {
     const content = (message.content ?? {}) as Record<string, any>;
     if (content.system) return null; // registro interno para o modelo (aviso de ação confirmada)
     if (message.role === 'tool') {
-      return { id: message.id, role: 'tool', results: (content.results ?? []).map((result: any) => ({ name: result.name, status: result.status ?? (result.isError ? 'error' : 'ok'), pendingActionId: result.pendingActionId ?? null })), createdAt: message.createdAt };
+      return { id: message.id, role: 'tool', results: (content.results ?? []).map((result: any) => ({ name: result.name, status: result.status ?? (result.isError ? 'error' : 'ok'), pendingActionId: result.pendingActionId ?? null, handoff: this.handoffOf(result) })), createdAt: message.createdAt };
     }
     return {
       id: message.id, role: message.role, text: content.text ?? '', attachments: (content.attachments ?? []).map((item: Attachment) => ({ name: item.name, mediaType: item.mediaType, size: item.size })),
       toolCalls: (content.toolCalls ?? []).map((call: any) => ({ name: call.name, title: this.catalog.get(call.name)?.title ?? call.name })),
       createdAt: message.createdAt,
     };
+  }
+
+  /** Resultado de passar_para_colega: o botão que abre a conversa com o colega. */
+  private handoffOf(result: any): { conversationId: number; botId: number; persona: string } | null {
+    if (result?.name !== 'passar_para_colega' || (result.status ?? 'ok') !== 'ok') return null;
+    try {
+      const data = JSON.parse(result.content);
+      return data?.conversaId ? { conversationId: Number(data.conversaId), botId: Number(data.botId), persona: String(data.colega ?? '') } : null;
+    } catch { return null; }
   }
 
   private presentRun(run: { id: number; status: string; steps: Prisma.JsonValue; error: string | null; startedAt: Date; endedAt: Date | null; costUsd: Prisma.Decimal }) {
@@ -305,10 +322,10 @@ export class AgentService {
   }
 
   /** Usado pelos testes e pelos relatórios agendados: espera a execução terminar. */
-  async sendAndWait(ctx: ToolContext, bot: Ai_Bot, conversationId: number, text: string): Promise<{ text: string; costUsd: number; runId: number }> {
+  async sendAndWait(ctx: ToolContext, bot: Ai_Bot, conversationId: number, text: string, options: { maxTurns?: number } = {}): Promise<{ text: string; costUsd: number; runId: number }> {
     const run = await this.prisma.ai_Run.create({ data: { conversationId, userId: ctx.userId, status: 'running', steps: [] } });
     await this.prisma.ai_Message.create({ data: { conversationId, runId: run.id, role: 'user', content: { text } } });
-    await this.loop({ ...ctx, runId: run.id, conversationId, botId: bot.id }, bot);
+    await this.loop({ ...ctx, runId: run.id, conversationId, botId: bot.id }, bot, options.maxTurns);
     const [last, done] = await Promise.all([
       this.prisma.ai_Message.findFirst({ where: { conversationId, role: 'assistant' }, orderBy: { id: 'desc' } }),
       this.prisma.ai_Run.findUnique({ where: { id: run.id } }),
@@ -319,7 +336,7 @@ export class AgentService {
 
   // ---------------------------------------------------------------- o loop
 
-  private async loop(ctx: ToolContext & { runId: number; conversationId: number; botId: number }, bot: Ai_Bot): Promise<void> {
+  private async loop(ctx: ToolContext & { runId: number; conversationId: number; botId: number }, bot: Ai_Bot, maxTurns = MAX_TURNS): Promise<void> {
     const steps: RunStep[] = [];
     const saveSteps = () => this.prisma.ai_Run.update({ where: { id: ctx.runId }, data: { steps: steps as unknown as Prisma.InputJsonValue } });
     let cost = 0;
@@ -327,10 +344,10 @@ export class AgentService {
       const tools = this.catalog.visible((bot.tools as string[]) ?? [], ctx.permissions);
       const allowedNames = tools.map((tool) => tool.name);
       const definitions = this.catalog.definitions(tools);
-      const system = await this.systemPrompt(ctx, bot, tools.map((tool) => tool.title));
+      const system = await this.systemPrompt(ctx, bot, tools.map((tool) => tool.title), allowedNames.some((name) => TEAM_TOOL_NAMES.includes(name)));
       const history = await this.history(ctx.conversationId);
 
-      for (let turn = 0; turn < MAX_TURNS; turn++) {
+      for (let turn = 0; turn < maxTurns; turn++) {
         const current = await this.prisma.ai_Run.findUnique({ where: { id: ctx.runId }, select: { status: true } });
         if (current?.status !== 'running') return; // a pessoa parou
         if (turn > 0 && (await this.usage.overBudget(ctx.companyId))) {
@@ -361,7 +378,7 @@ export class AgentService {
         const results: (ChatToolResult & { status: string; pendingActionId?: number })[] = [];
         for (const call of response.toolCalls) {
           const tool = this.catalog.get(call.name);
-          const step: RunStep = { at: new Date().toISOString(), kind: 'tool', label: tool?.title ?? call.name, tool: call.name, status: 'running' };
+          const step: RunStep = { at: new Date().toISOString(), kind: 'tool', label: (tool?.label ? tool.label(call.input ?? {}) : tool?.title) ?? call.name, tool: call.name, status: 'running' };
           steps.push(step);
           await saveSteps();
           const outcome = await this.catalog.call(ctx, call.name, call.input, allowedNames);
@@ -372,7 +389,7 @@ export class AgentService {
         }
         history.push({ role: 'tool', results });
         await this.prisma.ai_Message.create({ data: { conversationId: ctx.conversationId, runId: ctx.runId, role: 'tool', content: { results } as unknown as Prisma.InputJsonValue } });
-        if (turn === MAX_TURNS - 1) await this.notice(ctx, 'Parei por segurança: foram passos demais nesta resposta. Peça em partes menores.');
+        if (turn === maxTurns - 1) await this.notice(ctx, 'Parei por segurança: foram passos demais nesta resposta. Peça em partes menores.');
       }
       await this.prisma.ai_Run.updateMany({ where: { id: ctx.runId, status: 'running' }, data: { status: 'done', endedAt: new Date(), costUsd: cost, steps: steps as unknown as Prisma.InputJsonValue } });
     } catch (error) {
@@ -440,11 +457,13 @@ export class AgentService {
     await this.prisma.ai_Message.create({ data: { conversationId: ctx.conversationId, runId: ctx.runId, role: 'notice', content: { text } } });
   }
 
-  private async systemPrompt(ctx: ToolContext, bot: Ai_Bot, capabilities: string[]): Promise<string> {
-    const [user, company] = await Promise.all([
+  private async systemPrompt(ctx: ToolContext, bot: Ai_Bot, capabilities: string[], withTeam = false): Promise<string> {
+    const [user, company, team] = await Promise.all([
       this.prisma.user.findUnique({ where: { id: ctx.userId }, select: { name: true } }),
       this.prisma.company.findUnique({ where: { id: ctx.companyId }, select: { comercial_name: true } }),
+      withTeam ? this.bots.listFor(ctx) : Promise.resolve([]),
     ]);
+    const colleagues = team.filter((item) => item.id !== bot.id);
     const now = nowBr();
     const weekday = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'][now.getUTCDay()];
     return [
@@ -452,6 +471,8 @@ export class AgentService {
       `\n## Quem você é\nVocê é ${bot.persona ?? bot.name}, ${bot.role ?? `assistente de ${bot.name}`} da equipe de assistentes da empresa. Na primeira resposta de uma conversa nova, pode se apresentar em uma frase curta; depois, vá direto ao ponto.`,
       `\n## Seu papel\n${bot.instructions}`,
       `\n## O que você consegue fazer para esta pessoa\n${capabilities.length ? capabilities.map((item) => `- ${item}`).join('\n') : '- Nenhuma ferramenta liberada para esta pessoa: só converse e oriente.'}`,
+      ...(colleagues.length ? [`\n## Sua equipe\nColegas que esta pessoa pode usar (área: nome, cargo — o que faz):\n${colleagues.map((item) => `- ${item.key}: ${item.persona}, ${item.role} — ${item.description}`).join('\n')}\n- Precisa de um dado da área de um colega para responder? Use pedir_ao_colega (ele só consulta). A pessoa quer fazer algo que é da área de outro? Use passar_para_colega com um resumo completo. Não faça os dois para a mesma coisa e não peça ao colega o que você mesmo consegue consultar.`] : []),
+      ctx.delegated ? `\n## Pedido de um colega\nQuem pede agora é outro assistente da equipe, ajudando a mesma pessoa. Responda só o que foi pedido, com números e nomes, sem cumprimentos. Você só consulta: não crie nem altere nada.` : '',
       `\n## Contexto\n- Empresa: ${company?.comercial_name ?? '—'}\n- Pessoa: ${user?.name ?? '—'}\n- Hoje: ${weekday}, ${now.toISOString().slice(0, 10)}, ${now.toISOString().slice(11, 16)} (horário de Brasília)`,
     ].join('\n');
   }
@@ -485,6 +506,69 @@ export class AgentService {
       }
     }
     return out;
+  }
+
+  // ---------------------------------------------------------------- equipe conversando
+
+  /** O colega pela área (key), se a pessoa pode usá-lo. Recusa (não erro) para o modelo corrigir. */
+  private async colleague(ctx: ToolContext, rawKey: unknown): Promise<Ai_Bot> {
+    const key = String(rawKey ?? '').trim().toLowerCase();
+    const bot = key ? await this.prisma.ai_Bot.findFirst({ where: { companyId: ctx.companyId, key, inactiveAt: null } }) : null;
+    if (!bot) {
+      const team = await this.bots.listFor(ctx);
+      throw new ToolRefusal(`Colega "${key}" não encontrado. Use uma destas áreas: ${team.map((item) => `${item.key} (${item.persona})`).join(', ')}`);
+    }
+    if (bot.id === ctx.botId) throw new ToolRefusal('Este colega é você mesmo');
+    if (!bot.active) throw new ToolRefusal(`${bot.persona ?? bot.name} está desligado`);
+    if (!ctx.permissions.includes(bot.permissionKey)) throw new ToolRefusal(`A pessoa não tem acesso a ${bot.persona ?? bot.name}`);
+    return bot;
+  }
+
+  private async callerName(ctx: ToolContext) {
+    const bot = ctx.botId ? await this.prisma.ai_Bot.findUnique({ where: { id: ctx.botId }, select: { persona: true, name: true } }) : null;
+    return bot?.persona ?? bot?.name ?? 'Um colega';
+  }
+
+  /** pedir_ao_colega: o colega responde numa conversa à parte, só com as ferramentas de consulta dele. */
+  async askColleague(ctx: ToolContext, input: Record<string, any>) {
+    if (ctx.delegated) throw new ToolRefusal('Você está respondendo a um colega e não pode pedir a um terceiro. Responda com o que tem.');
+    const request = String(input?.pedido ?? '').trim().slice(0, 2000);
+    if (!request) throw new ToolRefusal('Escreva o pedido para o colega');
+    const colleague = await this.colleague(ctx, input?.colega);
+    const persona = colleague.persona ?? colleague.name;
+    if (!this.providers.get(colleague.provider)?.available()) throw new ToolRefusal(`${persona} está sem chave de IA configurada`);
+    const readTools = ((colleague.tools as string[]) ?? []).filter((name) => this.catalog.get(name)?.risk === 'read' && !TEAM_TOOL_NAMES.includes(name));
+    const caller = await this.callerName(ctx);
+    const conversation = await this.prisma.ai_Conversation.create({
+      data: { companyId: ctx.companyId, userId: ctx.userId, botId: colleague.id, origin: 'colega', title: `${caller} perguntou: ${request.replace(/\s+/g, ' ')}`.slice(0, 160) },
+    });
+    try {
+      const out = await this.sendAndWait({ ...ctx, origin: ctx.origin, botId: colleague.id, delegated: true }, { ...colleague, tools: readTools }, conversation.id, `[${caller} pergunta]\n${request}`, { maxTurns: COLLEAGUE_TURNS });
+      return { colega: persona, resposta: out.text || '(sem resposta)', observacao: `Monte a sua resposta com isto e diga que consultou ${persona}.` };
+    } catch (error) {
+      throw new ToolRefusal(`${persona} não conseguiu responder: ${String((error as Error)?.message ?? error).slice(0, 300)}`);
+    }
+  }
+
+  /** passar_para_colega: abre a conversa com o colega já com o resumo (sem chamar o modelo). */
+  async handOff(ctx: ToolContext, input: Record<string, any>) {
+    if (ctx.delegated) throw new ToolRefusal('Você está respondendo a um colega: não passe a conversa adiante.');
+    if (ctx.origin !== 'bots') throw new ToolRefusal('Passar a conversa só funciona na área de Bots, com a pessoa conversando');
+    const summary = String(input?.resumo ?? '').trim().slice(0, 3000);
+    if (!summary) throw new ToolRefusal('Escreva o resumo para o colega');
+    const colleague = await this.colleague(ctx, input?.colega);
+    const persona = colleague.persona ?? colleague.name;
+    const caller = await this.callerName(ctx);
+    const title = String(input?.titulo ?? '').trim() || summary.replace(/\s+/g, ' ');
+    const conversation = await this.prisma.ai_Conversation.create({ data: { companyId: ctx.companyId, userId: ctx.userId, botId: colleague.id, title: title.slice(0, 80) } });
+    // para o modelo do colega: quem passou e o resumo; para a pessoa: um aviso
+    await this.prisma.ai_Message.create({ data: { conversationId: conversation.id, role: 'user', content: { text: `[aviso do sistema] ${caller} passou esta conversa para você. Resumo do que a pessoa quer:\n${summary}\nNa próxima mensagem da pessoa, continue a partir daqui sem pedir de novo o que já está no resumo.`, system: true } } });
+    await this.prisma.ai_Message.create({ data: { conversationId: conversation.id, role: 'assistant', content: { text: 'Entendido.', system: true } } });
+    await this.prisma.ai_Message.create({ data: { conversationId: conversation.id, role: 'notice', content: { text: `${caller} passou esta conversa para ${persona}. Resumo: ${summary}` } } });
+    return {
+      conversaId: conversation.id, botId: colleague.id, colega: persona,
+      instrucao: `Pronto: a conversa com ${persona} já está aberta com o resumo. Diga à pessoa, em uma frase, para continuar por lá pelo botão logo abaixo.`,
+    };
   }
 
   // ---------------------------------------------------------------- confirmação na conversa

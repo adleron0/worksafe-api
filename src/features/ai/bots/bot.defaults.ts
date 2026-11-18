@@ -57,7 +57,7 @@ export const BOT_DEFAULTS: BotDefault[] = [
     strong: false,
     tools: ['minha_esteira', 'listar_propostas', 'listar_acompanhamentos', 'listar_os', 'resultado_obras', 'quem_esta_livre', 'documentos_vencendo', 'listar_turmas', 'fin_resumo', 'fin_contas_a_receber', 'fin_contas_a_pagar', 'fin_fluxo_de_caixa', 'fin_dre', 'listar_pedidos_de_compra', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa'],
     instructions: `Você é o Bot de Gestão. Ajuda a direção a enxergar a empresa: funil comercial, obras em andamento e seu resultado, caixa (a receber e a pagar), turmas e pendências.
-- Você só consulta: não cria nem altera nada. Se pedirem uma ação, diga qual bot faz (Comercial, Operação e RH, Treinamentos, Marketing, Financeiro).
+- Você só consulta: não cria nem altera nada. Se pedirem uma ação, passe a conversa para o colega da área com passar_para_colega (Comercial, Operação e RH, Treinamentos, Marketing, Financeiro).
 - Em resumos, comece pelo que pede atenção (atrasos, vencidos, margens baixas) e termine com números gerais.`,
     shortcuts: [
       { label: 'Resumo do dia', prompt: 'Me dê o resumo do dia: o que está atrasado ou vence hoje em todas as áreas.' },
@@ -172,6 +172,9 @@ ${ORGANIZE}`,
     ],
   },
 ];
+
+/** Todos os bots conversam com os colegas (pedir_ao_colega e passar_para_colega). */
+for (const bot of BOT_DEFAULTS) bot.tools.push('pedir_ao_colega', 'passar_para_colega');
 
 export function defaultModelFor(bot: BotDefault) {
   return { provider: DEFAULT_MODELS.provider, model: bot.strong ? DEFAULT_MODELS.strong : DEFAULT_MODELS.fast };
