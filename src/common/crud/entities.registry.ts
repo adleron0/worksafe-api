@@ -72,6 +72,9 @@ import { ClassesModule } from 'src/features/training/classes/module';
 import { subscriptionEntity } from 'src/features/training/subscription/rules.crud';
 import { SubscriptionCustomController } from 'src/features/training/subscription/custom.controller';
 import { SubscriptionModule } from 'src/features/training/subscription/module';
+import { ReservationController } from 'src/features/training/reservation/reservation.controller';
+import { ReservationModule } from 'src/features/training/reservation/module';
+import { ClassSeatsInterceptor } from 'src/features/training/reservation/class-seats.interceptor';
 import { traineeCertificateEntity } from 'src/features/training/trainee_certificate/rules.crud';
 import { TraineeCertificateCustomController } from 'src/features/training/trainee_certificate/custom.controller';
 import { TraineeCertificateModule } from 'src/features/training/trainee_certificate/module';
@@ -251,7 +254,9 @@ export const crudEntities: CrudEntity[] = [
   { rules: studentCoursesEntity, controller: { decorators: { list: [studentGuard], getById: [studentGuard], create: [studentGuard], update: [studentGuard] } } },
   { rules: studentCertificatesEntity, controller: { decorators: { list: [studentGuard], getById: [studentGuard] } } },
   { rules: classEntity, controller: { decorators: {
-    list: [Cache({ prefix: 'training-classes', ttl: 172800 })],
+    // vagas com as reservas de empresa (o cache é limpo a cada inscrição/reserva)
+    list: [UseInterceptors(ClassSeatsInterceptor), Cache({ prefix: 'training-classes', ttl: 172800 })],
+    getById: [UseInterceptors(ClassSeatsInterceptor)],
     create: [uploadCover, classesEvict], update: [uploadCover, classesEvict], archive: [classesEvict], restore: [classesEvict] } } },
   { rules: subscriptionEntity, controller: { decorators: writeOps([subsEvict]) } },
   { rules: traineeCertificateEntity, controller: { decorators: {
@@ -303,6 +308,7 @@ export const crudExtraControllers = [
   ImageLinkController,
   ContractController,
   ClassBillingController,
+  ReservationController,
   SellerWalletController,
   DocumentController,
   PublicProposalController,
@@ -315,4 +321,4 @@ export const crudExtraControllers = [
 ];
 
 /** Módulos que os controllers custom precisam (services de domínio, IA). */
-export const crudExtraImports = [PostModule, CommentModule, AIModule, UploadModule, ImageModule, CompanyModule, ReviewsModule, CourseModule, ExamesModule, ClassesModule, SubscriptionModule, TraineeCertificateModule, StudentModule, StudentCoursesModule, StudentCertificatesModule, FinancialrecordsModule, FinancialModule, CommercialModule, OperationsModule, HrModule, FilesModule, PlacesModule, StockModule, MarketingModule, BotsAiModule, DashboardModule];
+export const crudExtraImports = [PostModule, CommentModule, AIModule, UploadModule, ImageModule, CompanyModule, ReviewsModule, CourseModule, ExamesModule, ClassesModule, SubscriptionModule, ReservationModule, TraineeCertificateModule, StudentModule, StudentCoursesModule, StudentCertificatesModule, FinancialrecordsModule, FinancialModule, CommercialModule, OperationsModule, HrModule, FilesModule, PlacesModule, StockModule, MarketingModule, BotsAiModule, DashboardModule];

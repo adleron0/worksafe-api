@@ -414,7 +414,16 @@ export function makeVariablesToReplace(
       };
     }
 
-    if (subscriptionData.workedAt) {
+    // Empresa: a contratante da inscrição (vaga comprada pela empresa) ou,
+    // em turma fechada, o cliente da turma. Só empresa (CNPJ) entra: cliente
+    // pessoa física não é "empresa" e cai no que o aluno digitou (workedAt).
+    const contratante = contractingCompanyOf(subscriptionData);
+    if (contratante) {
+      variables.inscricao_empresa = { type: 'string', value: contratante.name };
+      variables.inscricao_empresa_cnpj = { type: 'string', value: contratante.cnpj };
+      variables.contratante_nome = { type: 'string', value: contratante.name };
+      variables.contratante_cnpj = { type: 'string', value: contratante.cnpj };
+    } else if (subscriptionData.workedAt) {
       variables.inscricao_empresa = {
         type: 'string',
         value: subscriptionData.workedAt,
@@ -442,4 +451,29 @@ export function makeVariablesToReplace(
   }
 
   return variables;
+}
+
+/** 00.000.000/0000-00 */
+export function formatCnpj(digits: string): string {
+  const d = String(digits ?? '').replace(/\D/g, '');
+  if (d.length !== 14) return d;
+  return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+}
+
+/**
+ * Empresa que sai no certificado desta inscrição: a contratante gravada na
+ * inscrição; senão o cliente da turma (turma fechada). Nome = razão social
+ * (o nome fantasia quando a razão social está vazia). Cliente com CPF não conta.
+ */
+export function contractingCompanyOf(subscriptionData: any): { name: string; cnpj: string } | null {
+  const candidates = [subscriptionData?.customer, subscriptionData?.class?.customer];
+  for (const customer of candidates) {
+    if (!customer) continue;
+    const digits = String(customer.cnpj ?? '').replace(/\D/g, '');
+    if (digits.length !== 14) continue;
+    const name = String(customer.corporateName || customer.name || '').trim();
+    if (!name) continue;
+    return { name: name.toUpperCase(), cnpj: formatCnpj(digits) };
+  }
+  return null;
 }

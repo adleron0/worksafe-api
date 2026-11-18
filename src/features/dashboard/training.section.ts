@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { seatsOfClasses } from 'src/features/training/reservation/seats';
 import { DashboardActor, OPEN_RECEIVABLE, asDate, brShort, iso, lastMonths, plus, round2 } from './shared';
 
 /** Turma encerrada há até tantos dias ainda cobra os certificados. */
@@ -67,6 +68,10 @@ export class TrainingSection {
       this.renewals(companyId, today),
     ]);
 
+    // vagas com as reservas de empresa (vaga reservada é vaga vendida)
+    const seatMap = await seatsOfClasses(this.prisma, classes.map((c) => c.id));
+    const reservedOpen = (c: (typeof classes)[number]) => seatMap.get(c.id)?.reservedOpen ?? 0;
+    const occupied = (c: (typeof classes)[number]) => confirmed(c).length + reservedOpen(c);
     const start = (c: (typeof classes)[number]) => iso(c.initialDate);
     const end = (c: (typeof classes)[number]) => iso(c.finalDate) ?? iso(c.initialDate);
     const confirmed = (c: (typeof classes)[number]) => c.subscriptions.filter((s) => s.subscribeStatus === 'confirmed');
@@ -80,9 +85,9 @@ export class TrainingSection {
     const actions: ActionItem[] = [];
     for (const c of upcoming) {
       const when = brShort(start(c)!);
-      const enrolled = confirmed(c).length;
+      const enrolled = occupied(c);
       if (c.minimumQuorum && enrolled < c.minimumQuorum && start(c)! >= today && start(c)! <= plus(today, QUORUM_DAYS)) {
-        actions.push({ key: `quorum-${c.id}`, tone: 'danger', title: `${label(c)} · ${when} abaixo do quórum`, detail: `${enrolled} de ${c.minimumQuorum} confirmados`, count: c.minimumQuorum - enrolled, link: classLink(c.id, 'inscricoes') });
+        actions.push({ key: `quorum-${c.id}`, tone: 'danger', title: `${label(c)} · ${when} abaixo do quórum`, detail: `${enrolled} de ${c.minimumQuorum} (confirmados e vagas de empresa)`, count: c.minimumQuorum - enrolled, link: classLink(c.id, 'inscricoes') });
       }
       const pending = c.subscriptions.filter((s) => s.subscribeStatus === 'pending').length;
       if (pending) {
@@ -92,6 +97,11 @@ export class TrainingSection {
       const unpaid = confirmed(c).filter((s) => s.financialRecords.length > 0 && !s.financialRecords.some((f) => f.status === 'received') && s.financialRecords.some((f) => OPEN_RECEIVABLE.includes(f.status))).length;
       if (unpaid) {
         actions.push({ key: `unpaid-${c.id}`, tone: 'warning', title: `${unpaid === 1 ? '1 inscrito' : `${unpaid} inscritos`} sem pagamento`, detail: `${label(c)} · ${when}`, count: unpaid, link: classLink(c.id, 'inscricoes') });
+      }
+      // empresa comprou vagas e ainda não mandou os nomes
+      if (reservedOpen(c) > 0 && start(c)! >= today && start(c)! <= plus(today, 3)) {
+        const open = reservedOpen(c);
+        actions.push({ key: `names-${c.id}`, tone: 'warning', title: `${open === 1 ? '1 vaga de empresa' : `${open} vagas de empresas`} sem nome`, detail: `${label(c)} · ${when}`, count: open, link: classLink(c.id, 'empresas') });
       }
       if (c.instructors.length === 0 && start(c)! <= plus(today, 30)) {
         actions.push({ key: `instructor-${c.id}`, tone: 'info', title: `${label(c)} · ${when} sem instrutor`, detail: 'defina quem vai dar a turma', count: 1, link: classLink(c.id, 'basico') });
@@ -130,12 +140,14 @@ export class TrainingSection {
 
     const withSeats = upcoming.filter((c) => start(c)! >= today && seatsOf(c));
     const seats = withSeats.reduce((sum, c) => sum + seatsOf(c)!, 0);
-    const taken = withSeats.reduce((sum, c) => sum + confirmed(c).length, 0);
+    const taken = withSeats.reduce((sum, c) => sum + occupied(c), 0);
 
     const rating = reviews.length ? round2(reviews.reduce((sum, r) => sum + r.generalRating, 0) / reviews.length) : null;
     const approval = exams.length ? exams.filter((e) => e.result).length / exams.length : null;
 
     const revenue = canSeeMoney ? await this.revenue(companyId, months) : undefined;
+    // vagas vendidas para empresas nas próximas turmas (a receita delas está nas vendas, não nas inscrições)
+    const companySeats = await this.companySeats(companyId, upcoming.map((c) => c.id), canSeeMoney);
 
     /* ---------------- próximas turmas ---------------- */
     const next = upcoming.slice(0, 8).map((c) => ({
@@ -145,6 +157,8 @@ export class TrainingSection {
       endDate: end(c),
       ongoing: start(c)! < today,
       enrolled: confirmed(c).length,
+      reserved: reservedOpen(c),
+      companySeats: seatMap.get(c.id)?.reserved ?? 0,
       pending: c.subscriptions.filter((s) => s.subscribeStatus === 'pending').length,
       seats: seatsOf(c),
       quorum: c.minimumQuorum ?? null,
@@ -159,6 +173,7 @@ export class TrainingSection {
       kpis: {
         trained: { value: trained[trained.length - 1], previous: trained[trained.length - 2], trend: trained },
         occupancy: { ratio: seats ? taken / seats : null, taken, seats, classes: withSeats.length },
+        companySeats,
         revenue,
         quality: { rating, reviews: reviews.length, approval, exams: exams.length, days: QUALITY_DAYS },
       },
@@ -171,6 +186,20 @@ export class TrainingSection {
   }
 
   /** Recebido de inscrições por mês (pela data do pagamento) e o que está em aberto. */
+  /** Vagas reservadas para empresas nas turmas dadas: quantas, de quantas empresas e o valor combinado. */
+  private async companySeats(companyId: number, classIds: number[], canSeeMoney: boolean) {
+    if (!classIds.length) return { seats: 0, customers: 0, value: canSeeMoney ? 0 : undefined };
+    const rows = await this.prisma.courseClassReservation.findMany({
+      where: { companyId, classId: { in: classIds }, inactiveAt: null },
+      select: { seats: true, customerId: true, unitValue: true },
+    });
+    return {
+      seats: rows.reduce((n, r) => n + r.seats, 0),
+      customers: new Set(rows.map((r) => r.customerId)).size,
+      value: canSeeMoney ? round2(rows.reduce((n, r) => n + r.seats * Number(r.unitValue ?? 0), 0)) : undefined,
+    };
+  }
+
   private async revenue(companyId: number, months: string[]) {
     const since = asDate(`${months[0]}-01`);
     const [paid, open] = await Promise.all([
