@@ -146,6 +146,22 @@ export class PipelineService {
       key: 'os_atrasadas', area: 'Operação', title: 'OS atrasadas', hint: 'Passaram da data marcada e ainda não andaram', count: lateRows.length, total: null, link: '/servicos/ordens-de-servico',
       items: lateRows.slice(0, TOP).map((order) => item(order, order.status === 'em_execucao' ? `término previsto ${br(iso(order.plannedEnd))}` : `início previsto ${br(iso(order.plannedStart))}`, true)),
     });
+    if (canReport) {
+      const returned = await this.prisma.service_DailyReport.findMany({
+        where: { companyId: actor.companyId, createdByUserId: actor.userId, returnedAt: { not: null }, status: 'rascunho', inactiveAt: null }, orderBy: [{ returnedAt: 'asc' }], take: 200,
+      });
+      if (returned.length) {
+        const owners = await this.prisma.service_Order.findMany({ where: { id: { in: returned.map((report) => report.orderId) } }, select: { id: true, number: true } });
+        const numberOf = new Map(owners.map((order) => [order.id, order.number]));
+        out.push({
+          key: 'rdo_devolvido', area: 'Operação', title: 'RDOs devolvidos para corrigir', hint: 'Corrija o que foi pedido e feche o RDO de novo', count: returned.length, total: null, link: '/servicos/diario-de-obra',
+          items: returned.slice(0, TOP).map((report) => ({
+            id: report.id, title: `${numberOf.get(report.orderId) ?? 'OS'} · ${br(iso(report.date))}`, subtitle: report.returnNote ?? '',
+            link: `/servicos/ordens-de-servico/${report.orderId}/rdo/${report.id}`, value: null, late: true,
+          })),
+        });
+      }
+    }
     if (canReport) out.push({
       key: 'rdo_hoje', area: 'Operação', title: 'Obras sem o RDO de hoje', hint: 'Obras em execução que ainda não têm o relatório do dia', count: noReport.length, total: null, link: '/servicos/diario-de-obra',
       items: noReport.slice(0, TOP).map((order) => item(order, `começou em ${br(iso(order.startedAt))}`)),

@@ -133,6 +133,10 @@ model Service_DailyReport {
   createdByUserId Int?
   closedAt        DateTime?
   closedByUserId  Int?
+  // devolvido para quem preencheu corrigir: o motivo fica até o RDO ser fechado de novo
+  returnNote       String?   @db.VarChar(500)
+  returnedAt       DateTime?
+  returnedByUserId Int?
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt

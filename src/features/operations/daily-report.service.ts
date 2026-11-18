@@ -224,6 +224,7 @@ export class DailyReportService {
       activities: row.activities ? row.activities.slice(0, 200) : null,
       occurrences: ((row.occurrences as unknown as Occurrence[]) ?? []).length, photos: ((row.photos as unknown as Photo[]) ?? []).length,
       createdBy: row.createdByUserId ? userName.get(row.createdByUserId) ?? null : null, closedAt: row.closedAt,
+      returned: row.returnedAt ? { note: row.returnNote, at: row.returnedAt } : null,
     };
   }
 
@@ -275,7 +276,7 @@ export class DailyReportService {
   }
 
   private async present(row: Service_DailyReport, order: Service_Order) {
-    const names = await this.namesOf([row.createdByUserId, row.closedByUserId]);
+    const names = await this.namesOf([row.createdByUserId, row.closedByUserId, row.returnedByUserId]);
     const steps = this.stepsOf(order);
     const saved = new Map(((row.progress as unknown as StepProgress[]) ?? []).map((item) => [item.step, item.percent]));
     return {
@@ -286,6 +287,7 @@ export class DailyReportService {
       progress: steps.map((step) => ({ step: step.step, title: step.title, percent: saved.get(step.step) ?? 0 })),
       occurrences: (row.occurrences as unknown as Occurrence[]) ?? [], equipment: row.equipment, photos: (row.photos as unknown as Photo[]) ?? [], notes: row.notes,
       createdBy: row.createdByUserId ? names.get(row.createdByUserId) ?? null : null, closedAt: row.closedAt, closedBy: row.closedByUserId ? names.get(row.closedByUserId) ?? null : null,
+      returned: row.returnedAt ? { note: row.returnNote, at: row.returnedAt, by: row.returnedByUserId ? names.get(row.returnedByUserId) ?? null : null } : null,
       order: await this.orderBrief(order), roles: this.rolesOf(order), roleOptions: await this.roleOptionsOf(order), hoursPerDay: (await this.laborOf(order)).hoursPerDay,
     };
   }
@@ -577,7 +579,7 @@ export class DailyReportService {
     if (crew.length && (!row.startTime || !row.endTime)) throw new BadRequestException('Informe a hora de entrada e a hora de saída antes de fechar o RDO.');
     const noReason = crew.find((member) => this.leftEarly(member, row) && !member.leaveReason);
     if (noReason) throw new BadRequestException(`Informe por que ${noReason.name} saiu antes.`);
-    const saved = await this.prisma.service_DailyReport.update({ where: { id }, data: { status: 'fechado', closedAt: new Date(), closedByUserId: actor.userId || null } });
+    const saved = await this.prisma.service_DailyReport.update({ where: { id }, data: { status: 'fechado', closedAt: new Date(), closedByUserId: actor.userId || null, returnNote: null, returnedAt: null, returnedByUserId: null } });
     return this.present(saved, await this.orderOf(actor, row.orderId));
   }
 
@@ -593,6 +595,120 @@ export class DailyReportService {
       return tx.service_DailyReport.update({ where: { id }, data: { status: 'rascunho', closedAt: null, closedByUserId: null } });
     });
     return this.present(saved, await this.orderOf(actor, row.orderId));
+  }
+
+  /**
+   * Devolve o RDO para quem preencheu corrigir: volta a ser rascunho (se estava
+   * fechado) e leva o motivo, que aparece na tela e na esteira de quem preencheu
+   * até ele fechar de novo. Fica no histórico como "devolvido".
+   */
+  async sendBack(actor: OrderActor, id: number, body: Body) {
+    const row = await this.byId(actor.companyId, id);
+    const order = await this.orderOf(actor, row.orderId);
+    const note = clean(body.note, 500);
+    if (!note) throw new BadRequestException('Informe o que precisa ser corrigido');
+    const saved = await this.prisma.$transaction(async (tx) => {
+      await recordFlowEvent(tx, 'service_report', { companyId: row.companyId, entityId: row.id, type: 'devolvido', from: row.status, to: 'rascunho', userId: actor.userId, note });
+      return tx.service_DailyReport.update({
+        where: { id }, data: { status: 'rascunho', closedAt: null, closedByUserId: null, returnNote: note, returnedAt: new Date(), returnedByUserId: actor.userId || null },
+      });
+    });
+    return this.present(saved, order);
+  }
+
+  /**
+   * O que falta no diário das obras em execução: dias sem RDO (nos últimos
+   * `days` dias, sem contar domingo, a menos que `sundays`), rascunhos de dias
+   * que já passaram e RDOs devolvidos que ainda não voltaram.
+   */
+  async pending(actor: OrderActor, query: { days?: number; orderId?: number | null; sundays?: boolean }) {
+    const days = Math.min(31, Math.max(1, Math.round(Number(query.days) || 7)));
+    const now = today();
+    const visible = await ordersVisibleTo(this.prisma, actor);
+    const orders = await this.prisma.service_Order.findMany({
+      where: { companyId: actor.companyId, status: 'em_execucao', inactiveAt: null, AND: [visible], ...(query.orderId ? { id: query.orderId } : {}) },
+      orderBy: [{ startedAt: 'asc' }, { id: 'asc' }], take: 200,
+    });
+    const first = iso(new Date(asDate(now).getTime() - (days - 1) * 86400000))!;
+    const reports = orders.length
+      ? await this.prisma.service_DailyReport.findMany({ where: { orderId: { in: orders.map((order) => order.id) }, inactiveAt: null, OR: [{ date: { gte: asDate(first) } }, { status: 'rascunho' }] }, orderBy: [{ date: 'asc' }] })
+      : [];
+    const users = await this.namesOf([...orders.map((order) => order.responsibleUserId), ...reports.map((report) => report.createdByUserId)]);
+    const customers = await this.prisma.customer.findMany({ where: { id: { in: orders.map((order) => order.customerId) } }, select: { id: true, name: true } });
+    const customerName = new Map(customers.map((customer) => [customer.id, customer.name]));
+    const rows = orders.map((order) => {
+      const mine = reports.filter((report) => report.orderId === order.id);
+      const has = new Set(mine.map((report) => iso(report.date)));
+      const start = iso(order.startedAt) && iso(order.startedAt)! > first ? iso(order.startedAt)! : first;
+      const missing: string[] = [];
+      for (let day = start; day <= now; day = iso(new Date(asDate(day).getTime() + 86400000))!) {
+        if (!query.sundays && asDate(day).getUTCDay() === 0) continue;
+        if (!has.has(day)) missing.push(day);
+      }
+      const last = [...mine].reverse().find((report) => report.createdByUserId);
+      return {
+        id: order.id, number: order.number, title: order.title, customer: customerName.get(order.customerId) ?? '',
+        responsible: order.responsibleUserId ? { id: order.responsibleUserId, name: users.get(order.responsibleUserId) ?? null } : null,
+        lastFiller: last?.createdByUserId ? { id: last.createdByUserId, name: users.get(last.createdByUserId) ?? null } : null,
+        missingDays: missing,
+        drafts: mine.filter((report) => report.status === 'rascunho' && !report.returnedAt && iso(report.date)! < now).map((report) => ({ id: report.id, date: iso(report.date)!, shift: report.shift, by: report.createdByUserId ? users.get(report.createdByUserId) ?? null : null })),
+        returned: mine.filter((report) => report.status === 'rascunho' && report.returnedAt).map((report) => ({ id: report.id, date: iso(report.date)!, note: report.returnNote, at: report.returnedAt, by: report.createdByUserId ? users.get(report.createdByUserId) ?? null : null })),
+      };
+    });
+    return { today: now, from: first, days, sundays: !!query.sundays, orders: rows };
+  }
+
+  /**
+   * Pontos para conferir num RDO, calculados aqui para não depender de quem lê:
+   * o que falta preencher, horas fora do comum, avanço que voltou, gente fora da
+   * equipe escalada e ocorrências que pedem providência.
+   */
+  async findings(actor: OrderActor, id: number): Promise<string[]> {
+    const row = await this.byId(actor.companyId, id);
+    const order = await this.orderOf(actor, row.orderId);
+    const out: string[] = [];
+    const crew = (row.crew as unknown as CrewMember[]) ?? [];
+    const occurrences = (row.occurrences as unknown as Occurrence[]) ?? [];
+    const photos = (row.photos as unknown as Photo[]) ?? [];
+    const stopped = row.weather === 'impraticavel' || row.startCondition === 'impedido' || occurrences.some((item) => item.type === 'paralisacao');
+    const date = iso(row.date)!;
+    if (row.status === 'rascunho' && date < today()) out.push(`Rascunho de ${date.split('-').reverse().join('/')} ainda não foi fechado.`);
+    if (!crew.length && !stopped) out.push('Sem equipe do dia e sem paralisação registrada.');
+    if (!row.activities?.trim() && !stopped) out.push('Não diz o que foi feito no dia.');
+    else if (row.activities && row.activities.trim().length < 25) out.push('A descrição do que foi feito está curta demais para acompanhar a obra.');
+    if (!photos.length && !stopped) out.push('Sem fotos.');
+    if (crew.length && (!row.startTime || !row.endTime)) out.push('Falta a hora de entrada ou de saída.');
+    if (crew.length && !row.endCondition) out.push('Falta a condição da frente de trabalho na saída.');
+    for (const member of crew) {
+      const total = (member.hours || 0) + (member.overtime || 0);
+      if (total > 12) out.push(`${member.name} está com ${round2(total)} h no dia (acima de 12 h).`);
+      if (!total && !stopped) out.push(`${member.name} está na equipe com 0 hora.`);
+      if (!member.role) out.push(`${member.name} está sem função.`);
+      if (this.leftEarly(member, row) && !member.leaveReason) out.push(`${member.name} saiu antes sem motivo informado.`);
+    }
+    const team = ((order.team as unknown as Array<{ employeeId?: number | null; name?: string }>) ?? []);
+    if (team.length) {
+      const ids = new Set(team.map((member) => member.employeeId).filter(Boolean));
+      const names = new Set(team.map((member) => norm(member.name ?? '')).filter(Boolean));
+      const outside = crew.filter((member) => (member.employeeId ? !ids.has(member.employeeId) : !names.has(norm(member.name))));
+      if (outside.length) out.push(`Fora da equipe escalada na OS: ${outside.map((member) => member.name).join(', ')}.`);
+    }
+    for (const item of occurrences) {
+      if (!item.description?.trim()) out.push(`Ocorrência de ${item.type.replace('_', ' ')} sem descrição.`);
+      if (item.type === 'acidente') out.push('Acidente registrado: confira se a CAT e a investigação foram feitas.');
+      if (item.type === 'quase_acidente') out.push('Quase acidente registrado: confira se a causa foi tratada.');
+      if (item.type === 'paralisacao' && !item.hoursLost) out.push('Paralisação sem horas perdidas.');
+    }
+    const previous = await this.prisma.service_DailyReport.findFirst({ where: { orderId: row.orderId, inactiveAt: null, date: { lt: row.date } }, orderBy: [{ date: 'desc' }, { id: 'desc' }] });
+    if (previous) {
+      const before = new Map(((previous.progress as unknown as StepProgress[]) ?? []).map((item) => [item.step, item.percent]));
+      for (const item of (row.progress as unknown as StepProgress[]) ?? []) {
+        const old = before.get(item.step);
+        if (old !== undefined && item.percent < old) out.push(`O avanço de "${item.title}" caiu de ${old}% para ${item.percent}% em relação ao RDO anterior.`);
+      }
+    }
+    if (row.returnedAt) out.push(`Devolvido para correção: ${row.returnNote}`);
+    return out;
   }
 
   /** Apaga um rascunho (RDO fechado não é apagado). */

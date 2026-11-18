@@ -122,6 +122,13 @@ export class DailyReportController {
   @Permissions('update_rdo') @Patch('service-reports/:id/reopen')
   reopen(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.reports.reopen(actorOf(req), id, body ?? {}); }
 
+  /** Devolver para quem preencheu corrigir é do coordenador (quem altera a OS), não do encarregado. */
+  @Permissions('update_ordens_de_servico') @Patch('service-reports/:id/return')
+  sendBack(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.reports.sendBack(actorOf(req), id, body ?? {}); }
+
+  @Permissions('list_ordens_de_servico') @Get('service-reports/:id/findings')
+  findings(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.reports.findings(actorOf(req), id); }
+
   @Permissions('update_rdo') @Delete('service-reports/:id')
   remove(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.reports.remove(actorOf(req), id); }
 }

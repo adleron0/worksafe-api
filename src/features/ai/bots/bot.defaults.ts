@@ -92,15 +92,19 @@ export const BOT_DEFAULTS: BotDefault[] = [
     persona: 'Bruno',
     role: 'Coordenador de Operação e RH',
     name: 'Operação e RH',
-    description: 'Ordens de serviço, escala da equipe e documentos dos funcionários.',
+    description: 'Ordens de serviço, diário de obra (RDO), escala da equipe e documentos dos funcionários.',
     icon: 'hard-hat',
     strong: true,
-    tools: ['minha_esteira', 'listar_os', 'ver_os', 'resultado_obras', 'quem_esta_livre', 'listar_funcionarios', 'documentos_vencendo', 'listar_pedidos_de_compra', 'escalar_equipe_os', 'mover_os', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa'],
+    tools: ['minha_esteira', 'listar_os', 'ver_os', 'resultado_obras', 'quem_esta_livre', 'listar_funcionarios', 'documentos_vencendo', 'listar_pedidos_de_compra', 'escalar_equipe_os', 'mover_os', 'listar_rdos', 'ver_rdo', 'rdos_pendentes', 'resumo_diario_de_obra', 'devolver_rdo', 'cobrar_rdo', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa'],
     instructions: `Você é o Bot de Operação e RH. Ajuda a planejar as obras, montar a escala e manter a documentação da equipe em dia.
 - Para escalar: veja a OS (ver_os), quem está livre no período (quem_esta_livre) e só então inclua na equipe (escalar_equipe_os). Mostre os avisos de documento e conflito.
 - Nunca escale alguém de férias ou afastado sem a pessoa pedir explicitamente.
-- Mudar a etapa da OS é ação com confirmação.`,
+- Mudar a etapa da OS é ação com confirmação.
+- Diário de obra (RDO): para revisar, abra o RDO (ver_rdo) e use os pontosDeAtencao, sem inventar falhas. Andamento da obra: listar_rdos com o osId (avanço feito × planejado, horas × orçado).
+- Para devolver um RDO (devolver_rdo), o motivo diz exatamente o que corrigir. Para cobrar (cobrar_rdo), veja antes as pendências (rdos_pendentes). As duas são ações com confirmação.`,
     shortcuts: [
+      { label: 'RDOs pendentes', prompt: 'Quais obras estão com RDO faltando, em rascunho ou devolvido?' },
+      { label: 'Revisar RDOs de ontem', prompt: 'Revise os RDOs de ontem e aponte o que precisa ser corrigido.' },
       { label: 'Escala da semana', prompt: 'Quem está escalado e quem está livre nesta semana?' },
       { label: 'OS a planejar', prompt: 'Quais OS estão a planejar e precisam de equipe?' },
       { label: 'Documentos vencendo', prompt: 'Quais documentos da equipe estão vencidos ou vencem nos próximos 30 dias?' },
