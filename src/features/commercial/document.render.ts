@@ -42,7 +42,13 @@ export const dateBr = (value: Date | string | null | undefined) => {
   const iso = typeof value === 'string' ? value.slice(0, 10) : value.toISOString().slice(0, 10);
   return iso.split('-').reverse().join('/');
 };
-export const cnpjBr = (cnpj: string) => (cnpj?.length === 14 ? cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : cnpj ?? '');
+/** Formata CNPJ (14 dígitos) ou CPF (11): o cliente pode ser pessoa física. */
+export const cnpjBr = (cnpj: string) =>
+  cnpj?.length === 14 ? cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
+    : cnpj?.length === 11 ? cnpj.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4')
+    : cnpj ?? '';
+/** "CPF" para pessoa física (11 dígitos), "CNPJ" para o resto. */
+export const docLabel = (doc?: string | null) => (doc?.length === 11 ? 'CPF' : 'CNPJ');
 export const sha256 = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');
 
 /**
@@ -232,12 +238,12 @@ const termsBlock = (terms: TermText[]) => terms.map((term) => `<h3>${escape(term
 
 function signatureBlock(data: DocumentData): string {
   const cell = (name: string, sub: string) => `<td style="width:50%;padding:36px 12px 0;text-align:center;vertical-align:top"><div style="border-top:1px solid #333;padding-top:6px"><strong>${escape(name)}</strong><br><span style="font-size:0.9em">${escape(sub)}</span></div></td>`;
-  return `<table style="width:100%;margin-top:24px"><tbody><tr>${cell(data.company.corporateName, `CNPJ ${cnpjBr(data.company.cnpj)}`)}${cell(data.customer.corporateName, `CNPJ ${cnpjBr(data.customer.cnpj)}`)}</tr></tbody></table>`;
+  return `<table style="width:100%;margin-top:24px"><tbody><tr>${cell(data.company.corporateName, `CNPJ ${cnpjBr(data.company.cnpj)}`)}${cell(data.customer.corporateName, `${docLabel(data.customer.cnpj)} ${cnpjBr(data.customer.cnpj)}`)}</tr></tbody></table>`;
 }
 
 /** Variáveis disponíveis nos modelos (a tela mostra esta lista). */
 export const VARIABLES: Array<{ key: string; label: string; block?: boolean }> = [
-  { key: 'cliente.nome', label: 'Nome do cliente' }, { key: 'cliente.razao_social', label: 'Razão social do cliente' }, { key: 'cliente.cnpj', label: 'CNPJ do cliente' },
+  { key: 'cliente.nome', label: 'Nome do cliente' }, { key: 'cliente.razao_social', label: 'Razão social do cliente' }, { key: 'cliente.cnpj', label: 'CNPJ ou CPF do cliente' },
   { key: 'contato.nome', label: 'Nome do contato' },
   { key: 'empresa.nome', label: 'Nome da sua empresa' }, { key: 'empresa.razao_social', label: 'Razão social da sua empresa' }, { key: 'empresa.cnpj', label: 'CNPJ da sua empresa' },
   { key: 'vendedor.nome', label: 'Vendedor' },
@@ -285,6 +291,8 @@ export function renderDocument(body: string, data: DocumentData, terms: TermText
     for (const key of Object.keys(BRAND_BLOCKS)) blocks[key] = '';
   }
   let html = sanitizeBody(body);
+  // Modelos já gravados escrevem "CNPJ {{cliente.cnpj}}"; para pessoa física o rótulo vira CPF.
+  if (docLabel(data.customer.cnpj) === 'CPF') html = html.replace(/CNPJ(:?\s*)(\{\{\s*cliente\.cnpj\s*\}\})/g, 'CPF$1$2');
   // Bloco sozinho num parágrafo troca o parágrafo inteiro (tabela dentro de <p> é HTML inválido).
   for (const [key, block] of Object.entries(blocks)) {
     const alone = new RegExp(`<p[^>]*>(?:\\s|<[^>/]+>)*\\{\\{\\s*${key}\\s*\\}\\}(?:\\s|</[^>]+>)*</p>`, 'g');

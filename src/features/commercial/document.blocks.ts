@@ -255,7 +255,10 @@ export function contactBlock(d: BlockData): string {
 // Blocos sóbrios, na ordem do orçamento que a empresa sempre usou: cabeçalho com
 // os dados da empresa, cliente, outras informações, dados bancários e rodapé.
 
-const cnpjBr = (cnpj?: string) => (cnpj?.length === 14 ? cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : cnpj ?? '');
+const cnpjBr = (cnpj?: string) =>
+  cnpj?.length === 14 ? cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
+    : cnpj?.length === 11 ? cnpj.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4')
+    : cnpj ?? '';
 const HEADING = 'font-size:1.25em;font-weight:400;letter-spacing:.02em;color:#111;margin:0 0 10px';
 const SMALL = 'font-size:.9em;color:#222;line-height:1.5';
 
@@ -279,7 +282,7 @@ export function headerBlock(d: BlockData): string {
 
 export function customerBlock(d: BlockData): string {
   const { customer } = d;
-  const left = [customer.cnpj ? `CNPJ: ${esc(cnpjBr(customer.cnpj))}` : '', esc(customer.email ?? ''), d.contactName ? `A/C ${esc(d.contactName)}` : ''].filter(Boolean);
+  const left = [customer.cnpj ? `${customer.cnpj.length === 11 ? 'CPF' : 'CNPJ'}: ${esc(cnpjBr(customer.cnpj))}` : '', esc(customer.email ?? ''), d.contactName ? `A/C ${esc(d.contactName)}` : ''].filter(Boolean);
   const right = [...(customer.addressLines ?? []).map(esc), customer.phone ? `Telefone: ${esc(customer.phone)}` : ''].filter(Boolean);
   return `<div data-block="cliente" style="margin:0 0 22px"><div style="${HEADING}">Informações do cliente</div>`
     + `<div style="font-size:1.05em;color:#111;margin-bottom:8px">${esc((customer.corporateName || customer.name).toUpperCase())}</div>`
