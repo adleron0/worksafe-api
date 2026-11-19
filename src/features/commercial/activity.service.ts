@@ -80,14 +80,16 @@ export class ActivityService {
 
   private async present(companyId: number, rows: Commercial_Activity[]) {
     const ids = <T,>(values: Array<T | null>) => [...new Set(values.filter((value): value is T => value !== null))];
-    const [users, customers, proposals, rentals] = await Promise.all([
+    const [users, customers, proposals, rentals, deals] = await Promise.all([
       this.prisma.user.findMany({ where: { id: { in: ids(rows.map((row) => row.userId)) } }, select: { id: true, name: true } }),
       this.prisma.customer.findMany({ where: { companyId, id: { in: ids(rows.map((row) => row.customerId)) } }, select: { id: true, name: true } }),
       this.prisma.commercial_Proposal.findMany({
         where: { companyId, id: { in: ids(rows.map((row) => row.proposalId)) } }, select: { id: true, number: true, title: true, status: true },
       }),
       this.prisma.stock_Rental.findMany({ where: { companyId, id: { in: ids(rows.map((row) => row.rentalId)) } }, select: { id: true, number: true } }),
+      this.prisma.commercial_Deal.findMany({ where: { companyId, id: { in: ids(rows.map((row) => row.dealId)) } }, select: { id: true, number: true, title: true } }),
     ]);
+    const dealOf = new Map(deals.map((deal) => [deal.id, deal]));
     const rentalOf = new Map(rentals.map((rental) => [rental.id, rental]));
     const userName = new Map(users.map((user) => [user.id, user.name]));
     const customerOf = new Map(customers.map((customer) => [customer.id, customer]));
@@ -108,6 +110,7 @@ export class ActivityService {
         proposal: row.proposalId ? proposalOf.get(row.proposalId) ?? null : null,
         // lembrete automático de uma ordem de locação (fim de período, devolução)
         rental: row.rentalId ? rentalOf.get(row.rentalId) ?? null : null, automatic: !!row.autoKey,
+        deal: row.dealId ? dealOf.get(row.dealId) ?? null : null,
         createdAt: row.createdAt,
       };
     });
@@ -129,6 +132,7 @@ export class ActivityService {
     const scope: Prisma.Commercial_ActivityWhereInput = {
       companyId: actor.companyId, inactiveAt: null, AND: [await this.visibleTo(actor)],
       ...(family ? { proposalId: { in: family } } : {}),
+      ...(Number(query.dealId) > 0 ? { dealId: Number(query.dealId) } : {}),
       ...(Number(query.customerId) > 0 ? { customerId: Number(query.customerId) } : {}),
       ...(Number(query.userId) > 0 ? { userId: Number(query.userId) } : {}),
     };
@@ -231,7 +235,15 @@ export class ActivityService {
       customerId = proposal.customerId;
     } else {
       const customer = await this.prisma.customer.findFirst({ where: { id: customerId, companyId: actor.companyId }, select: { id: true } });
-      if (!customer) throw new BadRequestException('Escolha o cliente');
+      if (!customer && blank(body.dealId)) throw new BadRequestException('Escolha o cliente');
+    }
+    // contato da negociação: o cliente é o dela
+    let dealId: number | null = null;
+    if (!blank(body.dealId)) {
+      const deal = await this.prisma.commercial_Deal.findFirst({ where: { id: Number(body.dealId), companyId: actor.companyId, inactiveAt: null }, select: { id: true, customerId: true } });
+      if (!deal) throw new NotFoundException('Negociação não encontrada');
+      dealId = deal.id;
+      customerId = deal.customerId;
     }
     const done = body.done === true || body.done === 'true';
     if (!done && blank(body.dueDate)) throw new BadRequestException('Informe para quando fica marcado, ou registre como contato já feito');
@@ -240,7 +252,7 @@ export class ActivityService {
     const base = { companyId: actor.companyId, customerId, proposalId, userId, contactName };
     const next = done ? this.nextOf(body.next, base, actor) : null;
     const data: Prisma.Commercial_ActivityUncheckedCreateInput = {
-      ...base, type, subject: clean(body.subject, 200) || TYPE_LABEL[type], notes: text(body.notes) || null, createdByUserId: actor.userId || null,
+      ...base, dealId, type, subject: clean(body.subject, 200) || TYPE_LABEL[type], notes: text(body.notes) || null, createdByUserId: actor.userId || null,
       ...(done
         ? { doneAt: this.doneAtOf(body.doneDate), result: text(body.result, 2000) || null }
         : { dueDate: asDate(dateOf(body.dueDate, 'Data')), dueTime: timeOf(body.dueTime) }),

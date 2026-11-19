@@ -60,6 +60,11 @@ function dateOf(value: unknown, label: string): string {
   return raw;
 }
 
+/** "NR-35 Trabalho em altura · 12/03/2026" */
+export function classLabel(row: { name: string; initialDate: Date | null }) {
+  return row.initialDate ? `${row.name} · ${row.initialDate.toISOString().slice(0, 10).split('-').reverse().join('/')}` : row.name;
+}
+
 function itemsOf(value: unknown): { items: PurchaseItem[]; total: number } {
   if (!Array.isArray(value) || value.length === 0) throw new BadRequestException('Informe pelo menos um item');
   if (value.length > 100) throw new BadRequestException('Itens demais no pedido');
@@ -112,6 +117,40 @@ export class PurchaseOrderService {
     return id;
   }
 
+  private async rentalOf(companyId: number, value: unknown, current?: number | null): Promise<number | null> {
+    if (blank(value)) return null;
+    const id = Number(value);
+    if (id === current) return id;
+    const rental = await this.prisma.stock_Rental.findFirst({ where: { id, companyId, inactiveAt: null }, select: { status: true, number: true } });
+    if (!rental) throw new BadRequestException('Ordem de locação não encontrada');
+    if (rental.status === 'cancelada' || rental.status === 'encerrada') throw new BadRequestException(`A ${rental.number} está ${rental.status}: não recebe novos pedidos`);
+    return id;
+  }
+
+  private async classOf(companyId: number, value: unknown, current?: number | null): Promise<number | null> {
+    if (blank(value)) return null;
+    const id = Number(value);
+    if (id === current) return id;
+    const found = await this.prisma.courseClass.findFirst({ where: { id, companyId, inactiveAt: null }, select: { id: true } });
+    if (!found) throw new BadRequestException('Turma não encontrada');
+    return id;
+  }
+
+  /** Nome curto dos destinos (OS, OL ou turma) dos pedidos, para listas. */
+  private async targetsOf(rows: Array<Pick<Purchase_Order, 'serviceOrderId' | 'rentalId' | 'classId'>>) {
+    const ids = (key: 'serviceOrderId' | 'rentalId' | 'classId') => [...new Set(rows.map((row) => row[key]).filter((id): id is number => !!id))];
+    const [orders, rentals, classes] = await Promise.all([
+      this.prisma.service_Order.findMany({ where: { id: { in: ids('serviceOrderId') } }, select: { id: true, number: true } }),
+      this.prisma.stock_Rental.findMany({ where: { id: { in: ids('rentalId') } }, select: { id: true, number: true } }),
+      this.prisma.courseClass.findMany({ where: { id: { in: ids('classId') } }, select: { id: true, name: true, initialDate: true } }),
+    ]);
+    return {
+      order: new Map(orders.map((o) => [o.id, o])),
+      rental: new Map(rentals.map((r) => [r.id, r])),
+      class: new Map(classes.map((c) => [c.id, { id: c.id, number: classLabel(c) }])),
+    };
+  }
+
   // ------------------------------------------------------------------ leitura
 
   async list(actor: PurchaseActor, query: Record<string, string>) {
@@ -124,6 +163,8 @@ export class PurchaseOrderService {
     const scope: Prisma.Purchase_OrderWhereInput = {
       companyId: actor.companyId, inactiveAt: null,
       ...(Number(query.serviceOrderId) > 0 ? { serviceOrderId: Number(query.serviceOrderId) } : {}),
+      ...(Number(query.rentalId) > 0 ? { rentalId: Number(query.rentalId) } : {}),
+      ...(Number(query.classId) > 0 ? { classId: Number(query.classId) } : {}),
       ...(term ? { OR: [{ number: { contains: term, mode: 'insensitive' } }, { title: { contains: term, mode: 'insensitive' } }, { supplierId: { in: supplierIds } }] } : {}),
     };
     const status = STATUSES.includes(query.status as PurchaseStatus) ? (query.status as PurchaseStatus) : undefined;
@@ -134,19 +175,21 @@ export class PurchaseOrderService {
       this.prisma.purchase_Order.count({ where }),
       this.prisma.purchase_Order.groupBy({ by: ['status'], where: scope, _count: { _all: true }, _sum: { total: true } }),
     ]);
-    const ids = <K extends 'supplierId' | 'serviceOrderId' | 'requestedByUserId'>(key: K) => [...new Set(rows.map((row) => row[key]).filter((id): id is number => !!id))];
-    const [suppliers, orders, users] = await Promise.all([
+    const ids = <K extends 'supplierId' | 'requestedByUserId'>(key: K) => [...new Set(rows.map((row) => row[key]).filter((id): id is number => !!id))];
+    const [suppliers, targets, users] = await Promise.all([
       this.prisma.financial_Supplier.findMany({ where: { id: { in: ids('supplierId') } }, select: { id: true, name: true } }),
-      this.prisma.service_Order.findMany({ where: { id: { in: ids('serviceOrderId') } }, select: { id: true, number: true } }),
+      this.targetsOf(rows),
       this.prisma.user.findMany({ where: { id: { in: ids('requestedByUserId') } }, select: { id: true, name: true } }),
     ]);
-    const supplierOf = new Map(suppliers.map((s) => [s.id, s])), orderOf = new Map(orders.map((o) => [o.id, o])), userOf = new Map(users.map((u) => [u.id, u.name]));
+    const supplierOf = new Map(suppliers.map((s) => [s.id, s])), userOf = new Map(users.map((u) => [u.id, u.name]));
     return {
       total,
       rows: rows.map((row) => ({
         id: row.id, number: row.number, title: row.title, group: row.group, status: row.status, total: Number(row.total),
         supplier: row.supplierId ? supplierOf.get(row.supplierId) ?? null : null,
-        serviceOrder: row.serviceOrderId ? orderOf.get(row.serviceOrderId) ?? null : null,
+        serviceOrder: row.serviceOrderId ? targets.order.get(row.serviceOrderId) ?? null : null,
+        rental: row.rentalId ? targets.rental.get(row.rentalId) ?? null : null,
+        courseClass: row.classId ? targets.class.get(row.classId) ?? null : null,
         neededBy: iso(row.neededBy), deliveryDate: iso(row.deliveryDate), requestedBy: row.requestedByUserId ? userOf.get(row.requestedByUserId) ?? null : null,
         late: this.lateOf(row), createdAt: row.createdAt,
       })),
@@ -175,9 +218,11 @@ export class PurchaseOrderService {
   }
 
   private async present(row: Purchase_Order, actor: PurchaseActor) {
-    const [supplier, order, events, payables] = await Promise.all([
+    const [supplier, order, rental, courseClass, events, payables] = await Promise.all([
       row.supplierId ? this.prisma.financial_Supplier.findUnique({ where: { id: row.supplierId }, select: { id: true, name: true, document: true, pixKey: true, phone: true, email: true } }) : null,
       row.serviceOrderId ? this.prisma.service_Order.findUnique({ where: { id: row.serviceOrderId }, select: { id: true, number: true, title: true, customerId: true } }) : null,
+      row.rentalId ? this.prisma.stock_Rental.findUnique({ where: { id: row.rentalId }, select: { id: true, number: true, customerId: true } }) : null,
+      row.classId ? this.prisma.courseClass.findUnique({ where: { id: row.classId }, select: { id: true, name: true, initialDate: true, customerId: true } }) : null,
       listFlowEvents(this.prisma, PURCHASE_FLOW.entity, row.id),
       this.prisma.financial_Payable.findMany({
         where: { companyId: row.companyId, purchaseOrderId: row.id, inactiveAt: null }, orderBy: { dueDate: 'asc' },
@@ -187,13 +232,17 @@ export class PurchaseOrderService {
     const userIds = [...new Set([row.requestedByUserId, row.approvedByUserId, ...events.map((event) => event.userId)].filter((id): id is number => !!id))];
     const users = userIds.length ? await this.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : [];
     const userName = new Map(users.map((user) => [user.id, user.name]));
-    const customer = order ? await this.prisma.customer.findUnique({ where: { id: order.customerId }, select: { name: true } }) : null;
+    const customerIds = [order?.customerId, rental?.customerId, courseClass?.customerId].filter((id): id is number => !!id);
+    const customers = customerIds.length ? await this.prisma.customer.findMany({ where: { id: { in: customerIds } }, select: { id: true, name: true } }) : [];
+    const customerName = (id?: number | null) => customers.find((c) => c.id === id)?.name ?? '';
     const seesBudget = actor.canApprove || actor.canSeeCosts;
     return {
       id: row.id, number: row.number, title: row.title, group: row.group, status: row.status as PurchaseStatus,
       statusLabel: PURCHASE_FLOW.labels[row.status as PurchaseStatus], nextStatuses: PURCHASE_FLOW.moves[row.status as PurchaseStatus],
       statusNote: row.statusNote, late: this.lateOf(row),
-      supplier, serviceOrder: order ? { id: order.id, number: order.number, title: order.title, customer: customer?.name ?? '' } : null,
+      supplier, serviceOrder: order ? { id: order.id, number: order.number, title: order.title, customer: customerName(order.customerId) } : null,
+      rental: rental ? { id: rental.id, number: rental.number, customer: customerName(rental.customerId) } : null,
+      courseClass: courseClass ? { id: courseClass.id, number: classLabel(courseClass), customer: customerName(courseClass.customerId) } : null,
       items: row.items as unknown as PurchaseItem[], total: Number(row.total), justification: row.justification,
       neededBy: iso(row.neededBy), deliveryDate: iso(row.deliveryDate), purchasedAt: iso(row.purchasedAt), receivedAt: iso(row.receivedAt),
       paymentTerms: row.paymentTerms, invoiceNumber: row.invoiceNumber,
@@ -212,25 +261,42 @@ export class PurchaseOrderService {
   }
 
   async options(actor: PurchaseActor) {
-    const [suppliers, orders] = await Promise.all([
+    const since = new Date(Date.now() - 120 * 86400000);
+    const [suppliers, orders, rentals, classes] = await Promise.all([
       this.prisma.financial_Supplier.findMany({ where: { companyId: actor.companyId, inactiveAt: null }, orderBy: { name: 'asc' }, select: { id: true, name: true, document: true }, take: 1000 }),
       this.prisma.service_Order.findMany({
         where: { companyId: actor.companyId, inactiveAt: null, status: { notIn: ['cancelada', 'encerrada'] } }, orderBy: { id: 'desc' }, select: { id: true, number: true, title: true, customerId: true }, take: 300,
       }),
+      this.prisma.stock_Rental.findMany({
+        where: { companyId: actor.companyId, inactiveAt: null, status: { notIn: ['cancelada', 'encerrada'] } }, orderBy: { id: 'desc' }, select: { id: true, number: true, customerId: true }, take: 300,
+      }),
+      // turmas que ainda vão acontecer ou aconteceram há pouco (material, coffee, instrutor de fora…)
+      this.prisma.courseClass.findMany({
+        where: { companyId: actor.companyId, inactiveAt: null, OR: [{ finalDate: null }, { finalDate: { gte: since } }] }, orderBy: [{ initialDate: { sort: 'desc', nulls: 'last' } }, { id: 'desc' }],
+        select: { id: true, name: true, initialDate: true, customerId: true }, take: 300,
+      }),
     ]);
-    const customers = await this.prisma.customer.findMany({ where: { id: { in: orders.map((o) => o.customerId) } }, select: { id: true, name: true } });
+    const customers = await this.prisma.customer.findMany({ where: { id: { in: [...orders, ...rentals, ...classes].map((o) => o.customerId).filter((id): id is number => !!id) } }, select: { id: true, name: true } });
     const customerOf = new Map(customers.map((c) => [c.id, c.name]));
     return {
       suppliers, groups: PURCHASE_GROUPS.map(({ id, name }) => ({ id, name })),
       serviceOrders: orders.map((o) => ({ id: o.id, name: `${o.number} — ${customerOf.get(o.customerId) ?? o.title}` })),
+      rentals: rentals.map((r) => ({ id: r.id, name: `${r.number} — ${customerOf.get(r.customerId) ?? ''}` })),
+      classes: classes.map((c) => ({ id: c.id, name: [classLabel(c), c.customerId ? customerOf.get(c.customerId) : null].filter(Boolean).join(' — ') })),
       canApprove: actor.canApprove,
     };
   }
 
   /** O que os pedidos já comprometeram numa OS, por grupo (para a tela da obra). */
-  async ofServiceOrder(actor: PurchaseActor, serviceOrderId: number) {
+  ofServiceOrder(actor: PurchaseActor, serviceOrderId: number) { return this.ofTarget(actor, { serviceOrderId }); }
+  /** O mesmo para uma Ordem de Locação (frete, sublocação…). */
+  ofRental(actor: PurchaseActor, rentalId: number) { return this.ofTarget(actor, { rentalId }); }
+  /** O mesmo para uma turma (material de curso, instrutor de fora…). */
+  ofClass(actor: PurchaseActor, classId: number) { return this.ofTarget(actor, { classId }); }
+
+  private async ofTarget(actor: PurchaseActor, target: { serviceOrderId: number } | { rentalId: number } | { classId: number }) {
     const rows = await this.prisma.purchase_Order.findMany({
-      where: { companyId: actor.companyId, serviceOrderId, inactiveAt: null, status: { not: 'cancelado' } }, orderBy: { id: 'desc' },
+      where: { companyId: actor.companyId, ...target, inactiveAt: null, status: { not: 'cancelado' } }, orderBy: { id: 'desc' },
       select: { id: true, number: true, title: true, group: true, status: true, total: true, supplierId: true },
     });
     const suppliers = await this.prisma.financial_Supplier.findMany({ where: { id: { in: rows.map((r) => r.supplierId).filter((id): id is number => !!id) } }, select: { id: true, name: true } });
@@ -268,6 +334,11 @@ export class PurchaseOrderService {
     if ('neededBy' in body) data.neededBy = blank(body.neededBy) ? null : asDate(dateOf(body.neededBy, 'Precisa até'));
     if ('supplierId' in body) data.supplierId = await this.supplierOf(actor.companyId, body.supplierId, current?.supplierId);
     if ('serviceOrderId' in body) data.serviceOrderId = await this.serviceOrderOf(actor.companyId, body.serviceOrderId, current?.serviceOrderId);
+    if ('rentalId' in body) data.rentalId = await this.rentalOf(actor.companyId, body.rentalId, current?.rentalId);
+    if ('classId' in body) data.classId = await this.classOf(actor.companyId, body.classId, current?.classId);
+    // um destino só: a obra, a locação ou a turma (nenhum = gasto da empresa)
+    const target = (key: 'serviceOrderId' | 'rentalId' | 'classId') => (key in data ? data[key] : current?.[key] ?? null);
+    if ([target('serviceOrderId'), target('rentalId'), target('classId')].filter(Boolean).length > 1) fail('Escolha um destino só para o pedido: a OS, a ordem de locação ou a turma');
     return data;
   }
 
@@ -298,7 +369,7 @@ export class PurchaseOrderService {
     if (status === 'solicitado' || status === 'recusado') {
       data = await this.contentOf(actor, body, row);
     } else {
-      const locked = ['title', 'group', 'items', 'serviceOrderId', 'justification'].filter((key) => key in body);
+      const locked = ['title', 'group', 'items', 'serviceOrderId', 'rentalId', 'classId', 'justification'].filter((key) => key in body);
       if (locked.length) throw new ConflictException(`Pedido ${PURCHASE_FLOW.labels[status].toLowerCase()}: volte para "Solicitado" para alterar itens e valores`);
       // aprovado ainda pode trocar o fornecedor (a cotação pode mudar); depois de comprado, não
       if ('supplierId' in body) {

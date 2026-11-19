@@ -122,6 +122,7 @@ import { StockInventoryController } from 'src/features/stock/inventory.controlle
 import { ClassBillingController, ContractController } from 'src/features/commercial/contract.controller';
 import { SellerWalletController } from 'src/features/commercial/wallet.controller';
 import { DocumentController, PublicProposalController } from 'src/features/commercial/document.controller';
+import { DealController, PublicDealController } from 'src/features/commercial/deal.controller';
 import { CommercialModule } from 'src/features/commercial/module';
 import { professionalEntity } from 'src/features/commercial/rules.crud';
 import { studentEntity } from 'src/features/student/student/rules.crud';
@@ -285,6 +286,8 @@ export const crudExtraControllers = [
   LedgerController,
   CommercialController,
   ProposalController,
+  DealController,
+  PublicDealController,
   ActivityController,
   PipelineController,
   DashboardController,

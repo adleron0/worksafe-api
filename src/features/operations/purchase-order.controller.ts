@@ -5,6 +5,7 @@ import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { COSTS_PERMISSION, permissionsOf } from 'src/features/commercial/proposal.controller';
 import { getDocumentMulterOptions } from 'src/features/upload/upload.middleware';
 import { PurchaseActor, PurchaseOrderService } from './purchase-order.service';
+import { SaleResultService } from './sale-result.service';
 
 export const APPROVE_PURCHASE_PERMISSION = 'approve_pedidos_de_compra';
 
@@ -21,7 +22,7 @@ type Json = Record<string, unknown>;
 /** Pedidos de compra: a esteira de Suprimentos (solicitar, aprovar, comprar, receber). */
 @Controller('purchase-orders')
 export class PurchaseOrderController {
-  constructor(private readonly purchases: PurchaseOrderService) {}
+  constructor(private readonly purchases: PurchaseOrderService, private readonly results: SaleResultService) {}
 
   @Permissions('list_pedidos_de_compra') @Get()
   list(@Req() req: Request, @Query() query: Record<string, string>) { return this.purchases.list(actorOf(req), query ?? {}); }
@@ -32,6 +33,21 @@ export class PurchaseOrderController {
   /** O comprometido de uma obra: quem vê a OS vê as compras dela. */
   @Permissions('list_ordens_de_servico') @Get('service-order/:orderId')
   ofServiceOrder(@Param('orderId', ParseIntPipe) orderId: number, @Req() req: Request) { return this.purchases.ofServiceOrder(actorOf(req), orderId); }
+
+  /** As compras de uma Ordem de Locação (frete, sublocação…): quem vê a OL vê. */
+  @Permissions('list_locacoes') @Get('rental/:rentalId')
+  ofRental(@Param('rentalId', ParseIntPipe) rentalId: number, @Req() req: Request) { return this.purchases.ofRental(actorOf(req), rentalId); }
+
+  /** As compras de uma turma (material de curso, instrutor de fora…): quem vê a venda da turma vê. */
+  @Permissions('list_comercial') @Get('class/:classId')
+  ofClass(@Param('classId', ParseIntPipe) classId: number, @Req() req: Request) { return this.purchases.ofClass(actorOf(req), classId); }
+
+  /** Resultado (receita − custo) da OL e da turma; o serviço exige a permissão de ver custos. */
+  @Permissions('list_locacoes') @Get('rental/:rentalId/result')
+  rentalResult(@Param('rentalId', ParseIntPipe) rentalId: number, @Req() req: Request) { return this.results.ofRental(actorOf(req), rentalId); }
+
+  @Permissions('list_comercial') @Get('class/:classId/result')
+  classResult(@Param('classId', ParseIntPipe) classId: number, @Req() req: Request) { return this.results.ofClass(actorOf(req), classId); }
 
   @Permissions('create_pedidos_de_compra') @Post('suppliers')
   createSupplier(@Req() req: Request, @Body() body: Json) { return this.purchases.createSupplier(actorOf(req), body ?? {}); }

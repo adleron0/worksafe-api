@@ -1,3 +1,4 @@
+import { DealEvents } from './deal.events';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CommercialDueRule, CommercialItemType, CommercialProposalKind, CommercialProposalStatus, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -115,6 +116,8 @@ export interface Draft {
   validUntil: string | null; referenceDate: string; workDays: number; weekendDays: number;
   contingencyRate: number; commissionRate: number; commissionBase: 'faturado' | 'lucro'; commissionInPrice: boolean;
   taxRegime: 'tradicional' | 'hibrido' | null; discount: number; internalNotes: string | null;
+  /** parte desta proposta no desconto de fechamento conjunto da negociação (não vem da tela da proposta) */
+  dealDiscount: number;
   /** base de cálculo escolhida à mão; nulo = a vigente na data prevista */
   costBaseId: number | null;
   /** documento: cópia editável do modelo, termos escolhidos e formato da tabela de itens */
@@ -164,7 +167,7 @@ function addressLines(street: Array<string | number | null | undefined>, neighbo
 @Injectable()
 export class ProposalService {
   constructor(private readonly prisma: PrismaService, private readonly commercial: CommercialService, private readonly documents: DocumentService,
-    private readonly contracts: ContractService, private readonly activities: ActivityService) {}
+    private readonly contracts: ContractService, private readonly activities: ActivityService, private readonly dealEvents: DealEvents) {}
 
   // ------------------------------------------------------------------ leitura do corpo
 
@@ -284,6 +287,7 @@ export class ProposalService {
       taxRegime: seeCosts ? (body.taxRegime === 'tradicional' || body.taxRegime === 'hibrido' ? body.taxRegime : null) : keep?.taxRegime ?? null,
       costBaseId: seeCosts ? ('costBaseId' in body ? optional(body.costBaseId, 'Base de cálculo', 1, 2147483647) : keep?.costBaseId ?? null) : keep?.costBaseId ?? null,
       discount: round2(number(body.discount, 'Desconto', 0, 1e11, 0)),
+      dealDiscount: keep ? Number(keep.dealDiscount) : 0,
       templateId: 'templateId' in body ? optional(body.templateId, 'Modelo', 1, 2147483647) : keep?.templateId ?? null,
       documentBody: 'documentBody' in body ? (sanitizeBody(body.documentBody) || null) : keep?.documentBody ?? null,
       itemsMode: (ITEMS_MODES.includes(body.itemsMode) ? body.itemsMode : keep?.itemsMode ?? 'detalhado') as ItemsMode,
@@ -382,7 +386,7 @@ export class ProposalService {
       // proposta de locação usa a alíquota da locação do perfil (sem ISS), quando cadastrada
       const tax = draft.kind === 'locacao' ? resolveRentalTax(snapshot.tax.input) : resolveTax(snapshot.tax.input);
       const input: PriceInput = {
-        workDays: draft.workDays, weekendDays: draft.weekendDays, contingencyRate: draft.contingencyRate, discount: draft.discount,
+        workDays: draft.workDays, weekendDays: draft.weekendDays, contingencyRate: draft.contingencyRate, discount: draft.discount + (draft.dealDiscount ?? 0),
         commission: { rate: draft.commissionRate, base: draft.commissionBase, inPrice: draft.commissionInPrice },
         sections: draft.sections.map((section) => ({
           margin: section.margin,
@@ -423,7 +427,7 @@ export class ProposalService {
         })),
       })),
       totals: {
-        suggested: r(t.suggested), subtotal: r(t.subtotal), contingency: r(t.contingency), discount: r(t.discount), net: r(t.net),
+        suggested: r(t.suggested), subtotal: r(t.subtotal), contingency: r(t.contingency), discount: r(t.discount), dealDiscount: r(draft.dealDiscount ?? 0), net: r(t.net),
         taxOutside: r(t.taxOutside), total: r(t.total),
         ...(see ? { cost: r(t.cost), taxInside: r(t.taxInside), tax: r(t.tax), profit: r(t.profit), profitRate: rate(t.profitRate), commission: r(t.commission),
           customerCredit: r(t.customerCredit), customerCost: r(t.customerCost) } : {}),
@@ -519,6 +523,7 @@ export class ProposalService {
       validUntil: iso(row.validUntil), referenceDate: iso(row.referenceDate)!, workDays: row.workDays, weekendDays: row.weekendDays,
       contingencyRate: Number(row.contingencyRate), commissionRate: Number(row.commissionRate), commissionBase: row.commissionBase === 'lucro' ? 'lucro' : 'faturado',
       commissionInPrice: row.commissionInPrice, taxRegime: row.taxRegime, discount: Number(row.discount), internalNotes: row.internalNotes,
+      dealDiscount: Number(row.dealDiscount),
       costBaseId: row.costBaseId,
       templateId: row.templateId, documentBody: row.documentBody, itemsMode: (ITEMS_MODES.includes(row.itemsMode as ItemsMode) ? row.itemsMode : 'detalhado') as ItemsMode, termIds: row.termIds,
       images: this.documents.parseImages(row.images ?? []),
@@ -594,6 +599,7 @@ export class ProposalService {
       id: row.id, number: row.number, revision: row.revision, rootId: row.rootId, status: row.status, inactiveAt: row.inactiveAt,
       expired: SENT.includes(row.status) && !!row.validUntil && iso(row.validUntil)! < today(),
       editable, canSeeCosts: actor.canSeeCosts, customer: row.customer,
+      deal: row.dealId ? await this.prisma.commercial_Deal.findUnique({ where: { id: row.dealId }, select: { id: true, number: true, title: true } }) : null,
       sentAt: row.sentAt, decidedAt: row.decidedAt, statusNote: row.statusNote, createdAt: row.createdAt, updatedAt: row.updatedAt,
       // só interessa avisar quando ainda dá para recalcular
       baseOutdated: editable ? !(await this.commercial.snapshotIsCurrent(row.companyId, snapshot, row.taxRegime, row.costBaseId)) : false,
@@ -884,6 +890,7 @@ export class ProposalService {
       ...(KINDS.includes(query.kind as CommercialProposalKind) ? { kind: query.kind as CommercialProposalKind } : {}),
       ...(Number(query.customerId) > 0 ? { customerId: Number(query.customerId) } : {}),
       ...(Number(query.sellerId) > 0 ? { sellerId: Number(query.sellerId) } : {}),
+      ...(Number(query.dealId) > 0 ? { dealId: Number(query.dealId) } : {}),
       ...(term ? { OR: [
         { number: { contains: term, mode: 'insensitive' } }, { title: { contains: term, mode: 'insensitive' } },
         { customer: { name: { contains: term, mode: 'insensitive' } } }, { customer: { corporateName: { contains: term, mode: 'insensitive' } } },
@@ -895,7 +902,7 @@ export class ProposalService {
       this.prisma.commercial_Proposal.findMany({
         where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: page * limit, take: limit,
         select: { id: true, number: true, revision: true, kind: true, status: true, title: true, total: true, validUntil: true, createdAt: true, sentAt: true,
-          inactiveAt: true, sellerId: true, customer: { select: { id: true, name: true } } },
+          inactiveAt: true, sellerId: true, dealId: true, customer: { select: { id: true, name: true } } },
       }),
       this.prisma.commercial_Proposal.count({ where }),
       this.prisma.commercial_Proposal.groupBy({ by: ['status'], where: scope, _count: { _all: true }, _sum: { total: true } }),
@@ -987,8 +994,10 @@ export class ProposalService {
   }
 
   /** Copia uma proposta existente para outra linha. `revisionOf` faz a cópia virar a revisão seguinte. */
-  private async copy(actor: Actor, source: ProposalRow, revisionOf?: ProposalRow) {
+  private async copy(actor: Actor, source: ProposalRow, revisionOf?: ProposalRow, dealDiscount?: number) {
     const draft = this.draftOf(source);
+    // a revisão continua na negociação (com o desconto conjunto, ou o novo, se veio); a cópia nasce fora dela
+    draft.dealDiscount = revisionOf ? dealDiscount ?? draft.dealDiscount : 0;
     // Cópia nova recalcula com a configuração de hoje; revisão mantém a fotografia da original.
     const snapshot = revisionOf ? JSON.parse(JSON.stringify(source.snapshot)) as PricingSnapshot
       : await this.commercial.snapshot(actor.companyId, draft.referenceDate, draft.taxRegime, draft.costBaseId).catch(() => this.commercial.snapshot(actor.companyId, draft.referenceDate, draft.taxRegime));
@@ -1011,11 +1020,40 @@ export class ProposalService {
       const created = await tx.commercial_Proposal.create({ data: {
         companyId: actor.companyId, ...numbering, kind: draft.kind, customerId: draft.customerId,
         title: revisionOf ? draft.title : `${draft.title} (cópia)`.slice(0, 200),
-        referenceDate: asDate(draft.referenceDate), snapshot: {}, createdByUserId: actor.userId || null,
+        referenceDate: asDate(draft.referenceDate), snapshot: {}, createdByUserId: actor.userId || null, dealId: revisionOf ? revisionOf.dealId : null,
       } });
       await this.persist(tx, actor.companyId, created.id, { ...draft, title: revisionOf ? draft.title : `${draft.title} (cópia)`.slice(0, 200) }, snapshot, result);
       return created.id;
     });
+  }
+
+  /**
+   * Grava a parte do desconto conjunto numa proposta em rascunho e recalcula
+   * (mesma fotografia de preço). Devolve o total novo.
+   */
+  async setDealDiscount(companyId: number, id: number, value: number): Promise<number> {
+    const row = await this.prisma.commercial_Proposal.findFirst({ where: { id, companyId }, include: FULL });
+    if (!row) throw new NotFoundException('Proposta não encontrada');
+    if (row.status !== 'rascunho') throw new ConflictException(`A ${row.number} não está em rascunho: precisa de revisão para mudar o valor`);
+    const draft = this.draftOf(row);
+    draft.dealDiscount = round2(Math.max(0, value));
+    const snapshot = JSON.parse(JSON.stringify(row.snapshot)) as PricingSnapshot;
+    await this.fill(companyId, draft, snapshot);
+    const result = this.calc(draft, snapshot);
+    await this.prisma.$transaction((tx) => this.persist(tx, companyId, id, draft, snapshot, result));
+    return round2(result.totals.total);
+  }
+
+  /** Proposta já enviada: nasce a revisão em rascunho com o desconto conjunto novo (precisa ser enviada de novo). */
+  async reviseWithDealDiscount(actor: Actor, id: number, value: number): Promise<number> {
+    const source = await this.byId(actor, id);
+    if (!SENT.includes(source.status)) throw new ConflictException(`A ${source.number} não está enviada`);
+    return this.copy(actor, source, source, round2(Math.max(0, value)));
+  }
+
+  /** Base do rateio: o valor da proposta sem o desconto conjunto (com o desconto dela própria). */
+  baseOf(row: { totalNet: Prisma.Decimal | number; dealDiscount: Prisma.Decimal | number }) {
+    return round2(Number(row.totalNet) + Number(row.dealDiscount));
   }
 
   async duplicate(actor: Actor, id: number) {
@@ -1090,6 +1128,7 @@ export class ProposalService {
         await this.contracts.createFromProposal(tx, id, { manual: true, userId: actor.userId || null, note, at: new Date().toISOString() }, order);
       }
     });
+    if (['aceita', 'recusada', 'cancelada'].includes(target)) await this.dealEvents.decided(actor.companyId, id);
     if (notify && frozen) {
       // a proposta já está enviada e com link: se o e-mail falhar, avisa em vez de desfazer o envio
       try {

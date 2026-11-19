@@ -165,7 +165,10 @@ model Purchase_Order {
   status String @default("solicitado") @db.VarChar(20)
 
   supplierId     Int?
+  // destino do gasto: uma OS, uma Ordem de Locação ou uma turma (ou nenhum = gasto da empresa)
   serviceOrderId Int?
+  rentalId       Int?
+  classId        Int?
 
   // [{ description, unit, quantity, unitPrice, total }]
   items Json
@@ -196,5 +199,7 @@ model Purchase_Order {
   @@unique([companyId, number])
   @@index([companyId, status])
   @@index([companyId, serviceOrderId])
+  @@index([companyId, rentalId])
+  @@index([companyId, classId])
   @@index([companyId, supplierId])
 }

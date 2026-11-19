@@ -94,22 +94,26 @@ export async function rentalsFromContract(tx: Tx, contractId: number) {
   const contract = await tx.commercial_Contract.findUnique({ where: { id: contractId }, select: { id: true, companyId: true, proposalId: true, customerId: true, startDate: true, acceptedAt: true, sellerId: true } });
   if (!contract) return null;
   if (await tx.stock_Rental.count({ where: { contractId } })) return null;
-  const proposal = await tx.commercial_Proposal.findUnique({ where: { id: contract.proposalId }, select: { rental: true, referenceDate: true, kind: true } });
+  const proposal = await tx.commercial_Proposal.findUnique({ where: { id: contract.proposalId }, select: { rental: true, referenceDate: true, kind: true, totalNet: true, discount: true, dealDiscount: true } });
   const all = await tx.commercial_ProposalItem.findMany({ where: { proposalId: contract.proposalId }, orderBy: [{ order: 'asc' }, { id: 'asc' }] });
   const items = all.filter((item) => item.type === 'locacao_cliente' && item.stockItemId);
   if (!items.length) return null;
   const terms = rentalTermsOf(proposal?.rental, items[0].extra as Body | null);
+  // desconto da proposta (o dela e a parte do fechamento conjunto da negociação): vale proporcionalmente em cada período e cobrança
+  const discounts = num(proposal?.discount) + num(proposal?.dealDiscount);
+  const gross = num(proposal?.totalNet) + discounts;
+  const factor = discounts > 0 && gross > 0 ? Math.max(0, num(proposal?.totalNet) / gross) : 1;
   const start = d(contract.startDate) ?? (proposal?.referenceDate && d(proposal.referenceDate)! >= d(contract.acceptedAt)! ? d(proposal.referenceDate) : null) ?? d(contract.acceptedAt) ?? today();
   const rental = await createRental(tx, contract.companyId, null, {
     customerId: contract.customerId, contractId: contract.id, proposalId: contract.proposalId, startDate: start,
     expectedEnd: terms.untilReturn ? null : periodsEnd(start, terms.period, terms.periods), period: terms.period, billing: terms.billing,
     periods: terms.untilReturn ? null : terms.periods, deposit: terms.deposit, deliveryAddress: terms.deliveryAddress,
-    // valor de cada período por peça: o valor da linha na proposta (já com desconto e preparação) ÷ peças ÷ períodos
+    // valor de cada período por peça: o valor da linha na proposta ÷ peças ÷ períodos, menos o desconto da proposta
     lines: items.map((item) => {
       const periodsOf = Math.max(1, Number((item.extra as Body | null)?.periods ?? terms.periods ?? 1));
       const quantity = Number(item.quantity) || 1;
       // linha antiga sem valor gravado: vale o valor do período digitado
-      const rate = Number(item.value) > 0 ? round2(Number(item.value) / quantity / periodsOf) : Number((item.extra as Body | null)?.rate ?? 0);
+      const rate = round2((Number(item.value) > 0 ? Number(item.value) / quantity / periodsOf : Number((item.extra as Body | null)?.rate ?? 0)) * factor);
       return { itemId: item.stockItemId, quantity, rate };
     }),
     notes: 'Criada pela venda',
@@ -119,7 +123,7 @@ export async function rentalsFromContract(tx: Tx, contractId: number) {
   for (const item of all.filter((i) => i.type !== 'locacao_cliente' && Number(i.value) > 0)) {
     const freight = /frete|transporte|mobiliza|entrega|retirada/i.test(item.description);
     await tx.stock_RentalCharge.create({ data: {
-      companyId: contract.companyId, rentalId: rental.id, periodStart: day, periodEnd: day, value: round2(Number(item.value)),
+      companyId: contract.companyId, rentalId: rental.id, periodStart: day, periodEnd: day, value: round2(Number(item.value) * factor),
       kind: freight ? 'frete' : 'avulso', description: item.description.slice(0, 255),
     } });
   }

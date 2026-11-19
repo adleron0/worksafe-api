@@ -7,6 +7,8 @@ import { OperationsModule } from 'src/features/operations/module';
 import { ActivityService } from './activity.service';
 import { CommercialService } from './commercial.service';
 import { ContractService } from './contract.service';
+import { DealEvents } from './deal.events';
+import { DealService } from './deal.service';
 import { DocumentService } from './document.service';
 import { MeasurementService } from './measurement.service';
 import { PipelineService } from './pipeline.service';
@@ -14,7 +16,7 @@ import { ProposalService } from './proposal.service';
 
 @Module({
   imports: [EmailModule, OperationsModule, HrModule, FilesModule, StockModule],
-  providers: [ActivityService, CommercialService, ContractService, MeasurementService, DocumentService, ProposalService, PipelineService],
-  exports: [ActivityService, CommercialService, ContractService, MeasurementService, DocumentService, ProposalService, PipelineService],
+  providers: [ActivityService, CommercialService, ContractService, MeasurementService, DocumentService, ProposalService, PipelineService, DealEvents, DealService],
+  exports: [ActivityService, CommercialService, ContractService, MeasurementService, DocumentService, ProposalService, PipelineService, DealEvents, DealService],
 })
 export class CommercialModule {}

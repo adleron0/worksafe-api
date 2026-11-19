@@ -257,6 +257,9 @@ model Commercial_Proposal {
   taxRegime         CommercialTaxRegime?
   // desconto em R$ sobre o preço líquido
   discount          Decimal              @default(0) @db.Decimal(14, 2)
+  // negociação (agrupa propostas do mesmo cliente) e a parte desta proposta no desconto de fechamento conjunto
+  dealId            Int?
+  dealDiscount      Decimal              @default(0) @db.Decimal(14, 2)
 
   // Fotografia da base e do imposto usados: mudar a configuração depois não
   // altera a proposta (rascunho pode pedir para recalcular).
@@ -310,6 +313,7 @@ model Commercial_Proposal {
   updatedAt  DateTime  @default(now()) @updatedAt
   inactiveAt DateTime?
 
+  @@index([dealId])
   @@unique([companyId, number])
   @@index([companyId, status])
   @@index([companyId, customerId])
@@ -648,6 +652,8 @@ model Commercial_Activity {
   // lembrete automático de uma ordem de locação (fim de período, devolução)
   rentalId        Int?
   autoKey         String? @db.VarChar(60)
+  // negociação de onde o contato saiu (opcional)
+  dealId          Int?
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
@@ -712,4 +718,53 @@ model Commercial_Measurement {
 
   @@index([contractId])
   @@index([rentalId])
+}
+
+// ---------------------------------------------------------------- negociação
+
+/// Negociação (NG-2026-0001): agrupa propostas do mesmo cliente (serviço, locação,
+/// treinamento), cada uma com o seu destino e a sua NF. A situação é calculada
+/// pelas propostas. O desconto de fechamento conjunto (desligado por padrão) é
+/// rateado entre as propostas e gravado no `dealDiscount` de cada uma.
+model Commercial_Deal {
+  id         Int     @id @default(autoincrement())
+  companyId  Int
+  number     String  @db.VarChar(30)
+  year       Int
+  sequence   Int
+  customerId Int
+  title      String  @db.VarChar(200)
+  sellerId   Int?
+  notes      String?
+
+  // desconto de fechamento conjunto
+  discountEnabled   Boolean @default(false)
+  // percentual (discountValue = fração 0–1) | valor (R$)
+  discountType      String  @default("percentual") @db.VarChar(12)
+  discountValue     Decimal @default(0) @db.Decimal(14, 4)
+  // proporcional (ao valor de cada proposta) | igual | manual (valor por proposta)
+  discountSplit     String  @default("proporcional") @db.VarChar(12)
+  // manual: { "<proposalId>": valor }
+  discountManual    Json?
+  // propostas que recebem o desconto (vazio = todas as da negociação)
+  discountTargets   Int[]   @default([])
+  // incondicional | todas (só se fechar todas) | marcadas (só se fechar as marcadas)
+  discountCondition String  @default("incondicional") @db.VarChar(14)
+  requiredIds       Int[]   @default([])
+  // o que fazer quando a condição cai: avisar | recalcular | retirar
+  onBreak           String  @default("avisar") @db.VarChar(12)
+  // condição descumprida: { at, reason, lost: [ids], action, pending: [ids] } (nulo = ok)
+  breach            Json?
+  discountAppliedAt DateTime?
+
+  // link único para o cliente ver as propostas da negociação
+  publicKey  String?  @unique @db.VarChar(64)
+
+  createdByUserId Int?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@unique([companyId, number])
+  @@index([companyId, customerId])
 }

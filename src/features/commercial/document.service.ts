@@ -1,3 +1,4 @@
+import { DealEvents } from './deal.events';
 import { BadRequestException, ConflictException, GoneException, Injectable, NotFoundException } from '@nestjs/common';
 import { CommercialProposalKind, Prisma } from '@prisma/client';
 import { randomInt, randomUUID } from 'crypto';
@@ -131,7 +132,7 @@ const pct = (value: unknown) => Math.round(Math.min(100, Math.max(0, Number(valu
 
 @Injectable()
 export class DocumentService {
-  constructor(private readonly prisma: PrismaService, private readonly email: EmailService, private readonly contracts: ContractService) {}
+  constructor(private readonly prisma: PrismaService, private readonly email: EmailService, private readonly contracts: ContractService, private readonly dealEvents: DealEvents) {}
 
   // ------------------------------------------------------------------ carga
 
@@ -488,7 +489,7 @@ export class DocumentService {
   private async expireIfDue<T extends { id: number; companyId: number; status: string; validUntil: Date | null }>(row: T): Promise<T> {
     if ((row.status === 'enviada' || row.status === 'visualizada') && row.validUntil && row.validUntil.toISOString().slice(0, 10) < new Date().toISOString().slice(0, 10)) {
       const changed = await this.prisma.commercial_Proposal.updateMany({ where: { id: row.id, status: { in: ['enviada', 'visualizada'] } }, data: { status: 'expirada' } });
-      if (changed.count) await this.event(row, 'expirada');
+      if (changed.count) { await this.event(row, 'expirada'); await this.dealEvents.decided(row.companyId, row.id); }
       return { ...row, status: 'expirada' };
     }
     return row;
@@ -595,6 +596,7 @@ export class DocumentService {
       // a proposta aceita vira contrato na mesma transação
       await this.contracts.createFromProposal(tx, row.id, { name, cpf, role, email, ip: meta.ip, userAgent: meta.userAgent, at: new Date().toISOString(), codeVerified: required, manual: false });
     });
+    await this.dealEvents.decided(row.companyId, row.id);
     return { status: 'aceita', name, hash: row.frozenHash };
   }
 
@@ -610,6 +612,7 @@ export class DocumentService {
       if (!changed.count) throw new ConflictException('Esta proposta não está mais disponível para decisão.');
       await this.event(row, 'recusada', { ip: meta.ip, userAgent: meta.userAgent, name, note: reason || null, documentHash: row.frozenHash }, tx);
     });
+    await this.dealEvents.decided(row.companyId, row.id);
     return { status: 'recusada' };
   }
 
