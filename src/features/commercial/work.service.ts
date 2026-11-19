@@ -22,12 +22,12 @@ import { SellerWalletService } from './wallet.service';
 
 type Body = Record<string, any>;
 type Tx = Prisma.TransactionClient;
-export type WorkLineKind = 'frente' | 'mobilizacao' | 'adiantamento' | 'amortizacao' | 'caucao';
+export type WorkLineKind = 'frente' | 'caucao';
 export interface WorkLine {
   kind: WorkLineKind; description: string; periodStart: string | null; periodEnd: string | null; value: number;
-  frontId?: number; base?: number; prevPercent?: number; percent?: number; accPercent?: number; reportedPercent?: number; rule?: string;
+  frontId?: number; mobilization?: boolean; base?: number; prevPercent?: number; percent?: number; accPercent?: number; reportedPercent?: number; rule?: string;
 }
-interface Prior { acc: Map<number, number>; billedFront: Map<number, number>; mobilizationBilled: boolean; advance: number; amortized: number; deposit: number; lastEnd: string | null }
+interface Prior { acc: Map<number, number>; billedFront: Map<number, number>; deposit: number; lastEnd: string | null }
 
 const OPEN = ['rascunho', 'enviada', 'aprovada', 'contestada'];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -48,18 +48,15 @@ function dateOf(value: unknown, label: string): string {
 }
 const planOf = (raw: unknown) => raw as ContractPlan | null;
 
-/** O que já foi faturado nos boletins anteriores: % acumulado por frente, mobilização, adiantamento e caução. */
+/** O que já foi faturado nos boletins anteriores: % acumulado por frente (a mobilização é uma delas) e caução. */
 export function priorOf(billed: Array<{ lines: unknown; periodEnd: Date | null; depositValue: Prisma.Decimal | null }>): Prior {
-  const prior: Prior = { acc: new Map(), billedFront: new Map(), mobilizationBilled: false, advance: 0, amortized: 0, deposit: 0, lastEnd: null };
+  const prior: Prior = { acc: new Map(), billedFront: new Map(), deposit: 0, lastEnd: null };
   for (const m of billed) {
     for (const line of (m.lines as WorkLine[]) ?? []) {
       if (line.kind === 'frente' && line.frontId) {
         prior.acc.set(line.frontId, Math.max(prior.acc.get(line.frontId) ?? 0, line.accPercent ?? 0));
         prior.billedFront.set(line.frontId, round2((prior.billedFront.get(line.frontId) ?? 0) + line.value));
       }
-      if (line.kind === 'mobilizacao') prior.mobilizationBilled = true;
-      if (line.kind === 'adiantamento') prior.advance = round2(prior.advance + line.value);
-      if (line.kind === 'amortizacao') prior.amortized = round2(prior.amortized - line.value);
     }
     prior.deposit = round2(prior.deposit + Number(m.depositValue ?? 0));
     const end = iso(m.periodEnd);
@@ -70,9 +67,8 @@ export function priorOf(billed: Array<{ lines: unknown; periodEnd: Date | null; 
 
 /**
  * Linhas de um boletim: cada frente (% anterior, do período e acumulado; regra
- * "só ao concluir" segura a frente até 100%), a mobilização como etapa no
- * primeiro boletim, ou o adiantamento e a amortização proporcional, e a caução
- * retida. `invoiceValue` = valor da nota; `value` = a receber (nota − caução).
+ * "só ao concluir" segura a frente até 100%; a mobilização é uma frente que,
+ * sem outro valor informado, sai 100% no primeiro boletim) e a caução retida. `invoiceValue` = valor da nota; `value` = a receber (nota − caução).
  */
 export function buildWorkLines(plan: ContractPlan, prior: Prior, reported: Map<number, number>, period: { start: string; end: string }) {
   const at = { periodStart: period.start, periodEnd: period.end };
@@ -80,7 +76,8 @@ export function buildWorkLines(plan: ContractPlan, prior: Prior, reported: Map<n
   let fronts = 0;
   for (const f of plan.fronts) {
     const prev = prior.acc.get(f.id) ?? 0;
-    const raw = reported.has(f.id) ? reported.get(f.id)! : prev;
+    // medição inicial (mobilização): sai inteira no primeiro boletim, salvo outro valor informado
+    const raw = reported.has(f.id) ? reported.get(f.id)! : f.mobilization ? 100 : prev;
     if (!Number.isFinite(raw) || raw < 0 || raw > 100) throw new BadRequestException(`${f.title}: o % concluído deve ficar entre 0 e 100`);
     const value4 = round4(raw);
     if (value4 < prev - 0.00005) throw new BadRequestException(`${f.title}: o acumulado não pode voltar (${String(prev).replace('.', ',')}% já medido)`);
@@ -88,29 +85,12 @@ export function buildWorkLines(plan: ContractPlan, prior: Prior, reported: Map<n
     // o acumulado em reais sai do % acumulado: os centavos fecham na conclusão
     const value = round2(round2((f.value * acc) / 100) - (prior.billedFront.get(f.id) ?? 0));
     fronts = round2(fronts + value);
-    lines.push({ kind: 'frente', frontId: f.id, rule: f.rule, description: f.title, base: f.value, prevPercent: prev, percent: round4(acc - prev), accPercent: acc, reportedPercent: value4, value, ...at });
-  }
-  const mob = plan.mobilization;
-  let mobLine = 0;
-  if (mob.mode === 'etapa' && mob.value > 0 && !prior.mobilizationBilled) {
-    mobLine = mob.value;
-    lines.unshift({ kind: 'mobilizacao', description: `Mobilização (${pct(mob.rate)} do contrato)`, value: mob.value, ...at });
-  }
-  if (mob.mode === 'adiantamento' && mob.value > 0) {
-    let advance = prior.advance;
-    if (advance <= 0) {
-      advance = mob.value;
-      lines.unshift({ kind: 'adiantamento', description: `Adiantamento de mobilização (${pct(mob.rate)} do contrato)`, value: mob.value, ...at });
-    }
-    const remaining = round2(advance - prior.amortized);
-    const allDone = lines.filter((l) => l.kind === 'frente').every((l) => (l.accPercent ?? 0) >= 100);
-    const amort = allDone ? remaining : Math.min(remaining, round2(fronts * mob.rate));
-    if (amort > 0) lines.push({ kind: 'amortizacao', description: `Amortização do adiantamento (${pct(mob.rate)} do medido)`, value: -amort, ...at });
+    lines.push({ kind: 'frente', frontId: f.id, ...(f.mobilization ? { mobilization: true } : {}), rule: f.rule, description: f.title, base: f.value, prevPercent: prev, percent: round4(acc - prev), accPercent: acc, reportedPercent: value4, value, ...at });
   }
   const invoiceValue = round2(lines.reduce((s, l) => s + l.value, 0));
-  const depositValue = plan.depositRate > 0 ? round2((fronts + mobLine) * plan.depositRate) : 0;
+  const depositValue = plan.depositRate > 0 ? round2(fronts * plan.depositRate) : 0;
   if (depositValue > 0) lines.push({ kind: 'caucao', description: `Caução contratual retida (${pct(plan.depositRate)})`, value: -depositValue, ...at });
-  return { lines, invoiceValue, depositValue, value: round2(invoiceValue - depositValue), measured: round2(fronts + mobLine) };
+  return { lines, invoiceValue, depositValue, value: round2(invoiceValue - depositValue), measured: fronts };
 }
 
 @Injectable()
@@ -163,7 +143,9 @@ export class WorkMeasurementService {
     const fronts = plan.fronts.map((f) => {
       const prev = prior.acc.get(f.id) ?? 0;
       const fromRdo = f.step !== null && rdo.last.has(f.step) ? rdo.last.get(f.step)! : null;
-      return { id: f.id, title: f.title, rule: f.rule, value: f.value, step: f.step, prevPercent: prev, rdoPercent: fromRdo, percent: Math.max(prev, fromRdo ?? prev) };
+      // a mobilização (medição inicial) vem sugerida inteira
+      const percent = f.mobilization ? 100 : Math.max(prev, fromRdo ?? prev);
+      return { id: f.id, title: f.title, rule: f.rule, value: f.value, step: f.step, mobilization: Boolean(f.mobilization), prevPercent: prev, rdoPercent: fromRdo, percent };
     });
     const preview = buildWorkLines(plan, prior, new Map(fronts.map((f) => [f.id, f.percent])), { start: start > end ? end : start, end });
     return { periodStart: start > end ? end : start, periodEnd: end, rdoDate: rdo.date, hasOrder: Boolean(rdo.order), fronts, preview };
@@ -424,8 +406,8 @@ export class WorkMeasurementService {
     });
     const lines = (row.lines as unknown as WorkLine[]) ?? [];
     const billed = await this.prisma.commercial_Measurement.findMany({ where: { contractId: contract.id, source: 'obra', status: 'faturada', number: { lte: row.number } }, select: { lines: true } });
-    const measuredToDate = round2(billed.flatMap((m) => (m.lines as unknown as WorkLine[]) ?? []).filter((l) => l.kind === 'frente' || l.kind === 'mobilizacao').reduce((s, l) => s + l.value, 0)
-      + (row.status === 'faturada' ? 0 : lines.filter((l) => l.kind === 'frente' || l.kind === 'mobilizacao').reduce((s, l) => s + l.value, 0)));
+    const measuredToDate = round2(billed.flatMap((m) => (m.lines as unknown as WorkLine[]) ?? []).filter((l) => l.kind === 'frente').reduce((s, l) => s + l.value, 0)
+      + (row.status === 'faturada' ? 0 : lines.filter((l) => l.kind === 'frente').reduce((s, l) => s + l.value, 0)));
     return {
       id: row.id, label: measurementLabel(row.number), status: row.status, periodStart: start, periodEnd: end, notes: row.notes,
       contract: { id: contract.id, number: contract.number, title: contract.title, value: Number(contract.value), customer: contract.customer, customerOrderNumber: contract.customerOrderNumber },

@@ -7,27 +7,28 @@ import { BadRequestException } from '@nestjs/common';
  * - **Frentes**: a obra quebrada em frentes (em geral as etapas do cronograma),
  *   cada uma com um peso (% do valor medido). Regra `percentual` = mede o %
  *   concluído no período; `conclusao` = só entra no boletim quando chega a 100%.
- * - **Mobilização**: `etapa` (padrão) = uma etapa própria de X% faturada no
- *   início, e as frentes dividem o resto; `adiantamento` = X% faturados no
- *   início e abatidos proporcionalmente de cada boletim até zerar; `nenhuma`.
+ * - **Mobilização**: não tem mecanismo próprio (decisão do dono, 19/11): é só a
+ *   medição inicial, uma frente "Mobilização" de X% do contrato que sai 100%
+ *   no primeiro boletim e passa pelo mesmo caminho de toda medição (A Faturar,
+ *   nota, conta a receber, retenções e caução). As outras frentes dividem o resto.
  * - **Caução contratual**: % retido de cada boletim até o fim da obra, numa
  *   conta a receber própria (liberada `depositReleaseDays` após a conclusão).
  */
 
 export type FrontRule = 'percentual' | 'conclusao';
-export type MobilizationMode = 'nenhuma' | 'etapa' | 'adiantamento';
 export interface PlanFront { step: number | null; title: string; weight: number; rule: FrontRule }
 export interface MeasurementPlanInput {
   mode: 'parcelas' | 'medicao';
   fronts: PlanFront[];
-  mobilization: { mode: MobilizationMode; rate: number };
+  /** medição inicial (mobilização): % do contrato que sai no primeiro boletim; 0 = sem */
+  mobilization: { rate: number };
   depositRate: number;
   depositReleaseDays: number;
 }
-export interface ContractFront extends PlanFront { id: number; value: number }
+export interface ContractFront extends PlanFront { id: number; value: number; mobilization?: boolean }
 export interface ContractPlan {
   fronts: ContractFront[];
-  mobilization: { mode: MobilizationMode; rate: number; value: number };
+  mobilization: { rate: number; value: number };
   depositRate: number; depositReleaseDays: number; total: number;
 }
 
@@ -77,10 +78,9 @@ export function parsePlan(raw: unknown, schedule: unknown): MeasurementPlanInput
     })
     : frontsFromSchedule(schedule);
   const mob = (body.mobilization ?? {}) as Record<string, unknown>;
-  const mode: MobilizationMode = mob.mode === 'nenhuma' || mob.mode === 'adiantamento' ? mob.mode : 'etapa';
   return {
     mode: 'medicao', fronts,
-    mobilization: { mode, rate: mode === 'nenhuma' ? 0 : fraction(mob.rate, 'Mobilização', 0.9, 0.3) },
+    mobilization: { rate: mob.mode === 'nenhuma' ? 0 : fraction(mob.rate, 'Mobilização', 0.9, 0.3) },
     depositRate: fraction(body.depositRate, 'Caução', 0.3, 0),
     depositReleaseDays: Math.round(fraction(body.depositReleaseDays, 'Prazo de liberação da caução', 3650, 0)),
   };
@@ -91,21 +91,23 @@ export function planProblem(plan: MeasurementPlanInput): string | null {
   if (!plan.fronts.length) return 'A medição precisa de pelo menos uma frente';
   const sum = plan.fronts.reduce((s, f) => s + f.weight, 0);
   if (Math.abs(sum - 1) > 0.0005) return `Os pesos das frentes somam ${(sum * 100).toFixed(2).replace('.', ',')}%: precisam fechar 100%`;
-  if (plan.mobilization.mode !== 'nenhuma' && plan.mobilization.rate <= 0) return 'Informe o percentual da mobilização (ou escolha "sem mobilização")';
   return null;
 }
 
 /** Plano do contrato: o valor em reais de cada frente, da mobilização e as regras. */
 export function contractPlanOf(plan: MeasurementPlanInput, total: number): ContractPlan {
-  const mobValue = plan.mobilization.mode === 'nenhuma' ? 0 : round2(total * plan.mobilization.rate);
-  // na etapa própria as frentes dividem o que sobra; no adiantamento medem o contrato inteiro
-  const measurable = plan.mobilization.mode === 'etapa' ? round2(total - mobValue) : total;
+  const mobValue = round2(total * plan.mobilization.rate);
+  // a medição inicial é uma frente como as outras; as demais dividem o que sobra
+  const measurable = round2(total - mobValue);
   const sum = plan.fronts.reduce((s, f) => s + f.weight, 0) || 1;
   const values = plan.fronts.map((f) => round2((measurable * f.weight) / sum));
   if (values.length) values[values.length - 1] = round2(measurable - values.slice(0, -1).reduce((a, b) => a + b, 0));
+  const first: ContractFront[] = mobValue > 0
+    ? [{ id: 1, step: null, title: 'Mobilização (medição inicial)', weight: plan.mobilization.rate, rule: 'conclusao', value: mobValue, mobilization: true }]
+    : [];
   return {
-    fronts: plan.fronts.map((f, index) => ({ ...f, id: index + 1, value: values[index] })),
-    mobilization: { ...plan.mobilization, value: mobValue },
+    fronts: [...first, ...plan.fronts.map((f, index) => ({ ...f, id: first.length + index + 1, value: values[index] }))],
+    mobilization: { rate: plan.mobilization.rate, value: mobValue },
     depositRate: plan.depositRate, depositReleaseDays: plan.depositReleaseDays, total,
   };
 }
@@ -117,9 +119,8 @@ const money = (value: number) => value.toLocaleString('pt-BR', { style: 'currenc
 export function planTerms(plan: MeasurementPlanInput, total: number): string[] {
   const c = contractPlanOf(plan, total);
   const lines = ['Faturamento por medição: ao fim de cada período é emitido um boletim de medição (BM) com o executado em cada frente, para aprovação; cada BM aprovado gera uma nota fiscal no valor medido.'];
-  if (c.mobilization.mode === 'etapa') lines.push(`Mobilização de ${pct(c.mobilization.rate)} (${money(c.mobilization.value)}) faturada no início, como etapa própria; os boletins seguintes medem os ${pct(1 - c.mobilization.rate)} restantes.`);
-  if (c.mobilization.mode === 'adiantamento') lines.push(`Adiantamento de ${pct(c.mobilization.rate)} (${money(c.mobilization.value)}) faturado no início e abatido proporcionalmente de cada boletim até zerar.`);
-  lines.push(`Frentes medidas: ${c.fronts.map((f) => `${f.title} (${money(f.value)}${f.rule === 'conclusao' ? ', medida ao concluir' : ''})`).join('; ')}.`);
+  if (c.mobilization.value > 0) lines.push(`Mobilização de ${pct(c.mobilization.rate)} (${money(c.mobilization.value)}) como medição inicial, no primeiro boletim; os boletins seguintes medem os ${pct(1 - c.mobilization.rate)} restantes.`);
+  lines.push(`Frentes medidas: ${c.fronts.filter((f) => !f.mobilization).map((f) => `${f.title} (${money(f.value)}${f.rule === 'conclusao' ? ', medida ao concluir' : ''})`).join('; ')}.`);
   if (c.depositRate > 0) lines.push(`Caução contratual de ${pct(c.depositRate)} retida de cada boletim e paga ${c.depositReleaseDays ? `${c.depositReleaseDays} dias após` : 'na'} conclusão da obra.`);
   return lines;
 }

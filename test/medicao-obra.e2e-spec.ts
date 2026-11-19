@@ -12,7 +12,7 @@ import { blockRealNetwork, resetAsaasMock } from './setup/asaas-mock';
  * Plano 08, fase 8: faturamento por medição de obra.
  *
  * Proposta de serviço com medição (frentes do cronograma, mobilização como
- * etapa própria ou adiantamento amortizado, caução contratual) → contrato por
+ * medição inicial, caução contratual) → contrato por
  * medição → boletim (BM) com o % de cada frente sugerido pelo RDO → enviado ao
  * cliente, contestado, revisto e aprovado pelo link → faturado (NF, retenções,
  * caução numa conta própria) → desfazer, liberar a caução, A Faturar.
@@ -93,18 +93,19 @@ describe('Medição de obra — boletim de medição (e2e)', () => {
     } });
   }
 
-  it('etapa de mobilização + frentes + caução: BM sugerido pelo RDO, contestado, aprovado pelo link e faturado com retenção', async () => {
-    const { h, created, company } = await proposta({ mode: 'medicao', mobilization: { mode: 'etapa', rate: 0.3 }, depositRate: 0.05, depositReleaseDays: 30 });
+  it('medição inicial (mobilização) + frentes + caução: BM sugerido pelo RDO, contestado, aprovado pelo link e faturado com retenção', async () => {
+    const { h, created, company } = await proposta({ mode: 'medicao', mobilization: { rate: 0.3 }, depositRate: 0.05, depositReleaseDays: 30 });
     const db = testDb();
     const T = total(created);
     // frentes nascem das etapas do cronograma, com peso pela duração; parcelas não valem
     expect(created.draft.measurement).toEqual({
-      mode: 'medicao', depositRate: 0.05, depositReleaseDays: 30, mobilization: { mode: 'etapa', rate: 0.3 },
+      mode: 'medicao', depositRate: 0.05, depositReleaseDays: 30, mobilization: { rate: 0.3 },
       fronts: [{ step: 0, title: 'Jateamento', weight: 0.5, rule: 'percentual' }, { step: 1, title: 'Pintura', weight: 0.5, rule: 'percentual' }],
     });
     expect(created.draft.installments).toEqual([]);
     const mob = r2(T * 0.3), half = r2((T - mob) / 2);
-    expect(created.calc.measurementPlan).toMatchObject({ problem: null, mobilization: { mode: 'etapa', value: mob }, fronts: [{ id: 1, value: half }, { id: 2, value: r2(T - mob - half) }] });
+    // a mobilização é a frente 1 (medição inicial), as outras dividem o resto
+    expect(created.calc.measurementPlan).toMatchObject({ problem: null, mobilization: { value: mob }, fronts: [{ id: 1, value: mob, mobilization: true }, { id: 2, value: half }, { id: 3, value: r2(T - mob - half) }] });
 
     // pesos que não fecham 100% não deixam enviar
     await api().put(`/commercial/proposals/${created.id}`).set(h).send({ ...created.draft, measurement: { ...created.draft.measurement, fronts: [{ title: 'Jateamento', step: 0, weight: 0.4 }, { title: 'Pintura', step: 1, weight: 0.5, rule: 'conclusao' }] } }).expect(200);
@@ -114,11 +115,12 @@ describe('Medição de obra — boletim de medição (e2e)', () => {
     const doc = (await api().post(`/commercial/proposals/${created.id}/document-preview`).set(h).send({}).expect(201)).body;
     expect(doc.html).toContain('Faturamento por medição');
     expect(doc.html).toContain('Mobilização de 30%');
+    expect(doc.html).toContain('medição inicial');
     expect(doc.html).toContain('Caução contratual de 5%');
 
     const contract = await aceitar(h, created.id);
     expect(contract).toMatchObject({ billingMode: 'medicao', installments: [], toBill: T, works: { measurements: [], summary: { measured: 0, balance: T } } });
-    expect(contract.measurementPlan.fronts.map((f: any) => [f.id, f.title, f.rule, f.value])).toEqual([[1, 'Jateamento', 'percentual', half], [2, 'Pintura', 'conclusao', r2(T - mob - half)]]);
+    expect(contract.measurementPlan.fronts.map((f: any) => [f.id, f.title, f.rule, f.value])).toEqual([[1, 'Mobilização (medição inicial)', 'conclusao', mob], [2, 'Jateamento', 'percentual', half], [3, 'Pintura', 'conclusao', r2(T - mob - half)]]);
     expect(contract.serviceOrder).toBeTruthy();
 
     // RDO fechado: Jateamento 40% e depois 60% (rascunho não conta)
@@ -127,16 +129,17 @@ describe('Medição de obra — boletim de medição (e2e)', () => {
     await rdo(contract.id, '2026-11-04', [{ step: 0, title: 'Jateamento', percent: 90 }, { step: 1, title: 'Pintura', percent: 20 }], 'rascunho');
     const sug = (await api().get(`/commercial/contracts/${contract.id}/works/suggestion?periodEnd=2026-11-10`).set(h).expect(200)).body;
     expect(sug).toMatchObject({ periodEnd: '2026-11-10', rdoDate: '2026-11-03', hasOrder: true });
-    expect(sug.fronts.map((f: any) => [f.id, f.prevPercent, f.rdoPercent, f.percent])).toEqual([[1, 0, 60, 60], [2, 0, 20, 20]]);
+    expect(sug.fronts.map((f: any) => [f.id, f.prevPercent, f.rdoPercent, f.percent])).toEqual([[1, 0, null, 100], [2, 0, 60, 60], [3, 0, 20, 20]]);
 
-    // BM-01: mobilização (30%) + 60% do jateamento; a pintura (só ao concluir) não entra; caução de 5%
-    const c1 = (await api().post(`/commercial/contracts/${contract.id}/works`).set(h).send({ periodStart: '2026-11-01', periodEnd: '2026-11-10', fronts: [{ id: 1, percent: 60 }, { id: 2, percent: 20 }] }).expect(201)).body;
+    // BM-01: a medição inicial (mobilização, 30%) sai inteira sem precisar informar + 60% do jateamento;
+    // a pintura (só ao concluir) não entra; caução de 5% sobre tudo, mobilização inclusive
+    const c1 = (await api().post(`/commercial/contracts/${contract.id}/works`).set(h).send({ periodStart: '2026-11-01', periodEnd: '2026-11-10', fronts: [{ id: 2, percent: 60 }, { id: 3, percent: 20 }] }).expect(201)).body;
     expect(c1.created.number).toBe('BM-01');
     const f1 = r2(half * 0.6), dep1 = r2((mob + f1) * 0.05);
     let bm = c1.works.measurements[0];
     expect(bm).toMatchObject({ label: 'BM-01', status: 'rascunho', invoiceValue: r2(mob + f1), depositValue: dep1, value: r2(mob + f1 - dep1) });
     expect(bm.lines.map((l: any) => [l.kind, l.prevPercent ?? null, l.accPercent ?? null, l.value])).toEqual([
-      ['mobilizacao', null, null, mob], ['frente', 0, 60, f1], ['frente', 0, 0, 0], ['caucao', null, null, -dep1],
+      ['frente', 0, 100, mob], ['frente', 0, 60, f1], ['frente', 0, 0, 0], ['caucao', null, null, -dep1],
     ]);
     // um boletim em aberto por vez; não fatura sem aprovação
     await api().post(`/commercial/contracts/${contract.id}/works`).set(h).send({}).expect(409);
@@ -157,7 +160,7 @@ describe('Medição de obra — boletim de medição (e2e)', () => {
     pub = (await api().post(`/commercial/public/measurements/${key}/decision`).set('X-Forwarded-For', '192.0.2.7').send({ decision: 'contestar', name: 'Maria Souza', note: 'O jateamento está em 50%' }).expect(201)).body;
     expect(pub).toMatchObject({ status: 'contestada', canDecide: false, decision: { decision: 'contestada', name: 'Maria Souza', note: 'O jateamento está em 50%', ip: '192.0.2.7' } });
     // revisto: 50%; volta a rascunho e é reenviado; o cliente aprova
-    await api().put(`/commercial/contracts/${contract.id}/works/${bm.id}`).set(h).send({ fronts: [{ id: 1, percent: 50 }, { id: 2, percent: 20 }] }).expect(200);
+    await api().put(`/commercial/contracts/${contract.id}/works/${bm.id}`).set(h).send({ fronts: [{ id: 2, percent: 50 }, { id: 3, percent: 20 }] }).expect(200);
     await api().post(`/commercial/contracts/${contract.id}/works/${bm.id}/send`).set(h).expect(201);
     await api().post(`/commercial/public/measurements/${key}/decision`).send({ decision: 'aprovar', name: 'Maria Souza', role: 'Fiscal' }).expect(201);
     await api().post(`/commercial/public/measurements/${key}/decision`).send({ decision: 'aprovar', name: 'Maria Souza' }).expect(409);
@@ -182,7 +185,7 @@ describe('Medição de obra — boletim de medição (e2e)', () => {
     const depositId = after.works.summary.depositRecord.id;
 
     // BM-02 (aprovação registrada à mão): jateamento 100%, pintura concluída → fecha o contrato
-    const c2 = (await api().post(`/commercial/contracts/${contract.id}/works`).set(h).send({ periodEnd: '2026-11-20', fronts: [{ id: 1, percent: 100 }, { id: 2, percent: 100 }] }).expect(201)).body;
+    const c2 = (await api().post(`/commercial/contracts/${contract.id}/works`).set(h).send({ periodEnd: '2026-11-20', fronts: [{ id: 2, percent: 100 }, { id: 3, percent: 100 }] }).expect(201)).body;
     bm = c2.works.measurements[1];
     expect(bm).toMatchObject({ label: 'BM-02', periodStart: '2026-11-11', periodEnd: '2026-11-20' });
     await api().post(`/commercial/contracts/${contract.id}/works/${bm.id}/approve`).set(h).send({ name: '' }).expect(400);
@@ -207,7 +210,7 @@ describe('Medição de obra — boletim de medição (e2e)', () => {
     await api().put(`/commercial/contracts/${contract.id}/deposit`).set(h).send({ dueDate: '2027-01-15' }).expect(200);
     expect((await db.financialRecords.findUniqueOrThrow({ where: { id: depositId } })).dueDate!.toISOString().slice(0, 10)).toBe('2027-01-15');
     // sem permissão de financeiro não fatura; outra empresa não acessa
-    await api().post(`/commercial/contracts/${contract.id}/works`).set(h).send({ periodEnd: '2026-11-25', fronts: [{ id: 1, percent: 80 }] }).expect(201);
+    await api().post(`/commercial/contracts/${contract.id}/works`).set(h).send({ periodEnd: '2026-11-25', fronts: [{ id: 2, percent: 80 }] }).expect(201);
     const open = (await api().get(`/commercial/contracts/${contract.id}`).set(h)).body.works.measurements[1];
     await api().post(`/commercial/contracts/${contract.id}/works/${open.id}/bill`).set(auth(company.id, COMMERCIAL)).send({ invoiceNumber: 'X' }).expect(403);
     const other = await makeCompany();
@@ -216,38 +219,43 @@ describe('Medição de obra — boletim de medição (e2e)', () => {
     expect(report).toMatchObject({ label: 'BM-02', status: 'rascunho', contract: { number: contract.number } });
   });
 
-  it('adiantamento amortizado: passa a venda de parcelas para medição; adiantamento no início e abatido até zerar', async () => {
+  it('mobilização é a medição inicial: passa a venda de parcelas para medição; a mobilização sai no BM-01 pelo mesmo caminho', async () => {
     const { h, created } = await proposta(undefined);
     const T = total(created);
     const contract = await aceitar(h, created.id);
     expect(contract).toMatchObject({ billingMode: 'parcelas' });
     expect(contract.installments).toHaveLength(1);
     await api().put(`/commercial/contracts/${contract.id}/measurement-plan`).set(h).send({ plan: { fronts: [{ title: 'Obra', weight: 0.9 }] } }).expect(400);
-    const switched = (await api().put(`/commercial/contracts/${contract.id}/measurement-plan`).set(h).send({ plan: { mobilization: { mode: 'adiantamento', rate: 0.3 }, fronts: [{ title: 'Obra toda', weight: 1 }] } }).expect(200)).body;
+    const switched = (await api().put(`/commercial/contracts/${contract.id}/measurement-plan`).set(h).send({ plan: { mobilization: { rate: 0.3 }, fronts: [{ title: 'Obra toda', weight: 1 }] } }).expect(200)).body;
+    const mob = r2(T * 0.3), rest = r2(T - mob);
     expect(switched).toMatchObject({ billingMode: 'medicao', installments: [] });
-    expect(switched.measurementPlan).toMatchObject({ mobilization: { mode: 'adiantamento', value: r2(T * 0.3) }, fronts: [{ id: 1, value: T }] });
-    const adv = r2(T * 0.3);
-    const bill = async (percent: number, end: string, nf: string) => {
-      const c = (await api().post(`/commercial/contracts/${contract.id}/works`).set(h).send({ periodEnd: end, fronts: [{ id: 1, percent }] }).expect(201)).body;
+    expect(switched.measurementPlan.fronts.map((f: any) => [f.id, f.title, f.value])).toEqual([[1, 'Mobilização (medição inicial)', mob], [2, 'Obra toda', rest]]);
+    const bill = async (percent: number, end: string, nf: string, retentions?: unknown) => {
+      const c = (await api().post(`/commercial/contracts/${contract.id}/works`).set(h).send({ periodEnd: end, fronts: [{ id: 2, percent }] }).expect(201)).body;
       const m = c.works.measurements[c.works.measurements.length - 1];
       await api().post(`/commercial/contracts/${contract.id}/works/${m.id}/approve`).set(h).send({ name: 'Fiscal' }).expect(201);
-      await api().post(`/commercial/contracts/${contract.id}/works/${m.id}/bill`).set(h).send({ invoiceNumber: nf }).expect(201);
-      return m;
+      const billed = (await api().post(`/commercial/contracts/${contract.id}/works/${m.id}/bill`).set(h).send({ invoiceNumber: nf, retentions }).expect(201)).body;
+      return { m, recordId: billed.billed.financialRecordId };
     };
-    // BM-01: só o adiantamento
-    const m1 = await bill(0, addDays(TODAY, 5), 'NF-1');
-    expect(m1.lines.map((l: any) => [l.kind, l.value])).toEqual([['adiantamento', adv], ['frente', 0]]);
-    // BM-02: 50% → abate 30% do medido
-    const m2 = await bill(50, addDays(TODAY, 15), 'NF-2');
-    const half = r2(T * 0.5);
-    expect(m2.lines.map((l: any) => [l.kind, l.value])).toEqual([['frente', half], ['amortizacao', -r2(half * 0.3)]]);
-    // BM-03: 100% → abate o resto do adiantamento
-    const m3 = await bill(100, addDays(TODAY, 25), 'NF-3');
-    expect(m3.lines.map((l: any) => [l.kind, l.value])).toEqual([['frente', r2(T - half)], ['amortizacao', -r2(adv - r2(half * 0.3))]]);
+    // BM-01: só a medição inicial; vira nota, conta a receber e retenção como qualquer boletim
+    const b1 = await bill(0, addDays(TODAY, 5), 'NF-1', [{ tax: 'iss', rate: 5 }]);
+    expect(b1.m.lines.map((l: any) => [l.kind, l.frontId, l.accPercent, l.value])).toEqual([['frente', 1, 100, mob], ['frente', 2, 0, 0]]);
+    const rec = await testDb().financialRecords.findUniqueOrThrow({ where: { id: b1.recordId }, include: { retentions: true } });
+    expect(Number(rec.value)).toBe(mob);
+    expect(rec.retentions.map((x) => Number(x.value))).toEqual([r2(mob * 0.05)]);
+    // BM-02 e BM-03 medem o resto; a mobilização não volta
+    const b2 = await bill(50, addDays(TODAY, 15), 'NF-2');
+    expect(b2.m.lines.map((l: any) => [l.frontId, l.prevPercent, l.accPercent, l.value])).toEqual([[1, 100, 100, 0], [2, 0, 50, r2(rest * 0.5)]]);
+    await bill(100, addDays(TODAY, 25), 'NF-3');
     const after = (await api().get(`/commercial/contracts/${contract.id}`).set(h).expect(200)).body;
-    expect(after.works.summary).toMatchObject({ measured: T, invoiced: T, advance: adv, amortized: adv, balance: 0, depositRecord: null });
+    expect(after.works.summary).toMatchObject({ measured: T, invoiced: T, balance: 0, depositRecord: null });
     // com boletins, o plano não muda mais
     await api().put(`/commercial/contracts/${contract.id}/measurement-plan`).set(h).send({ plan: { fronts: [{ title: 'Obra', weight: 1 }] } }).expect(409);
+  });
+
+  it('sem mobilização: só as frentes', async () => {
+    const { created } = await proposta({ mode: 'medicao', mobilization: { rate: 0 }, fronts: [{ title: 'Obra', weight: 1 }] });
+    expect(created.calc.measurementPlan.fronts.map((f: any) => [f.id, f.title, f.value])).toEqual([[1, 'Obra', total(created)]]);
   });
 
   it('venda de parcelas com parcela faturada não vira medição; rotas de obra recusam venda que não é por medição', async () => {

@@ -201,7 +201,7 @@ export class MeasurementService {
     const billed = rows.filter((r) => r.status === 'faturada');
     const linesOf = (r: { lines: unknown }) => (r.lines as Array<{ kind: string; value: number }>) ?? [];
     const sum = (list: typeof rows, kinds: string[]) => round2(list.flatMap(linesOf).filter((l) => kinds.includes(l.kind)).reduce((acc, l) => acc + l.value, 0));
-    const measured = sum(billed, ['frente', 'mobilizacao']);
+    const measured = sum(billed, ['frente']);
     const deposit = contract.depositRecordId ? recordOf.get(contract.depositRecordId) : undefined;
     return {
       measurements: rows.map((m) => {
@@ -220,7 +220,6 @@ export class MeasurementService {
         measured, balance: round2(Number(contract.value) - measured),
         invoiced: round2(billed.reduce((acc, m) => acc + Number(m.invoiceValue ?? m.value), 0)),
         deposit: round2(billed.reduce((acc, m) => acc + Number(m.depositValue ?? 0), 0)),
-        advance: sum(billed, ['adiantamento']), amortized: round2(-sum(billed, ['amortizacao'])),
         depositRecord: deposit && !deposit.inactiveAt ? { id: deposit.id, status: deposit.status, value: Number(deposit.value), dueDate: iso(deposit.dueDate), paid: PAID.includes(deposit.status) } : null,
         open: rows.find((r) => r.status !== 'faturada')?.id ?? null,
       },
