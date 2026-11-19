@@ -108,6 +108,19 @@ describe('Comercial — base de cálculo da locação (e2e)', () => {
     const blind = (await api().get(`/stock/items/${item.id}`).set(auth((await testDb().company.findFirstOrThrow()).id, ['list_itens_estoque'])).expect(200)).body;
     expect(blind.rentalPrice).toBeNull();
 
+    // a aba Locação da base lista os itens alugáveis do estoque (a pesquisa fica de referência)
+    await api().post('/stock/items').set(h).send({ name: 'Furadeira', tracking: 'quantidade', returnable: true }).expect(201);
+    await api().post('/stock/items').set(h).send({ name: 'Detector sem valor', tracking: 'quantidade', returnable: true, rentable: true }).expect(201);
+    const preview = (await api().post('/commercial/rental/preview').set(h).send({}).expect(201)).body;
+    expect(preview.presets).toHaveLength(7);
+    expect(preview.items.map((i: any) => i.label)).toEqual(['Detector sem valor', 'Tripé com guincho 20 m']);
+    const [incomplete, listed] = preview.items;
+    expect(incomplete.itemId).toEqual(expect.any(Number));
+    expect(incomplete.month).toBeUndefined();
+    expect(incomplete.error).toMatch(/valor de reposição/);
+    expect(listed).toMatchObject({ itemId: item.id, key: `item-${item.id}`, priceMode: 'manual', manual: { mes: 1800 }, month: 1492.33, error: null });
+    expect(listed.cost.ownMonthly).toBe(364.98);
+
     const presets = (await api().get('/stock/items/rental-presets').set(h).expect(200)).body;
     expect(presets.map((p: any) => p.key)).toEqual(['cinto', 'trava_corda', 'trava_retratil', 'tripe', 'detector', 'exaustor', 'kit_resgate']);
   });

@@ -5,7 +5,7 @@ import {
   BaseResult, computeBase, CostBaseParams, CostItem, price, PriceInput, PricingError, professionalCost,
   resolveRentalTax, resolveTax, rounded, TaxBracket, TaxProfileInput,
 } from './pricing/engine';
-import { RentalSnapshotItem } from './rental.items';
+import { loadRentalItems, RentalSnapshotItem } from './rental.items';
 import { RENTAL_PRESETS, RentalDefaults, rentalCost, rentalDefaultsOf, RentalError, rentalTable } from './pricing/rental';
 import {
   SHEET_BRACKETS, SHEET_DEFAULTS, SHEET_ITEMS, SHEET_PARAMS, SHEET_PROFESSIONALS, SHEET_RBT12,
@@ -339,6 +339,11 @@ export class CommercialService {
     const taxRow = await this.currentTax(companyId, date, body.regime as string | undefined);
     const input = taxInputOf(taxRow);
     if ('rentalRate' in body) input.rentalRate = blank(body.rentalRate) ? null : number(body.rentalRate, 'Alíquota da locação', 0, 0.99);
+    // os equipamentos que a empresa aluga são os itens do estoque marcados "Alugável"
+    const stockRows = await this.prisma.stock_Item.findMany({
+      where: { companyId, rentable: true, inactiveAt: null }, select: { id: true }, orderBy: [{ name: 'asc' }, { id: 'asc' }],
+    });
+    const stockItems = await loadRentalItems(this.prisma, companyId, stockRows.map((r) => r.id));
     return guarded(() => {
       const tax = resolveRentalTax(input);
       const service = resolveTax(input);
@@ -355,7 +360,22 @@ export class CommercialService {
       return {
         date, margin, defaults,
         tax: { profile: taxRow.name, regime: taxRow.regime, rental: tax.rental, inside: tax.inside, service: service.inside },
+        // referência da pesquisa (18/11/2026): modelo para cadastrar o item no estoque
         presets: Object.entries(RENTAL_PRESETS).map(([key, preset]) => row(key, preset.label, preset, preset.source)),
+        items: stockRows.map(({ id }) => {
+          const item = stockItems[id];
+          const base = {
+            itemId: id, priceMode: item.priceMode, rentMode: item.rentMode, minRentPeriod: item.minRentPeriod,
+            manual: item.priceMode === 'manual' ? item.rent : null,
+          };
+          try {
+            return { ...row(`item-${id}`, item.name, item.input), ...base, error: null };
+          } catch (error) {
+            // um item com o cadastro incompleto não derruba a tabela: a linha diz o que falta
+            if (error instanceof RentalError) return { key: `item-${id}`, label: item.name, ...base, error: error.message };
+            throw error;
+          }
+        }),
       };
     });
   }
