@@ -52,6 +52,7 @@ export class BotService {
     return {
       bots: bots.map((bot) => this.present(bot, actor.permissions, true)),
       providers: this.providers.status(),
+      models: this.providers.models(),
       tools: this.catalog.all().map((tool) => ({ name: tool.name, title: tool.title, description: tool.description, risk: tool.risk, permissions: [...tool.permissions, ...(tool.anyPermissions?.length ? [`uma de: ${tool.anyPermissions.join(', ')}`] : [])] })),
       enabled: process.env.AI_BOTS_ENABLED !== 'false',
     };
@@ -133,6 +134,21 @@ export class BotService {
       return row;
     });
     return this.present(updated, actor.permissions, true);
+  }
+
+  /** Troca o modelo de todos os bots de uma vez (cada um ganha uma versão nova). */
+  async applyModelToAll(actor: BotActor, body: Record<string, unknown>) {
+    const provider = clean(body.provider, 20);
+    const model = clean(body.model, 80);
+    await this.ensureDefaults(actor.companyId);
+    const bots = await this.prisma.ai_Bot.findMany({ where: { companyId: actor.companyId, inactiveAt: null }, orderBy: { id: 'asc' } });
+    let changed = 0;
+    for (const bot of bots) {
+      if (bot.provider === provider && bot.model === model) continue;
+      await this.update(actor, bot.id, { provider, model });
+      changed += 1;
+    }
+    return { changed, total: bots.length };
   }
 
   async versions(actor: BotActor, botId: number) {

@@ -61,6 +61,9 @@ export class AiController {
   @Permissions('update_bots') @Get('bots/config')
   config(@Req() req: Request) { return this.bots.listAll(actorOf(req)); }
 
+  @Permissions('update_bots') @Put('bots/model')
+  applyModel(@Req() req: Request, @Body() body: Json) { return this.bots.applyModelToAll(actorOf(req), body ?? {}); }
+
   @Permissions('update_bots') @Put('bots/:id')
   update(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.bots.update(actorOf(req), id, body ?? {}); }
 
