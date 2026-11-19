@@ -4,6 +4,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { classificationDefaults } from 'src/features/financial/classification';
 import { PendingLine, applyMeasurement, nextOpenPeriod, pendingLines, revertMeasurement, syncRentalReminders } from 'src/features/stock/rental.service';
 import { SellerWalletService } from './wallet.service';
+import { netWith, parseRetentions, retentionTotal, writeRetentions } from 'src/features/financial/retention.service';
 
 /**
  * Faturamento por medição (plano 08, fases 3 e 8).
@@ -59,7 +60,7 @@ export class MeasurementService {
   }
 
   /** Dados da nota informados ao faturar (os mesmos da parcela). */
-  private invoiceOf(body: Body, value: number, suggestedDue: string) {
+  invoiceOf(body: Body, value: number, suggestedDue: string, base = value) {
     const invoiceNumber = clean(body.invoiceNumber, 60);
     if (!invoiceNumber) throw new BadRequestException('Informe o número da nota fiscal');
     const invoiceDate = blank(body.invoiceIssuedAt) ? today() : dateOf(body.invoiceIssuedAt, 'Data da nota');
@@ -68,7 +69,10 @@ export class MeasurementService {
     const netRaw = blank(body.netValue) ? null : Number(String(body.netValue).replace(',', '.'));
     if (netRaw !== null && (!Number.isFinite(netRaw) || netRaw <= 0 || netRaw > value)) throw new BadRequestException('Valor líquido deve ficar entre zero e o valor da medição');
     const method = METHODS.includes(body.paymentMethod) ? (body.paymentMethod as paymentMethods) : 'boleto';
-    return { invoiceNumber, invoiceDate, dueDate, netValue: netRaw === null ? null : round2(netRaw), method };
+    // impostos retidos pelo cliente na nota (base = valor da nota)
+    const retentions = parseRetentions(body.retentions, base);
+    if (retentionTotal(retentions) >= value) throw new BadRequestException('As retenções não podem chegar ao valor a receber');
+    return { invoiceNumber, invoiceDate, dueDate, netValue: netRaw === null ? null : round2(netRaw), method, retentions, base };
   }
 
   /**
@@ -78,6 +82,7 @@ export class MeasurementService {
   async createMeasurement(tx: Tx, input: {
     companyId: number; userId: number | null; contract: { id: number; number: string; title: string; customerId: number; sellerId: number | null; proposalId: number; value: Prisma.Decimal | number; customerOrderNumber: string | null };
     source: 'locacao' | 'obra'; rentalId?: number | null; lines: MeasurementLine[]; invoice: ReturnType<MeasurementService['invoiceOf']> | null; description?: string;
+    invoiceValue?: number | null; extra?: Partial<Prisma.Commercial_MeasurementUncheckedCreateInput>;
   }) {
     const value = round2(input.lines.reduce((s, l) => s + l.value, 0));
     if (value < -0.005) throw new ConflictException('A medição ficou negativa: a caução abatida passa do que há para faturar');
@@ -88,26 +93,37 @@ export class MeasurementService {
     const measurement = await tx.commercial_Measurement.create({ data: {
       companyId: input.companyId, contractId: input.contract.id, number, source: input.source, rentalId: input.rentalId ?? null,
       periodStart: dates.length ? asDate(dates[0]) : null, periodEnd: dates.length ? asDate(dates[dates.length - 1]) : null,
-      value, lines: input.lines as unknown as Prisma.InputJsonValue, status: 'faturada', invoiceNumber: input.invoice?.invoiceNumber ?? null, createdByUserId: input.userId,
+      value, invoiceValue: input.invoiceValue ?? null, lines: input.lines as unknown as Prisma.InputJsonValue, status: 'faturada', invoiceNumber: input.invoice?.invoiceNumber ?? null, createdByUserId: input.userId,
+      ...(input.extra ?? {}),
     } });
-    let recordId: number | null = null;
-    if (value > 0) {
-      if (!input.invoice) throw new BadRequestException('Informe a nota fiscal');
-      const label = `${input.contract.number} — ${measurementLabel(number)}`;
-      const record = await tx.financialRecords.create({ data: {
-        companyId: input.companyId, gateway: 'manual', status: 'waiting', paymentMethod: input.invoice.method,
-        customerId: input.contract.customerId, sellerId: input.contract.sellerId, value, netValue: input.invoice.netValue, ...(await commissionFor(tx, input.contract, value)),
-        dueDate: noonUtc(input.invoice.dueDate), accrualDate: input.invoice.invoiceDate.slice(0, 7),
-        invoiceNumber: input.invoice.invoiceNumber, invoiceIssuedAt: noonUtc(input.invoice.invoiceDate),
-        description: (input.description || `${label} · ${input.contract.title}`).slice(0, 255),
-        observations: input.contract.customerOrderNumber ? `Pedido do cliente ${input.contract.customerOrderNumber}` : null,
-        contractId: input.contract.id, measurementId: measurement.id,
-        ...(await classificationDefaults(tx, input.companyId, 'contrato')),
-      } });
-      recordId = record.id;
-      await tx.commercial_Measurement.update({ where: { id: measurement.id }, data: { financialRecordId: record.id } });
-    }
+    const recordId = value > 0 ? await this.createRecord(tx, { ...input, measurement, value }) : null;
     return { measurement, recordId };
+  }
+
+  /**
+   * A conta a receber de um boletim: valor, nota, comissão proporcional,
+   * retenções de imposto e o vínculo com o contrato e o boletim.
+   */
+  async createRecord(tx: Tx, input: {
+    companyId: number; userId: number | null; contract: { id: number; number: string; title: string; customerId: number; sellerId: number | null; proposalId: number; value: Prisma.Decimal | number; customerOrderNumber: string | null };
+    measurement: { id: number; number: number }; value: number; invoice: ReturnType<MeasurementService['invoiceOf']> | null; description?: string;
+  }): Promise<number> {
+    if (!input.invoice) throw new BadRequestException('Informe a nota fiscal');
+    const label = `${input.contract.number} — ${measurementLabel(input.measurement.number)}`;
+    const record = await tx.financialRecords.create({ data: {
+      companyId: input.companyId, gateway: 'manual', status: 'waiting', paymentMethod: input.invoice.method,
+      customerId: input.contract.customerId, sellerId: input.contract.sellerId, value: input.value, netValue: netWith(input.value, input.invoice.retentions, input.invoice.netValue),
+      ...(await commissionFor(tx, input.contract, input.value)),
+      dueDate: noonUtc(input.invoice.dueDate), accrualDate: input.invoice.invoiceDate.slice(0, 7),
+      invoiceNumber: input.invoice.invoiceNumber, invoiceIssuedAt: noonUtc(input.invoice.invoiceDate),
+      description: (input.description || `${label} · ${input.contract.title}`).slice(0, 255),
+      observations: input.contract.customerOrderNumber ? `Pedido do cliente ${input.contract.customerOrderNumber}` : null,
+      contractId: input.contract.id, measurementId: input.measurement.id,
+      ...(await classificationDefaults(tx, input.companyId, 'contrato')),
+    } });
+    await writeRetentions(tx, { ...record, accrualDate: input.invoice.invoiceDate.slice(0, 7) }, input.invoice.retentions, input.invoice.base, input.userId);
+    await tx.commercial_Measurement.update({ where: { id: input.measurement.id }, data: { financialRecordId: record.id } });
+    return record.id;
   }
 
   // ------------------------------------------------------------------ locação
@@ -171,6 +187,44 @@ export class MeasurementService {
     });
     if (record) await this.wallet.syncRecordSafe(record.id);
     return { ok: true };
+  }
+
+  /** Medição de obra do contrato: os boletins (todas as etapas), o resumo medido × faturado × saldo e a caução. */
+  async worksOf(contract: { id: number; value: Prisma.Decimal | number; billingMode: string; depositRecordId: number | null }) {
+    if (contract.billingMode !== 'medicao') return null;
+    const rows = await this.prisma.commercial_Measurement.findMany({ where: { contractId: contract.id, source: 'obra', status: { not: 'cancelada' } }, orderBy: { number: 'asc' } });
+    const ids = [...rows.map((r) => r.financialRecordId), contract.depositRecordId].filter((x): x is number => !!x);
+    const records = await this.prisma.financialRecords.findMany({
+      where: { id: { in: ids } }, select: { id: true, status: true, value: true, netValue: true, dueDate: true, paidAt: true, invoiceNumber: true, invoiceIssuedAt: true, invoiceUrl: true, inactiveAt: true },
+    });
+    const recordOf = new Map(records.map((r) => [r.id, r]));
+    const billed = rows.filter((r) => r.status === 'faturada');
+    const linesOf = (r: { lines: unknown }) => (r.lines as Array<{ kind: string; value: number }>) ?? [];
+    const sum = (list: typeof rows, kinds: string[]) => round2(list.flatMap(linesOf).filter((l) => kinds.includes(l.kind)).reduce((acc, l) => acc + l.value, 0));
+    const measured = sum(billed, ['frente', 'mobilizacao']);
+    const deposit = contract.depositRecordId ? recordOf.get(contract.depositRecordId) : undefined;
+    return {
+      measurements: rows.map((m) => {
+        const record = m.financialRecordId ? recordOf.get(m.financialRecordId) : undefined;
+        return {
+          id: m.id, number: m.number, label: measurementLabel(m.number), status: m.status, periodStart: iso(m.periodStart), periodEnd: iso(m.periodEnd),
+          value: Number(m.value), invoiceValue: Number(m.invoiceValue ?? m.value), depositValue: Number(m.depositValue ?? 0), lines: m.lines, notes: m.notes,
+          publicKey: m.publicKey, sentAt: m.sentAt, decidedAt: m.decidedAt, decision: m.decision,
+          record: record ? {
+            id: record.id, status: record.status, dueDate: iso(record.dueDate), paidAt: record.paidAt, invoiceNumber: record.invoiceNumber, invoiceIssuedAt: iso(record.invoiceIssuedAt),
+            hasInvoiceFile: Boolean(record.invoiceUrl), paid: PAID.includes(record.status), netValue: record.netValue === null ? null : Number(record.netValue),
+          } : null,
+        };
+      }),
+      summary: {
+        measured, balance: round2(Number(contract.value) - measured),
+        invoiced: round2(billed.reduce((acc, m) => acc + Number(m.invoiceValue ?? m.value), 0)),
+        deposit: round2(billed.reduce((acc, m) => acc + Number(m.depositValue ?? 0), 0)),
+        advance: sum(billed, ['adiantamento']), amortized: round2(-sum(billed, ['amortizacao'])),
+        depositRecord: deposit && !deposit.inactiveAt ? { id: deposit.id, status: deposit.status, value: Number(deposit.value), dueDate: iso(deposit.dueDate), paid: PAID.includes(deposit.status) } : null,
+        open: rows.find((r) => r.status !== 'faturada')?.id ?? null,
+      },
+    };
   }
 
   /** Medições do contrato (para a tela do contrato e o A Faturar). */

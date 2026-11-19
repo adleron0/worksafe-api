@@ -11,6 +11,7 @@ import { DocumentData, DocumentService, ITEMS_MODES, ItemsMode, VARIABLES, rende
 import { computeBase, price, PriceInput, PriceItemInput, PriceResult, PricingError, professionalCost, resolveRentalTax, resolveTax, round2 } from './pricing/engine';
 import { RentalError, RentalLine, RentPeriod, rentalCost, rentalDefaultsOf, rentalLine } from './pricing/rental';
 import { loadRentalItems } from './rental.items';
+import { MeasurementPlanInput, contractPlanOf, parsePlan, planProblem, planTerms } from './measurement.plan';
 import { RentalTerms, periodsEnd, rentalAvailability, rentalTermsOf } from 'src/features/stock/rental.service';
 
 type Body = Record<string, any>;
@@ -128,6 +129,8 @@ export interface Draft {
   schedule: Schedule;
   /** proposta de locação: período, nº de períodos ou "até devolver", cobrança, caução e entrega */
   rental: RentalTerms | null;
+  /** serviço: faturamento por medição de obra (frentes, mobilização, caução); null = parcelas */
+  measurement: MeasurementPlanInput | null;
   sections: DraftSection[]; installments: DraftInstallment[];
 }
 
@@ -249,6 +252,9 @@ export class ProposalService {
         if (item.type === 'locacao_cliente') item.extra = { ...(item.extra ?? {}), period: rental.period, periods: rental.periods };
       }
     }
+    // serviço pode ser faturado por medição de obra (frentes, mobilização, caução) em vez de parcelas
+    const schedule = this.documents.parseSchedule('schedule' in body ? body.schedule : keep?.schedule);
+    const measurement = kind === 'servico' ? parsePlan('measurement' in body ? body.measurement : keep?.measurement, schedule) : null;
     const allowed = KIND_ITEMS[kind];
     for (const section of sections) {
       const wrong = [section.kind, ...section.items.map((item) => item.type)].find((type) => !allowed.includes(type));
@@ -295,7 +301,7 @@ export class ProposalService {
       images: 'images' in body ? this.documents.parseImages(body.images) : this.documents.parseImages(keep?.images ?? []),
       schedule: this.documents.parseSchedule('schedule' in body ? body.schedule : keep?.schedule),
       // locação é cobrada por medição: parcelas não se aplicam
-      rental, sections, installments: kind === 'locacao' ? [] : installments,
+      rental, sections, installments: kind === 'locacao' || measurement ? [] : installments, measurement,
     };
   }
 
@@ -433,6 +439,8 @@ export class ProposalService {
           customerCredit: r(t.customerCredit), customerCost: r(t.customerCost) } : {}),
       },
       installments, installmentsTotal: r(planned), installmentsDiff: r(round2(t.total) - planned),
+      // medição de obra: o valor de cada frente e da mobilização com o total de agora
+      measurementPlan: draft.measurement ? { ...contractPlanOf(draft.measurement, round2(t.total)), problem: planProblem(draft.measurement) } : null,
       ...(see ? {
         margin: Object.fromEntries(Object.entries(result.margin).map(([key, value]) => [key, key.endsWith('Rate') ? rate(value) : r(value)])),
         tax: { name: snapshot.tax.name, regime: result.taxResult.regime, inside: rate(result.taxResult.inside), outside: rate(result.taxResult.outside) },
@@ -529,6 +537,7 @@ export class ProposalService {
       images: this.documents.parseImages(row.images ?? []),
       schedule: this.documents.parseSchedule(row.schedule),
       rental: row.kind === 'locacao' ? rentalTermsOf(row.rental, (row.items.find((item) => item.type === 'locacao_cliente')?.extra ?? undefined) as Record<string, unknown> | undefined) : null,
+      measurement: row.kind === 'servico' ? parsePlan(row.measurement, row.schedule) : null,
       sections: row.sections.map((section) => ({
         id: section.id, title: section.title, kind: section.kind, margin: Number(section.margin), showInDocument: section.showInDocument,
         items: row.items.filter((item) => item.sectionId === section.id).map((item) => ({
@@ -548,9 +557,10 @@ export class ProposalService {
   /** Grava cabeçalho, seções, itens e parcelas de uma vez (substitui os filhos). */
   private async persist(tx: Tx, companyId: number, id: number, draft: Draft, snapshot: PricingSnapshot, result: ReturnType<ProposalService['calc']>) {
     const t = result.totals;
-    const { sections, installments, images, schedule, rental, ...header } = draft;
+    const { sections, installments, images, schedule, rental, measurement, ...header } = draft;
     await tx.commercial_Proposal.update({ where: { id }, data: {
-      ...header, rental: rental ? (rental as unknown as Prisma.InputJsonValue) : Prisma.JsonNull, images: images as unknown as Prisma.InputJsonValue, schedule: schedule as unknown as Prisma.InputJsonValue, validUntil: header.validUntil ? asDate(header.validUntil) : null, referenceDate: asDate(header.referenceDate),
+      ...header, rental: rental ? (rental as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
+      measurement: measurement ? (measurement as unknown as Prisma.InputJsonValue) : Prisma.JsonNull, images: images as unknown as Prisma.InputJsonValue, schedule: schedule as unknown as Prisma.InputJsonValue, validUntil: header.validUntil ? asDate(header.validUntil) : null, referenceDate: asDate(header.referenceDate),
       snapshot: snapshot as unknown as Prisma.InputJsonValue,
       totalCost: round2(t.cost), totalSuggested: round2(t.suggested), totalNet: round2(t.net), totalTax: round2(t.tax), total: round2(t.total),
       profit: round2(t.profit), commission: round2(t.commission),
@@ -721,7 +731,9 @@ export class ProposalService {
       date, validUntil: draft.validUntil, workDays: draft.workDays, total, sections,
       brand, images: draft.images, schedule: draft.schedule, kind: draft.kind, seller: { name: seller?.name ?? null, email: seller?.email ?? null, phone: seller?.phone ?? null },
       installments: draft.installments.map((inst, index) => ({ description: inst.description, value: values[index], dueRule: inst.dueRule, dueDate: inst.dueDate, dueDays: inst.dueDays })),
-      rentalTerms: draft.kind === 'locacao' && draft.rental ? this.rentalTermsText(draft, result) : null,
+      rentalTerms: draft.kind === 'locacao' && draft.rental ? this.rentalTermsText(draft, result)
+        // medição de obra: as condições da medição entram no lugar das parcelas
+        : draft.measurement ? planTerms(draft.measurement, total) : null,
     };
   }
 
@@ -1084,15 +1096,19 @@ export class ProposalService {
       if (row.validUntil && iso(row.validUntil)! < today()) throw new BadRequestException('A validade da proposta já venceu: ajuste a data antes de enviar');
       if (!row.items.length) throw new BadRequestException('Adicione ao menos um item antes de enviar');
       if (!(Number(row.total) > 0)) throw new BadRequestException('O total da proposta está zerado');
+      const plan = row.kind === 'servico' ? parsePlan(row.measurement, row.schedule) : null;
       // locação é cobrada por medição (período a período): não tem parcelas
       if (row.kind === 'locacao') {
         if (!row.items.some((item) => item.type === 'locacao_cliente' && item.stockItemId)) throw new BadRequestException('Adicione ao menos um equipamento do estoque antes de enviar');
+      } else if (plan) {
+        const problem = planProblem(plan);
+        if (problem) throw new BadRequestException(problem);
       } else if (!row.installments.length) throw new BadRequestException('Defina as condições de pagamento antes de enviar');
       const total = Number(row.total);
       const planned = installmentValues(total, row.installments.map((inst) => ({
         percent: inst.percent === null ? null : Number(inst.percent), amount: inst.amount === null ? null : Number(inst.amount),
       }))).reduce((sum, value) => sum + value, 0);
-      if (row.kind !== 'locacao' && Math.abs(planned - total) > 0.005) {
+      if (row.kind !== 'locacao' && !plan && Math.abs(planned - total) > 0.005) {
         throw new BadRequestException('As parcelas não somam o total da proposta');
       }
     }

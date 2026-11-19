@@ -9,8 +9,9 @@ import { RecurrenceService } from './recurrence.service';
 import { StatementDraftService } from './statement-draft.service';
 import { ReportService } from './report.service';
 import { TreasuryService } from './treasury.service';
+import { RetentionService } from './retention.service';
 
-const services = [BalanceService, ChartAccountService, FinancialService, PayableService, RecurrenceService, LedgerService, ReportService, TreasuryService, StatementDraftService];
+const services = [BalanceService, ChartAccountService, FinancialService, PayableService, RecurrenceService, LedgerService, ReportService, TreasuryService, StatementDraftService, RetentionService];
 
 @Module({ imports: [FinancialrecordsModule], providers: services, exports: services })
 export class FinancialModule {}

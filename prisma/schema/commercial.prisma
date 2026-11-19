@@ -269,6 +269,11 @@ model Commercial_Proposal {
   // (por período ou única), caução e endereço de entrega. Nulo nos outros tipos.
   rental Json?
 
+  // Faturamento da proposta de serviço: parcelas (padrão) ou medição de obra.
+  // { mode: parcelas|medicao, fronts: [{ step, title, weight, rule: percentual|conclusao }],
+  //   mobilization: { mode: nenhuma|etapa|adiantamento, rate }, depositRate, depositReleaseDays }
+  measurement Json?
+
   totalCost      Decimal @default(0) @db.Decimal(14, 2)
   totalSuggested Decimal @default(0) @db.Decimal(14, 2)
   totalNet       Decimal @default(0) @db.Decimal(14, 2)
@@ -512,6 +517,12 @@ model Commercial_Contract {
   customerOrderFileName String?   @db.VarChar(200)
   // parcelas (parcelas fixas da proposta) | periodo (locação: cada período vencido é uma medição)
   billingMode String @default("parcelas") @db.VarChar(10)
+  // retenções que o cliente costuma fazer na nota, em %: { iss: 5, inss: 11, ... } (sugestão ao faturar)
+  retentionRates Json?
+  // medição de obra (billingMode = medicao): frentes com valor, mobilização e caução (copiado da proposta)
+  measurementPlan Json?
+  // conta a receber da caução contratual acumulada nos boletins (liberada no fim da obra)
+  depositRecordId Int?
 
   installments Commercial_ContractInstallment[]
   measurements Commercial_Measurement[]
@@ -706,10 +717,21 @@ model Commercial_Measurement {
   periodStart DateTime? @db.Date
   periodEnd   DateTime? @db.Date
   value      Decimal  @db.Decimal(14, 2)
+  // valor da nota fiscal do boletim (base das retenções de imposto); nulo = o próprio `value`
+  invoiceValue Decimal? @db.Decimal(14, 2)
   // linhas: [{ kind, description, periodStart, periodEnd, value, chargeId }]
   lines      Json
-  // faturada | cancelada (a obra vai acrescentar rascunho, enviada, aprovada)
+  // locação: faturada | cancelada; obra: rascunho → enviada → aprovada (ou contestada) → faturada
   status     String   @default("faturada") @db.VarChar(12)
+  // obra: caução contratual retida neste boletim (vai para a conta da caução)
+  depositValue Decimal? @db.Decimal(14, 2)
+  notes        String?  @db.VarChar(2000)
+  // link do cliente para aprovar o boletim: /medicao/<publicKey>
+  publicKey    String?  @unique @db.VarChar(40)
+  sentAt       DateTime?
+  decidedAt    DateTime?
+  // quem aprovou ou contestou: { name, role, note, ip, userAgent, at, manual, userId }
+  decision     Json?
   financialRecordId Int?
   invoiceNumber     String? @db.VarChar(60)
   createdByUserId Int?

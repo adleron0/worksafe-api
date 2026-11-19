@@ -11,12 +11,13 @@ import { DealEvents } from './deal.events';
 import { DealService } from './deal.service';
 import { DocumentService } from './document.service';
 import { MeasurementService } from './measurement.service';
+import { WorkMeasurementService } from './work.service';
 import { PipelineService } from './pipeline.service';
 import { ProposalService } from './proposal.service';
 
 @Module({
   imports: [EmailModule, OperationsModule, HrModule, FilesModule, StockModule],
-  providers: [ActivityService, CommercialService, ContractService, MeasurementService, DocumentService, ProposalService, PipelineService, DealEvents, DealService],
-  exports: [ActivityService, CommercialService, ContractService, MeasurementService, DocumentService, ProposalService, PipelineService, DealEvents, DealService],
+  providers: [ActivityService, CommercialService, ContractService, MeasurementService, WorkMeasurementService, DocumentService, ProposalService, PipelineService, DealEvents, DealService],
+  exports: [ActivityService, CommercialService, ContractService, MeasurementService, WorkMeasurementService, DocumentService, ProposalService, PipelineService, DealEvents, DealService],
 })
 export class CommercialModule {}

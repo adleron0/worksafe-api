@@ -91,6 +91,7 @@ import { bankAccountEntity, costCenterEntity } from 'src/features/financial/rule
 import { payableEntity, supplierEntity } from 'src/features/financial/payable.rules';
 import { PayableController } from 'src/features/financial/payable.controller';
 import { LedgerController } from 'src/features/financial/ledger.controller';
+import { RetentionController } from 'src/features/financial/retention.controller';
 import { CommercialController } from 'src/features/commercial/commercial.controller';
 import { ProposalController } from 'src/features/commercial/proposal.controller';
 import { ActivityController } from 'src/features/commercial/activity.controller';
@@ -119,7 +120,7 @@ import { StockEquipmentController } from 'src/features/stock/equipment.controlle
 import { StockPpeController } from 'src/features/stock/ppe.controller';
 import { StockRentalController } from 'src/features/stock/rental.controller';
 import { StockInventoryController } from 'src/features/stock/inventory.controller';
-import { ClassBillingController, ContractController } from 'src/features/commercial/contract.controller';
+import { ClassBillingController, ContractController, PublicMeasurementController } from 'src/features/commercial/contract.controller';
 import { SellerWalletController } from 'src/features/commercial/wallet.controller';
 import { DocumentController, PublicProposalController } from 'src/features/commercial/document.controller';
 import { DealController, PublicDealController } from 'src/features/commercial/deal.controller';
@@ -284,6 +285,7 @@ export const crudExtraControllers = [
   FinancialController,
   PayableController,
   LedgerController,
+  RetentionController,
   CommercialController,
   ProposalController,
   DealController,
@@ -315,6 +317,7 @@ export const crudExtraControllers = [
   SellerWalletController,
   DocumentController,
   PublicProposalController,
+  PublicMeasurementController,
   StudentCustomController,
   StudentCoursesCustomController,
   StudentCertificatesCustomController,

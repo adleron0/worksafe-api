@@ -4,6 +4,7 @@ import { Request } from 'express';
 import { fileUpload } from 'src/common/crud/hooks';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { assertClassification } from './classification';
+import { TAX_GUIDES } from './retention.service';
 
 const PERMISSIONS = {
   list: 'list_financeiro', getById: 'list_financeiro', create: 'create_financeiro',
@@ -130,6 +131,11 @@ export async function normalizePayable(
     if (!blank(input.paymentMethod) && !PAYABLE_METHODS.includes(String(input.paymentMethod))) fail('Forma de pagamento inválida', 'paymentMethod');
     next.paymentMethod = blank(input.paymentMethod) ? null : String(input.paymentMethod);
   }
+  if (has('taxKind')) {
+    const kind = blank(input.taxKind) ? null : String(input.taxKind);
+    if (kind && !Object.keys(TAX_GUIDES).includes(kind)) fail('Guia de imposto inválida', 'taxKind');
+    next.taxKind = kind;
+  }
   if (has('documentNumber')) next.documentNumber = clean(input.documentNumber).slice(0, 60) || null;
   if (has('barcode')) {
     // linha digitável: guarda só os dígitos (47 do boleto bancário, 48 da conta de consumo)
@@ -183,7 +189,7 @@ export async function normalizePayable(
 }
 
 const PAYABLE_FIELDS = ['description', 'value', 'dueDate', 'accrualDate', 'paymentMethod', 'documentNumber', 'observations', 'barcode', 'pixCode',
-  'installmentNumber', 'installmentTotal', 'supplierId', 'serviceOrderId', 'chartAccountId', 'costCenterId'];
+  'installmentNumber', 'installmentTotal', 'supplierId', 'serviceOrderId', 'chartAccountId', 'costCenterId', 'taxKind'];
 
 /**
  * Contas a pagar. Situação e pagamento só mudam pelas rotas de baixa e estorno;
@@ -194,7 +200,7 @@ export const payableEntity: EntityRules = {
   expose: ['list', 'getById', 'create', 'update', 'archive', 'restore'], restorePermission: 'own',
   permissions: PERMISSIONS,
   filterable: ['status', 'accrualDate', 'dueDate', 'paidAt', 'supplierId', 'serviceOrderId', 'chartAccountId', 'costCenterId', 'bankAccountId',
-    'origin', 'groupKey', 'description', 'documentNumber', 'createdAt', 'supplier.name', 'value', 'recurrenceId'],
+    'origin', 'groupKey', 'taxKind', 'description', 'documentNumber', 'createdAt', 'supplier.name', 'value', 'recurrenceId'],
   sortable: ['id', 'dueDate', 'paidAt', 'value', 'createdAt'],
   includable: ['supplier', 'serviceOrder', 'chartAccount', 'costCenter', 'bankAccount'],
   includes: {
