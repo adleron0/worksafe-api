@@ -53,6 +53,18 @@ export class ContractController {
     return this.contracts.bill(actorOf(req), id, installmentId, body ?? {});
   }
 
+  /** Uma nota fiscal para várias parcelas (NF global): cada parcela vira a sua conta a receber. */
+  @Permissions('create_financeiro') @Post(':id/installments/bill')
+  billMany(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) {
+    return this.contracts.billMany(actorOf(req), id, body ?? {});
+  }
+
+  /** Alíquotas que o cliente costuma reter na nota (sugestão ao faturar). */
+  @Permissions('update_comercial') @Put(':id/retention-rates')
+  retentionRates(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) {
+    return this.contracts.setRetentionRates(actorOf(req), id, body ?? {});
+  }
+
   @Permissions('inactive_financeiro') @Post(':id/installments/:installmentId/unbill')
   unbill(@Param('id', ParseIntPipe) id: number, @Param('installmentId', ParseIntPipe) installmentId: number, @Req() req: Request) {
     return this.contracts.unbill(actorOf(req), id, installmentId);

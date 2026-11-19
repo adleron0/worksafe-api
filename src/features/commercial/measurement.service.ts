@@ -4,6 +4,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { classificationDefaults } from 'src/features/financial/classification';
 import { PendingLine, applyMeasurement, nextOpenPeriod, pendingLines, revertMeasurement, syncRentalReminders } from 'src/features/stock/rental.service';
 import { SellerWalletService } from './wallet.service';
+import { netWith, parseRetentions, retentionTotal, writeRetentions } from 'src/features/financial/retention.service';
 
 /**
  * Faturamento por medição (plano 08, fases 3 e 8).
@@ -59,7 +60,7 @@ export class MeasurementService {
   }
 
   /** Dados da nota informados ao faturar (os mesmos da parcela). */
-  private invoiceOf(body: Body, value: number, suggestedDue: string) {
+  invoiceOf(body: Body, value: number, suggestedDue: string, base = value) {
     const invoiceNumber = clean(body.invoiceNumber, 60);
     if (!invoiceNumber) throw new BadRequestException('Informe o número da nota fiscal');
     const invoiceDate = blank(body.invoiceIssuedAt) ? today() : dateOf(body.invoiceIssuedAt, 'Data da nota');
@@ -68,7 +69,10 @@ export class MeasurementService {
     const netRaw = blank(body.netValue) ? null : Number(String(body.netValue).replace(',', '.'));
     if (netRaw !== null && (!Number.isFinite(netRaw) || netRaw <= 0 || netRaw > value)) throw new BadRequestException('Valor líquido deve ficar entre zero e o valor da medição');
     const method = METHODS.includes(body.paymentMethod) ? (body.paymentMethod as paymentMethods) : 'boleto';
-    return { invoiceNumber, invoiceDate, dueDate, netValue: netRaw === null ? null : round2(netRaw), method };
+    // impostos retidos pelo cliente na nota (base = valor da nota)
+    const retentions = parseRetentions(body.retentions, base);
+    if (retentionTotal(retentions) >= value) throw new BadRequestException('As retenções não podem chegar ao valor a receber');
+    return { invoiceNumber, invoiceDate, dueDate, netValue: netRaw === null ? null : round2(netRaw), method, retentions, base };
   }
 
   /**
@@ -78,6 +82,7 @@ export class MeasurementService {
   async createMeasurement(tx: Tx, input: {
     companyId: number; userId: number | null; contract: { id: number; number: string; title: string; customerId: number; sellerId: number | null; proposalId: number; value: Prisma.Decimal | number; customerOrderNumber: string | null };
     source: 'locacao' | 'obra'; rentalId?: number | null; lines: MeasurementLine[]; invoice: ReturnType<MeasurementService['invoiceOf']> | null; description?: string;
+    invoiceValue?: number | null; extra?: Partial<Prisma.Commercial_MeasurementUncheckedCreateInput>;
   }) {
     const value = round2(input.lines.reduce((s, l) => s + l.value, 0));
     if (value < -0.005) throw new ConflictException('A medição ficou negativa: a caução abatida passa do que há para faturar');
@@ -88,7 +93,8 @@ export class MeasurementService {
     const measurement = await tx.commercial_Measurement.create({ data: {
       companyId: input.companyId, contractId: input.contract.id, number, source: input.source, rentalId: input.rentalId ?? null,
       periodStart: dates.length ? asDate(dates[0]) : null, periodEnd: dates.length ? asDate(dates[dates.length - 1]) : null,
-      value, lines: input.lines as unknown as Prisma.InputJsonValue, status: 'faturada', invoiceNumber: input.invoice?.invoiceNumber ?? null, createdByUserId: input.userId,
+      value, invoiceValue: input.invoiceValue ?? null, lines: input.lines as unknown as Prisma.InputJsonValue, status: 'faturada', invoiceNumber: input.invoice?.invoiceNumber ?? null, createdByUserId: input.userId,
+      ...(input.extra ?? {}),
     } });
     let recordId: number | null = null;
     if (value > 0) {
@@ -96,7 +102,7 @@ export class MeasurementService {
       const label = `${input.contract.number} — ${measurementLabel(number)}`;
       const record = await tx.financialRecords.create({ data: {
         companyId: input.companyId, gateway: 'manual', status: 'waiting', paymentMethod: input.invoice.method,
-        customerId: input.contract.customerId, sellerId: input.contract.sellerId, value, netValue: input.invoice.netValue, ...(await commissionFor(tx, input.contract, value)),
+        customerId: input.contract.customerId, sellerId: input.contract.sellerId, value, netValue: netWith(value, input.invoice.retentions, input.invoice.netValue), ...(await commissionFor(tx, input.contract, value)),
         dueDate: noonUtc(input.invoice.dueDate), accrualDate: input.invoice.invoiceDate.slice(0, 7),
         invoiceNumber: input.invoice.invoiceNumber, invoiceIssuedAt: noonUtc(input.invoice.invoiceDate),
         description: (input.description || `${label} · ${input.contract.title}`).slice(0, 255),
@@ -105,6 +111,7 @@ export class MeasurementService {
         ...(await classificationDefaults(tx, input.companyId, 'contrato')),
       } });
       recordId = record.id;
+      await writeRetentions(tx, { ...record, accrualDate: input.invoice.invoiceDate.slice(0, 7) }, input.invoice.retentions, input.invoice.base, input.userId);
       await tx.commercial_Measurement.update({ where: { id: measurement.id }, data: { financialRecordId: record.id } });
     }
     return { measurement, recordId };

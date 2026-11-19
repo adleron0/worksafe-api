@@ -508,6 +508,8 @@ model Commercial_Contract {
   customerOrderFileName String?   @db.VarChar(200)
   // parcelas (parcelas fixas da proposta) | periodo (locação: cada período vencido é uma medição)
   billingMode String @default("parcelas") @db.VarChar(10)
+  // retenções que o cliente costuma fazer na nota, em %: { iss: 5, inss: 11, ... } (sugestão ao faturar)
+  retentionRates Json?
 
   installments Commercial_ContractInstallment[]
   measurements Commercial_Measurement[]
@@ -700,6 +702,8 @@ model Commercial_Measurement {
   periodStart DateTime? @db.Date
   periodEnd   DateTime? @db.Date
   value      Decimal  @db.Decimal(14, 2)
+  // valor da nota fiscal do boletim (base das retenções de imposto); nulo = o próprio `value`
+  invoiceValue Decimal? @db.Decimal(14, 2)
   // linhas: [{ kind, description, periodStart, periodEnd, value, chargeId }]
   lines      Json
   // faturada | cancelada (a obra vai acrescentar rascunho, enviada, aprovada)

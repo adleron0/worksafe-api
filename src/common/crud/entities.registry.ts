@@ -91,6 +91,7 @@ import { bankAccountEntity, costCenterEntity } from 'src/features/financial/rule
 import { payableEntity, supplierEntity } from 'src/features/financial/payable.rules';
 import { PayableController } from 'src/features/financial/payable.controller';
 import { LedgerController } from 'src/features/financial/ledger.controller';
+import { RetentionController } from 'src/features/financial/retention.controller';
 import { CommercialController } from 'src/features/commercial/commercial.controller';
 import { ProposalController } from 'src/features/commercial/proposal.controller';
 import { ActivityController } from 'src/features/commercial/activity.controller';
@@ -283,6 +284,7 @@ export const crudExtraControllers = [
   FinancialController,
   PayableController,
   LedgerController,
+  RetentionController,
   CommercialController,
   ProposalController,
   ActivityController,

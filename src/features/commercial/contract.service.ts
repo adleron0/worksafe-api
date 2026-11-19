@@ -1,6 +1,7 @@
 import { rentalsFromContract } from 'src/features/stock/rental.service';
 import { SellerWalletService } from './wallet.service';
-import { MeasurementService } from './measurement.service';
+import { MeasurementService, commissionFor } from './measurement.service';
+import { netWith, parseRates, parseRetentions, ratesOf, writeRetentions } from 'src/features/financial/retention.service';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CommercialContractStatus, Prisma, financialRecordsStatus, paymentMethods } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -131,7 +132,7 @@ export class ContractService {
   private async billing(contractIds: number[]) {
     const records = contractIds.length ? await this.prisma.financialRecords.findMany({
       where: { contractId: { in: contractIds }, inactiveAt: null },
-      select: { id: true, contractId: true, contractInstallmentId: true, value: true, status: true, dueDate: true, paidAt: true, invoiceNumber: true, invoiceIssuedAt: true, receivedValue: true, invoiceUrl: true },
+      select: { id: true, contractId: true, contractInstallmentId: true, value: true, netValue: true, status: true, dueDate: true, paidAt: true, invoiceNumber: true, invoiceIssuedAt: true, receivedValue: true, invoiceUrl: true },
     }) : [];
     const by = new Map<number, { billed: number; received: number; records: typeof records }>();
     for (const record of records) {
@@ -214,6 +215,7 @@ export class ContractService {
       billed: round2(b?.billed ?? 0), received: round2(b?.received ?? 0),
       toBill: row.billingMode === 'periodo' ? round2(rentals.reduce((sum, r) => sum + r.value, 0)) : round2(value - (b?.billed ?? 0)),
       billingMode: row.billingMode,
+      retentionRates: ratesOf(row.retentionRates),
       // locação: as ordens de locação, o que cada uma tem para faturar agora e as medições já faturadas
       rentals: rentals.map(({ rental, pending, value: pendingValue, open }) => ({
         id: rental.id, number: rental.number, status: rental.status, startDate: iso(rental.startDate), expectedEnd: iso(rental.expectedEnd), returnedAt: iso(rental.returnedAt),
@@ -229,6 +231,7 @@ export class ContractService {
           record: record ? {
             id: record.id, status: record.status, dueDate: iso(record.dueDate), paidAt: record.paidAt, invoiceNumber: record.invoiceNumber,
             invoiceIssuedAt: iso(record.invoiceIssuedAt), hasInvoiceFile: Boolean(record.invoiceUrl), paid: PAID.includes(record.status),
+            netValue: record.netValue === null ? null : Number(record.netValue),
           } : null,
         };
       }),
@@ -341,7 +344,7 @@ export class ContractService {
           number: inst.number, total: inst.total, description: inst.description, value: Number(inst.value),
           dueRule: inst.dueRule, dueDate: iso(inst.dueDate), dueDays: inst.dueDays, suggestedDue: this.suggestedDue(inst, contract, today()),
           waitingFor: waitsEnd ? 'a conclusão do serviço' : null,
-          customerOrder: customerOrderOf(contract),
+          customerOrder: customerOrderOf(contract), retentionRates: ratesOf(contract.retentionRates),
           record: record ? {
             id: record.id, status: record.status, dueDate: iso(record.dueDate), paidAt: record.paidAt, invoiceNumber: record.invoiceNumber,
             invoiceIssuedAt: iso(record.invoiceIssuedAt), hasInvoiceFile: Boolean(record.invoiceUrl), paid,
@@ -356,7 +359,7 @@ export class ContractService {
       const base = {
         contractId: contract.id, contractNumber: contract.number, contractStatus: contract.status, kind: contract.kind, title: contract.title,
         proposal: proposalOf.get(contract.proposalId) ?? null, customer: { id: contract.customer.id, name: contract.customer.name }, customerOrder: customerOrderOf(contract),
-        number: 1, total: 1, dueRule: 'dias_apos_nf' as ContractRow['installments'][number]['dueRule'], dueDate: null, dueDays: 7, suggestedDue: addDays(today(), 7),
+        retentionRates: ratesOf(contract.retentionRates), number: 1, total: 1, dueRule: 'dias_apos_nf' as ContractRow['installments'][number]['dueRule'], dueDate: null, dueDays: 7, suggestedDue: addDays(today(), 7),
       };
       for (const { rental, pending, value, open } of await this.measurements.rentalsOf(actor.companyId, contract.id)) {
         if (pending.length) {
@@ -416,46 +419,84 @@ export class ContractService {
    * manual), já com cliente, valor, vencimento, NF, parcela e contrato.
    */
   async bill(actor: ContractActor, id: number, installmentId: number, body: Body) {
+    return this.billMany(actor, id, { ...body, installmentIds: [installmentId], dueDates: blank(body.dueDate) ? undefined : { [installmentId]: body.dueDate } });
+  }
+
+  /**
+   * Uma nota fiscal para uma ou várias parcelas (NF global): cada parcela vira
+   * a sua conta a receber, com o vencimento próprio, todas com o mesmo número de
+   * nota. As retenções de imposto informadas valem para a nota inteira e são
+   * rateadas entre as parcelas pelo valor de cada uma.
+   */
+  async billMany(actor: ContractActor, id: number, body: Body) {
     const row = await this.byId(actor.companyId, id);
     if (row.status !== 'vigente') throw new ConflictException(`Contrato ${row.status}: não recebe faturamento novo`);
-    const installment = row.installments.find((inst) => inst.id === installmentId);
-    if (!installment) throw new NotFoundException('Parcela não encontrada');
+    const ids = [...new Set((Array.isArray(body.installmentIds) ? body.installmentIds : []).map(Number).filter((n: number) => Number.isInteger(n) && n > 0))] as number[];
+    if (!ids.length) throw new BadRequestException('Escolha as parcelas da nota');
+    const chosen = ids.map((installmentId) => {
+      const installment = row.installments.find((inst) => inst.id === installmentId);
+      if (!installment) throw new NotFoundException('Parcela não encontrada');
+      if (installment.financialRecordId) throw new ConflictException(`A parcela ${installment.number}/${installment.total} já foi faturada`);
+      return installment;
+    }).sort((a, b) => a.number - b.number);
     const invoiceNumber = clean(body.invoiceNumber, 60);
     if (!invoiceNumber) throw new BadRequestException('Informe o número da nota fiscal');
     const invoiceDate = blank(body.invoiceIssuedAt) ? today() : dateOf(body.invoiceIssuedAt, 'Data da nota');
     if (invoiceDate > today()) throw new BadRequestException('A data da nota não pode ser futura');
-    const dueDate = blank(body.dueDate) ? this.suggestedDue(installment, row, invoiceDate) : dateOf(body.dueDate, 'Vencimento');
-    const value = Number(installment.value);
+    const dueDates = (body.dueDates && typeof body.dueDates === 'object' ? body.dueDates : {}) as Record<string, unknown>;
+    const values = chosen.map((inst) => Number(inst.value));
+    const invoiceTotal = round2(values.reduce((sum, v) => sum + v, 0));
+    const retentions = parseRetentions(body.retentions, invoiceTotal);
     const netRaw = blank(body.netValue) ? null : Number(String(body.netValue).replace(',', '.'));
-    if (netRaw !== null && (!Number.isFinite(netRaw) || netRaw <= 0 || netRaw > value)) throw new BadRequestException('Valor líquido deve ficar entre zero e o valor da parcela');
+    if (chosen.length === 1 && netRaw !== null && (!Number.isFinite(netRaw) || netRaw <= 0 || netRaw > invoiceTotal)) throw new BadRequestException('Valor líquido deve ficar entre zero e o valor da parcela');
+    // retenção da nota rateada pelas parcelas (a última fecha os centavos)
+    const shares = chosen.map((_, index) => retentions.map((r) => {
+      if (index < chosen.length - 1) return { ...r, value: round2((r.value * values[index]) / invoiceTotal) };
+      const before = chosen.slice(0, -1).reduce((sum, __, i) => sum + round2((r.value * values[i]) / invoiceTotal), 0);
+      return { ...r, value: round2(r.value - before) };
+    }).filter((r) => r.value > 0));
     const method = METHODS.includes(body.paymentMethod) ? (body.paymentMethod as paymentMethods) : 'outro';
-    const label = `${row.number} — ${installment.total > 1 ? `parcela ${installment.number}/${installment.total}` : 'pagamento único'}`;
-    // Comissão do vendedor: a parte desta parcela na comissão calculada na proposta aceita.
-    // Ela entra na carteira como prevista e é liberada quando esta parcela for paga.
-    const proposal = row.sellerId ? await this.prisma.commercial_Proposal.findUnique({ where: { id: row.proposalId }, select: { commission: true, total: true } }) : null;
-    const whole = Number(proposal?.total ?? 0) > 0 ? Number(proposal!.total) : Number(row.value);
-    const commissionValue = proposal && whole > 0 ? round2((Number(proposal.commission) * value) / whole) : 0;
-    const commission = commissionValue > 0 ? { commissionValue, commissionPercentage: Math.min(999.99, round2((commissionValue / value) * 100)) } : {};
+    const many = chosen.length > 1;
 
-    const recordId = await this.prisma.$transaction(async (tx) => {
-      // trava a parcela: duas pessoas faturando a mesma não geram dois títulos
-      const locked = await tx.commercial_ContractInstallment.updateMany({ where: { id: installmentId, financialRecordId: null }, data: { billedAt: new Date() } });
-      if (!locked.count) throw new ConflictException('Esta parcela já foi faturada');
-      const record = await tx.financialRecords.create({ data: {
-        companyId: actor.companyId, gateway: 'manual', status: 'waiting', paymentMethod: method,
-        customerId: row.customerId, sellerId: row.sellerId, value, netValue: netRaw === null ? null : round2(netRaw), ...commission,
-        dueDate: noonUtc(dueDate), accrualDate: invoiceDate.slice(0, 7),
-        invoiceNumber, invoiceIssuedAt: noonUtc(invoiceDate), installmentNumber: installment.number, installmentTotal: installment.total,
-        description: clean(body.description, 255) || `${label} · ${row.title}`.slice(0, 255),
-        observations: clean(body.observations, 255) || (row.customerOrderNumber ? `Pedido do cliente ${row.customerOrderNumber}` : null),
-        contractId: id, contractInstallmentId: installmentId,
-        ...(await classificationDefaults(tx, actor.companyId, 'contrato')),
-      } });
-      await tx.commercial_ContractInstallment.update({ where: { id: installmentId }, data: { financialRecordId: record.id } });
-      return record.id;
+    const recordIds = await this.prisma.$transaction(async (tx) => {
+      const out: number[] = [];
+      for (const [index, installment] of chosen.entries()) {
+        const value = values[index];
+        const dueDate = blank(dueDates[installment.id]) ? this.suggestedDue(installment, row, invoiceDate) : dateOf(dueDates[installment.id], 'Vencimento');
+        const label = `${row.number} — ${installment.total > 1 ? `parcela ${installment.number}/${installment.total}` : 'pagamento único'}`;
+        // trava a parcela: duas pessoas faturando a mesma não geram dois títulos
+        const locked = await tx.commercial_ContractInstallment.updateMany({ where: { id: installment.id, financialRecordId: null }, data: { billedAt: new Date() } });
+        if (!locked.count) throw new ConflictException('Esta parcela já foi faturada');
+        const share = shares[index];
+        const record = await tx.financialRecords.create({ data: {
+          companyId: actor.companyId, gateway: 'manual', status: 'waiting', paymentMethod: method,
+          customerId: row.customerId, sellerId: row.sellerId, value, netValue: netWith(value, share, many ? null : netRaw === null ? null : round2(netRaw)),
+          // Comissão do vendedor: a parte desta parcela na comissão calculada na proposta aceita.
+          ...(await commissionFor(tx, row, value)),
+          dueDate: noonUtc(dueDate), accrualDate: invoiceDate.slice(0, 7),
+          invoiceNumber, invoiceIssuedAt: noonUtc(invoiceDate), installmentNumber: installment.number, installmentTotal: installment.total,
+          description: (!many && clean(body.description, 255)) || `${label} · ${row.title}`.slice(0, 255),
+          observations: (!many && clean(body.observations, 255)) || (row.customerOrderNumber ? `Pedido do cliente ${row.customerOrderNumber}` : null),
+          contractId: id, contractInstallmentId: installment.id,
+          ...(await classificationDefaults(tx, actor.companyId, 'contrato')),
+        } });
+        // a base da retenção é a parte desta parcela na nota
+        await writeRetentions(tx, { ...record, accrualDate: invoiceDate.slice(0, 7) }, share, value, actor.userId);
+        await tx.commercial_ContractInstallment.update({ where: { id: installment.id }, data: { financialRecordId: record.id } });
+        out.push(record.id);
+      }
+      return out;
     });
-    await this.wallet.syncRecordSafe(recordId);
-    return { ...(await this.get(actor, id)), financialRecordId: recordId };
+    for (const recordId of recordIds) await this.wallet.syncRecordSafe(recordId);
+    return { ...(await this.get(actor, id)), financialRecordId: recordIds[0], financialRecordIds: recordIds };
+  }
+
+  /** Alíquotas que o cliente deste contrato costuma reter (sugeridas ao faturar). */
+  async setRetentionRates(actor: ContractActor, id: number, body: Body) {
+    await this.byId(actor.companyId, id);
+    const rates = parseRates(body.rates);
+    await this.prisma.commercial_Contract.update({ where: { id }, data: { retentionRates: rates ? (rates as Prisma.InputJsonValue) : Prisma.JsonNull } });
+    return this.get(actor, id);
   }
 
   /** Desfaz o faturamento de uma parcela que ainda não foi paga: o título sai do Contas a Receber. */

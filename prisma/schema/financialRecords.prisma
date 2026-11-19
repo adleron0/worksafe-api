@@ -82,6 +82,9 @@ model FinancialRecords {
   // boletim de medição que originou este recebível (locação por período, medição de obra)
   measurementId         Int?
 
+  // impostos retidos pelo cliente na nota (a soma é value − netValue)
+  retentions Financial_Retention[]
+
   // Transações de split
   splitTransactions SplitTransaction[] // Transações de split associadas ao registro
 
