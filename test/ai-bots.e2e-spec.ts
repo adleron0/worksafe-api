@@ -300,6 +300,25 @@ describe('Bots de IA (e2e)', () => {
     await api().put(`/ai/bots/${bot.id}`).set(auth(company.id, ['usar_bots'])).send({ name: 'X' }).expect(403);
   });
 
+  it('escolha de modelo: catálogo com preço e troca de todos os bots de uma vez', async () => {
+    const { company, db } = await cenario();
+    const config = (await api().get('/ai/bots/config').set(auth(company.id)).expect(200)).body;
+    const hydrogen = config.models.find((model: any) => model.id === 'gemini-4-hydrogen');
+    expect(hydrogen).toMatchObject({ provider: 'gemini', recommended: true, price: { input: 1.5, output: 7.5 } });
+    expect(hydrogen.perThousand).toBeCloseTo(36.7, 1);
+    expect(config.models.filter((model: any) => model.recommended)).toHaveLength(1);
+    const total = config.bots.length;
+
+    const result = (await api().put('/ai/bots/model').set(auth(company.id)).send({ provider: 'gemini', model: 'gemini-4-hydrogen' }).expect(200)).body;
+    expect(result).toEqual({ changed: total, total });
+    const rows = await db.ai_Bot.findMany({ where: { companyId: company.id } });
+    expect(rows.every((row) => row.provider === 'gemini' && row.model === 'gemini-4-hydrogen' && row.version === 2)).toBe(true);
+    // de novo não muda nada nem cria versão
+    expect((await api().put('/ai/bots/model').set(auth(company.id)).send({ provider: 'gemini', model: 'gemini-4-hydrogen' }).expect(200)).body.changed).toBe(0);
+    await api().put('/ai/bots/model').set(auth(company.id)).send({ provider: 'skynet', model: 'x1' }).expect(400);
+    await api().put('/ai/bots/model').set(auth(company.id, ['usar_bots'])).send({ provider: 'gemini', model: 'gemini-4-hydrogen' }).expect(403);
+  });
+
   it('o resultado da ferramenta não leva dados sensíveis e o rascunho de post limpa scripts', async () => {
     const { company, db } = await cenario();
     const bot = await botOf(company.id, 'marketing');
