@@ -63,9 +63,13 @@ export function priceAt(model: string, at: Date = new Date()): ModelPrice | unde
   return change?.price ?? MODEL_PRICES[model];
 }
 
-/** Custo estimado de 1.000 mensagens (perfil medido nos bots: ~3.000 tokens de entrada e ~300 de saída). */
+/**
+ * Custo estimado de 1.000 perguntas. Perfil medido em produção (19/11/2026):
+ * cada pergunta faz umas 3 idas ao modelo e soma ~14 mil tokens de entrada
+ * novos, ~9 mil em cache e ~2 mil de saída (com o raciocínio).
+ */
 export function costPerThousand(price: ModelPrice): number {
-  return Math.round((3000 * price.input + 300 * price.output) / 1000 * 100) / 100;
+  return Math.round((14000 * price.input + 9000 * price.cached + 2000 * price.output) / 1000 * 100) / 100;
 }
 
 const PROVIDER_DEFAULT_PRICE: Record<string, ModelPrice> = {

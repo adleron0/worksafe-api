@@ -305,7 +305,7 @@ describe('Bots de IA (e2e)', () => {
     const config = (await api().get('/ai/bots/config').set(auth(company.id)).expect(200)).body;
     const hydrogen = config.models.find((model: any) => model.id === 'gemini-4-hydrogen');
     expect(hydrogen).toMatchObject({ provider: 'gemini', recommended: true, price: { input: 1.5, output: 7.5 } });
-    expect(hydrogen.perThousand).toBeCloseTo(6.75, 2);
+    expect(hydrogen.perThousand).toBeCloseTo(36.7, 1);
     expect(config.models.filter((model: any) => model.recommended)).toHaveLength(1);
     const total = config.bots.length;
 
