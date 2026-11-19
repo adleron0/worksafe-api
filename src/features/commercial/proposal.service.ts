@@ -10,6 +10,7 @@ import { DocumentData, DocumentService, ITEMS_MODES, ItemsMode, VARIABLES, rende
 import { computeBase, price, PriceInput, PriceItemInput, PriceResult, PricingError, professionalCost, resolveRentalTax, resolveTax, round2 } from './pricing/engine';
 import { RentalError, RentalLine, RentPeriod, rentalCost, rentalDefaultsOf, rentalLine } from './pricing/rental';
 import { loadRentalItems } from './rental.items';
+import { RentalTerms, periodsEnd, rentalAvailability, rentalTermsOf } from 'src/features/stock/rental.service';
 
 type Body = Record<string, any>;
 type Tx = Prisma.TransactionClient;
@@ -122,6 +123,8 @@ export interface Draft {
   images: ProposalImage[];
   /** cronograma em etapas (opcional) */
   schedule: Schedule;
+  /** proposta de locação: período, nº de períodos ou "até devolver", cobrança, caução e entrega */
+  rental: RentalTerms | null;
   sections: DraftSection[]; installments: DraftInstallment[];
 }
 
@@ -235,6 +238,14 @@ export class ProposalService {
       });
       return { id, title: sectionTitle, kind: sectionKind, margin, showInDocument: raw.showInDocument !== false && raw.showInDocument !== 'false', items };
     });
+    // locação: período e nº de períodos valem para a proposta inteira (uma OL, um período); as linhas seguem
+    const firstRent = sections.flatMap((section) => section.items).find((item) => item.type === 'locacao_cliente');
+    const rental = kind === 'locacao' ? rentalTermsOf('rental' in body ? body.rental : keep?.rental, firstRent?.extra ?? undefined) : null;
+    if (rental) {
+      for (const item of sections.flatMap((section) => section.items)) {
+        if (item.type === 'locacao_cliente') item.extra = { ...(item.extra ?? {}), period: rental.period, periods: rental.periods };
+      }
+    }
     const allowed = KIND_ITEMS[kind];
     for (const section of sections) {
       const wrong = [section.kind, ...section.items.map((item) => item.type)].find((type) => !allowed.includes(type));
@@ -279,7 +290,8 @@ export class ProposalService {
       termIds: Array.isArray(body.termIds) ? body.termIds.map(Number).filter((id: number) => Number.isInteger(id) && id > 0).slice(0, 40) : keep?.termIds ?? [],
       images: 'images' in body ? this.documents.parseImages(body.images) : this.documents.parseImages(keep?.images ?? []),
       schedule: this.documents.parseSchedule('schedule' in body ? body.schedule : keep?.schedule),
-      sections, installments,
+      // locação é cobrada por medição: parcelas não se aplicam
+      rental, sections, installments: kind === 'locacao' ? [] : installments,
     };
   }
 
@@ -511,6 +523,7 @@ export class ProposalService {
       templateId: row.templateId, documentBody: row.documentBody, itemsMode: (ITEMS_MODES.includes(row.itemsMode as ItemsMode) ? row.itemsMode : 'detalhado') as ItemsMode, termIds: row.termIds,
       images: this.documents.parseImages(row.images ?? []),
       schedule: this.documents.parseSchedule(row.schedule),
+      rental: row.kind === 'locacao' ? rentalTermsOf(row.rental, (row.items.find((item) => item.type === 'locacao_cliente')?.extra ?? undefined) as Record<string, unknown> | undefined) : null,
       sections: row.sections.map((section) => ({
         id: section.id, title: section.title, kind: section.kind, margin: Number(section.margin), showInDocument: section.showInDocument,
         items: row.items.filter((item) => item.sectionId === section.id).map((item) => ({
@@ -530,9 +543,9 @@ export class ProposalService {
   /** Grava cabeçalho, seções, itens e parcelas de uma vez (substitui os filhos). */
   private async persist(tx: Tx, companyId: number, id: number, draft: Draft, snapshot: PricingSnapshot, result: ReturnType<ProposalService['calc']>) {
     const t = result.totals;
-    const { sections, installments, images, schedule, ...header } = draft;
+    const { sections, installments, images, schedule, rental, ...header } = draft;
     await tx.commercial_Proposal.update({ where: { id }, data: {
-      ...header, images: images as unknown as Prisma.InputJsonValue, schedule: schedule as unknown as Prisma.InputJsonValue, validUntil: header.validUntil ? asDate(header.validUntil) : null, referenceDate: asDate(header.referenceDate),
+      ...header, rental: rental ? (rental as unknown as Prisma.InputJsonValue) : Prisma.JsonNull, images: images as unknown as Prisma.InputJsonValue, schedule: schedule as unknown as Prisma.InputJsonValue, validUntil: header.validUntil ? asDate(header.validUntil) : null, referenceDate: asDate(header.referenceDate),
       snapshot: snapshot as unknown as Prisma.InputJsonValue,
       totalCost: round2(t.cost), totalSuggested: round2(t.suggested), totalNet: round2(t.net), totalTax: round2(t.tax), total: round2(t.total),
       profit: round2(t.profit), commission: round2(t.commission),
@@ -597,9 +610,26 @@ export class ProposalService {
       })),
       // serviço e locação do mesmo cliente perto da mesma data: confirmar que o equipamento é operado pelo cliente (plano 09, 4.3)
       overlap: await this.serviceRentalOverlap(row),
+      availability: editable || ['enviada', 'visualizada'].includes(row.status) ? await this.availabilityOf(row.companyId, draft) : null,
       draft: actor.canSeeCosts ? draft : this.hideMargins(draft),
       calc: this.view(draft, result, snapshot, actor),
     };
+  }
+
+  /**
+   * Disponibilidade dos itens alugados no período da proposta de locação:
+   * o que há de frota livre (descontadas as OL que cruzam o período).
+   */
+  private async availabilityOf(companyId: number, draft: Draft) {
+    if (draft.kind !== 'locacao' || !draft.rental) return null;
+    const requests = draft.sections.flatMap((section) => section.items)
+      .filter((item) => item.type === 'locacao_cliente' && item.stockItemId)
+      .map((item) => ({ itemId: item.stockItemId!, quantity: item.quantity || 1 }));
+    if (!requests.length) return null;
+    const start = draft.referenceDate;
+    const end = periodsEnd(start, draft.rental.period, draft.rental.periods);
+    const items = await rentalAvailability(this.prisma, companyId, requests, start, draft.rental.untilReturn ? null : end);
+    return { start, end: draft.rental.untilReturn ? null : end, estimatedEnd: end, items, ok: items.every((item) => item.ok) };
   }
 
   private async serviceRentalOverlap(row: ProposalRow) {
@@ -660,7 +690,7 @@ export class ProposalService {
           const detail = item.type === 'mao_de_obra'
             ? [days ? `${days} dia${days === 1 ? '' : 's'} útei${days === 1 ? 'l' : 's'}` : '', item.night ? 'noturno' : '', item.weekend ? 'inclui fim de semana/feriado' : ''].filter(Boolean).join(' · ')
             : item.type === 'locacao_cliente'
-              ? `${item.extra?.periods ?? 1} ${({ dia: 'dia(s)', semana: 'semana(s)', mes: 'mês(es)' } as Record<string, string>)[item.extra?.period ?? 'mes']} de locação${item.extra?.closed ? ', período fechado' : ''} · entregue inspecionado`
+              ? `${draft.rental?.untilReturn ? 'até a devolução, previsão de ' : ''}${item.extra?.periods ?? 1} ${({ dia: 'dia(s)', semana: 'semana(s)', mes: 'mês(es)' } as Record<string, string>)[item.extra?.period ?? 'mes']} de locação${item.extra?.closed ? ', período fechado' : ''} · entregue inspecionado`
             : item.type === 'treinamento'
               ? [item.extra?.students ? `${item.extra.students} alunos` : '', item.extra?.workload ? `${item.extra.workload} h` : '', item.extra?.dates ?? '', item.extra?.location ?? ''].filter(Boolean).join(' · ')
               : '';
@@ -685,7 +715,29 @@ export class ProposalService {
       date, validUntil: draft.validUntil, workDays: draft.workDays, total, sections,
       brand, images: draft.images, schedule: draft.schedule, kind: draft.kind, seller: { name: seller?.name ?? null, email: seller?.email ?? null, phone: seller?.phone ?? null },
       installments: draft.installments.map((inst, index) => ({ description: inst.description, value: values[index], dueRule: inst.dueRule, dueDate: inst.dueDate, dueDays: inst.dueDays })),
+      rentalTerms: draft.kind === 'locacao' && draft.rental ? this.rentalTermsText(draft, result) : null,
     };
+  }
+
+  /** Condições da locação no documento: como cobra, prazo, caução e entrega. */
+  private rentalTermsText(draft: Draft, result: ReturnType<ProposalService['calc']>): string[] {
+    const rental = draft.rental!;
+    const unit = ({ dia: ['dia', 'dias', 'diária'], semana: ['semana', 'semanas', 'semanal'], mes: ['mês', 'meses', 'mensal'] } as Record<string, string[]>)[rental.period];
+    const money = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+    const rents = draft.sections.flatMap((section, s) => section.items.map((item, i) => ({ item, value: result.sections[s].lines[i].value }))).filter((x) => x.item.type === 'locacao_cliente');
+    const factor = result.totals.subtotal > 0 ? result.totals.total / result.totals.subtotal : 0;
+    const perPeriod = round2(rents.reduce((sum, x) => sum + x.value * factor, 0) / Math.max(1, rental.periods));
+    const count = `${rental.periods} ${rental.periods === 1 ? unit[0] : unit[1]}`;
+    const lines = [
+      rental.billing === 'unico'
+        ? rental.untilReturn ? `Pagamento único na devolução, pelos períodos usados (${money(perPeriod)} por ${unit[0]})` : `Pagamento único pelo período contratado (${count})`
+        : `Cobrança ${unit[2]}: ${money(perPeriod)} por ${unit[0]}, faturado a cada período vencido`,
+      rental.untilReturn ? `Prazo: até a devolução (previsão de ${count}); prorrogação segue a mesma cobrança` : `Prazo: ${count}, contados da entrega; prorrogação segue a mesma cobrança por ${unit[0]}`,
+      'Frete, avarias e faltas (pelo valor de reposição) são cobrados na medição seguinte',
+    ];
+    if (rental.deposit) lines.push(`Caução de ${money(rental.deposit)}, paga na entrega e devolvida no fim (descontadas avarias e faltas)`);
+    if (rental.deliveryAddress) lines.push(`Entrega em: ${rental.deliveryAddress}`);
+    return lines;
   }
 
   /** Corpo, termos e formato a usar: os da proposta, ou os do modelo quando ela ainda não tem documento. */
@@ -874,7 +926,7 @@ export class ProposalService {
     const snapshot = await this.snapshotFor(actor, body, existing);
     const draft = this.parse({ ...body, title: clean(body.title) || 'Rascunho', customerId: body.customerId || existing?.customerId || 1 }, actor, snapshot, existing);
     await this.fill(actor.companyId, draft, snapshot);
-    return this.view(draft, this.calc(draft, snapshot), snapshot, actor);
+    return { ...this.view(draft, this.calc(draft, snapshot), snapshot, actor), availability: await this.availabilityOf(actor.companyId, draft) };
   }
 
   /** Fotografia a usar: a guardada, salvo se pedirem para recalcular ou se a data/regime mudaram. */
@@ -994,12 +1046,15 @@ export class ProposalService {
       if (row.validUntil && iso(row.validUntil)! < today()) throw new BadRequestException('A validade da proposta já venceu: ajuste a data antes de enviar');
       if (!row.items.length) throw new BadRequestException('Adicione ao menos um item antes de enviar');
       if (!(Number(row.total) > 0)) throw new BadRequestException('O total da proposta está zerado');
-      if (!row.installments.length) throw new BadRequestException('Defina as condições de pagamento antes de enviar');
+      // locação é cobrada por medição (período a período): não tem parcelas
+      if (row.kind === 'locacao') {
+        if (!row.items.some((item) => item.type === 'locacao_cliente' && item.stockItemId)) throw new BadRequestException('Adicione ao menos um equipamento do estoque antes de enviar');
+      } else if (!row.installments.length) throw new BadRequestException('Defina as condições de pagamento antes de enviar');
       const total = Number(row.total);
       const planned = installmentValues(total, row.installments.map((inst) => ({
         percent: inst.percent === null ? null : Number(inst.percent), amount: inst.amount === null ? null : Number(inst.amount),
       }))).reduce((sum, value) => sum + value, 0);
-      if (Math.abs(planned - total) > 0.005) {
+      if (row.kind !== 'locacao' && Math.abs(planned - total) > 0.005) {
         throw new BadRequestException('As parcelas não somam o total da proposta');
       }
     }

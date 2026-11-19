@@ -195,9 +195,19 @@ describe('Estoque — equipamentos, EPI, locação e inventário (e2e)', () => {
     const unit = (await api().get('/stock/units').set(auth(company.id))).body.rows[0];
 
     const start = '2026-11-01';
-    const rental = (await post(company.id, '/stock/rentals', { customerId: customer.id, startDate: start, expectedEnd: '2026-11-03', period: 'dia', lines: [{ itemId: tripe.id, unitId: unit.id, rate: 100 }, { itemId: cinto.id, quantity: 2, rate: 10 }] }).expect(201)).body;
-    expect(rental).toMatchObject({ number: expect.stringMatching(/^LOC-\d{4}-0001$/), status: 'reservada', ratePerPeriod: 120 });
-    await post(company.id, '/stock/rentals', { customerId: customer.id, startDate: '2026-11-02', period: 'dia', lines: [{ itemId: tripe.id, unitId: unit.id, rate: 100 }] }).expect(409);
+    // a tela do estoque não cria mais locação (toda locação nasce da proposta); as antigas continuam operáveis
+    await post(company.id, '/stock/rentals', { customerId: customer.id, startDate: start, expectedEnd: '2026-11-03', period: 'dia', lines: [{ itemId: tripe.id, unitId: unit.id, rate: 100 }] }).expect(409);
+    const legacy = (number: string, sequence: number, lines: Array<{ itemId: number; unitId?: number; quantity: number; rate: number }>, startDate = start, expectedEnd: string | null = '2026-11-03') => db.stock_Rental.create({ data: {
+      companyId: company.id, number, year: 2026, sequence, customerId: customer.id, status: 'reservada', startDate: new Date(`${startDate}T00:00:00.000Z`),
+      expectedEnd: expectedEnd ? new Date(`${expectedEnd}T00:00:00.000Z`) : null, period: 'dia', billing: 'periodo', lines: { createMany: { data: lines } },
+    } });
+    const created = await legacy('OL-2026-0001', 1, [{ itemId: tripe.id, unitId: unit.id, quantity: 1, rate: 100 }, { itemId: cinto.id, quantity: 2, rate: 10 }]);
+    const rental = (await api().get(`/stock/rentals/${created.id}`).set(auth(company.id)).expect(200)).body;
+    expect(rental).toMatchObject({ number: 'OL-2026-0001', status: 'reservada', stage: 'a_entregar', ratePerPeriod: 120, fromContract: false });
+    // outra locação antiga não reserva a mesma peça no mesmo período
+    const other = await legacy('OL-2026-0002', 2, [{ itemId: cinto.id, quantity: 1, rate: 10 }], '2026-11-02', null);
+    await api().put(`/stock/rentals/${other.id}`).set(auth(company.id)).send({ lines: [{ itemId: tripe.id, unitId: unit.id, rate: 100 }] }).expect(409);
+    await api().patch(`/stock/rentals/${other.id}/status`).set(auth(company.id)).send({ status: 'cancelada', note: 'teste' }).expect(200);
 
     let r = (await post(company.id, `/stock/rentals/${rental.id}/deliver`, { locationId: main.id, date: start, receivedBy: 'Carlos (Alfa)' }).expect(200)).body;
     expect(r.status).toBe('ativa');

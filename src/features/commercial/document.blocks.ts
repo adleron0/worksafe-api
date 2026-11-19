@@ -49,6 +49,8 @@ export interface BlockData {
   schedule?: Schedule;
   /** tipo da proposta: define o e-mail de tratativas */
   kind?: 'servico' | 'treinamento' | 'locacao';
+  /** locação: como é cobrada, em uma frase (no lugar das parcelas) */
+  rentalSummary?: string | null;
 }
 
 const esc = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
@@ -105,6 +107,7 @@ const card = (color: string, inner: string) =>
   `<div style="border:1px solid ${tint(color, '55')};background:${tint(color, '0F')};border-radius:12px;padding:18px 20px;margin:10px 0 18px;${PRINT}">${inner}</div>`;
 
 function paymentSummary(d: BlockData): string {
+  if (d.rentalSummary) return d.rentalSummary;
   const n = d.installments.length;
   if (!n) return 'Condições de pagamento a combinar';
   if (n === 1) return 'Pagamento único';

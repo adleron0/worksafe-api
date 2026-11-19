@@ -22,7 +22,7 @@ type Body = Record<string, any>;
 type Tx = Prisma.TransactionClient | PrismaService;
 export interface WalletActor { companyId: number; userId: number }
 
-export const WALLET_ORIGINS = ['treinamento', 'servico', 'manual'] as const;
+export const WALLET_ORIGINS = ['treinamento', 'servico', 'locacao', 'manual'] as const;
 export type WalletOrigin = (typeof WALLET_ORIGINS)[number];
 const PAYMENT_METHODS = ['pix', 'transferencia', 'dinheiro', 'outro'];
 
@@ -111,12 +111,13 @@ export class SellerWalletService {
       record.couponId ? tx.coupon.findUnique({ where: { id: record.couponId }, select: { code: true } }) : null,
       record.subscriptionId ? tx.courseClassSubscription.findUnique({ where: { id: record.subscriptionId }, select: { classId: true, class: { select: { name: true } } } }) : null,
     ]);
-    const origin: WalletOrigin = record.contractId ? 'servico' : record.subscriptionId || record.couponId ? 'treinamento' : 'manual';
-    let contract: { number: string; title: string; proposalId: number } | null = null;
-    if (record.contractId) contract = await tx.commercial_Contract.findUnique({ where: { id: record.contractId }, select: { number: true, title: true, proposalId: true } });
+    let contract: { number: string; title: string; proposalId: number; kind: string } | null = null;
+    if (record.contractId) contract = await tx.commercial_Contract.findUnique({ where: { id: record.contractId }, select: { number: true, title: true, proposalId: true, kind: true } });
+    // venda de locação (cobrada por medição) tem origem própria; as demais vendas contam como serviço
+    const origin: WalletOrigin = record.contractId ? (contract?.kind === 'locacao' ? 'locacao' : 'servico') : record.subscriptionId || record.couponId ? 'treinamento' : 'manual';
     const parcel = num(record.installmentTotal) > 1 ? ` · parcela ${record.installmentNumber}/${record.installmentTotal}` : '';
-    const description = (origin === 'servico'
-      ? `Comissão de serviço — ${contract?.number ?? 'contrato'}${parcel}${contract?.title ? ` · ${contract.title}` : ''}`
+    const description = (origin === 'servico' || origin === 'locacao'
+      ? `Comissão de ${origin === 'locacao' ? 'locação' : 'serviço'} — ${contract?.number ?? 'contrato'}${parcel}${contract?.title ? ` · ${contract.title}` : ''}`
       : origin === 'treinamento'
         ? `Comissão de treinamento${coupon?.code ? ` — cupom ${coupon.code}` : ''}${subscription?.class?.name ? ` · ${subscription.class.name}` : ''}`
         : `Comissão — ${record.description || `conta a receber ${record.id}`}`).slice(0, 255);
@@ -184,7 +185,7 @@ export class SellerWalletService {
     });
     const empty = () => ({
       balance: 0, pending: 0, paid: 0, generated: 0, adjustments: 0, sales: 0, lastMovementAt: null as Date | null,
-      byOrigin: { treinamento: { generated: 0, pending: 0, sales: 0 }, servico: { generated: 0, pending: 0, sales: 0 }, manual: { generated: 0, pending: 0, sales: 0 } },
+      byOrigin: { treinamento: { generated: 0, pending: 0, sales: 0 }, servico: { generated: 0, pending: 0, sales: 0 }, locacao: { generated: 0, pending: 0, sales: 0 }, manual: { generated: 0, pending: 0, sales: 0 } },
     });
     const by = new Map<number, ReturnType<typeof empty>>();
     for (const row of rows) {

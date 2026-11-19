@@ -80,13 +80,15 @@ export class ActivityService {
 
   private async present(companyId: number, rows: Commercial_Activity[]) {
     const ids = <T,>(values: Array<T | null>) => [...new Set(values.filter((value): value is T => value !== null))];
-    const [users, customers, proposals] = await Promise.all([
+    const [users, customers, proposals, rentals] = await Promise.all([
       this.prisma.user.findMany({ where: { id: { in: ids(rows.map((row) => row.userId)) } }, select: { id: true, name: true } }),
       this.prisma.customer.findMany({ where: { companyId, id: { in: ids(rows.map((row) => row.customerId)) } }, select: { id: true, name: true } }),
       this.prisma.commercial_Proposal.findMany({
         where: { companyId, id: { in: ids(rows.map((row) => row.proposalId)) } }, select: { id: true, number: true, title: true, status: true },
       }),
+      this.prisma.stock_Rental.findMany({ where: { companyId, id: { in: ids(rows.map((row) => row.rentalId)) } }, select: { id: true, number: true } }),
     ]);
+    const rentalOf = new Map(rentals.map((rental) => [rental.id, rental]));
     const userName = new Map(users.map((user) => [user.id, user.name]));
     const customerOf = new Map(customers.map((customer) => [customer.id, customer]));
     const proposalOf = new Map(proposals.map((proposal) => [proposal.id, proposal]));
@@ -104,6 +106,8 @@ export class ActivityService {
         userId: row.userId, user: row.userId ? userName.get(row.userId) ?? null : null,
         customer: customerOf.get(row.customerId) ?? { id: row.customerId, name: '' },
         proposal: row.proposalId ? proposalOf.get(row.proposalId) ?? null : null,
+        // lembrete automático de uma ordem de locação (fim de período, devolução)
+        rental: row.rentalId ? rentalOf.get(row.rentalId) ?? null : null, automatic: !!row.autoKey,
         createdAt: row.createdAt,
       };
     });

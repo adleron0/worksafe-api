@@ -27,6 +27,8 @@ export interface DocumentData {
   schedule?: Schedule;
   kind?: 'servico' | 'treinamento' | 'locacao';
   seller?: { name: string | null; email: string | null; phone: string | null };
+  /** proposta de locação: como é cobrada (no lugar das parcelas), caução e prazo */
+  rentalTerms?: string[] | null;
 }
 
 export interface TermText { id: number; title: string; body: string }
@@ -172,7 +174,10 @@ function classicItemsTable(data: DocumentData, mode: ItemsMode, c: Classic): str
   return `<table style="${cTable}"><thead>${head}</thead><tbody>${rows.join('')}${total}</tbody></table>`;
 }
 
+const rentalTermsHtml = (data: DocumentData) => `<ul style="margin:4px 0 0 18px">${(data.rentalTerms ?? []).map((line) => `<li>${escape(line)}</li>`).join('')}</ul>`;
+
 function classicPaymentTable(data: DocumentData, c: Classic): string {
+  if (data.rentalTerms?.length) return rentalTermsHtml(data);
   if (!data.installments.length) return '<p>A combinar.</p>';
   const many = data.installments.length > 1;
   const rows = data.installments.map((inst, index) =>
@@ -227,6 +232,7 @@ function dueText(inst: DocumentData['installments'][number]): string {
 }
 
 function paymentTable(data: DocumentData): string {
+  if (data.rentalTerms?.length) return rentalTermsHtml(data);
   if (!data.installments.length) return '<p>A combinar.</p>';
   const rows = data.installments.map((inst, index) =>
     `<tr><td style="${TD}">${escape(inst.description || (data.installments.length === 1 ? 'Pagamento único' : `Parcela ${index + 1} de ${data.installments.length}`))}</td>`
@@ -283,7 +289,7 @@ export function renderDocument(body: string, data: DocumentData, terms: TermText
       customer: { ...data.customer, email: data.contactEmail || data.customer.email, phone: data.contactPhone || data.customer.phone },
       seller: data.seller ?? { name: data.sellerName, email: null, phone: null },
       number: data.number, title: data.title, date: data.date, validUntil: data.validUntil, workDays: data.workDays, total: data.total,
-      totalInWords: moneyInWords(data.total), installments: data.installments, images: data.images ?? [], schedule: data.schedule, kind: data.kind,
+      totalInWords: moneyInWords(data.total), installments: data.installments, images: data.images ?? [], schedule: data.schedule, kind: data.kind, rentalSummary: data.rentalTerms?.[0] ?? null,
     };
     for (const [key, build] of Object.entries(BRAND_BLOCKS)) blocks[key] = build(blockData);
   } else {

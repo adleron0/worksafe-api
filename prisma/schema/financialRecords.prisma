@@ -79,6 +79,8 @@ model FinancialRecords {
   // Contrato comercial e parcela que originaram este recebível
   contractId            Int?
   contractInstallmentId Int?
+  // boletim de medição que originou este recebível (locação por período, medição de obra)
+  measurementId         Int?
 
   // Transações de split
   splitTransactions SplitTransaction[] // Transações de split associadas ao registro
@@ -104,6 +106,7 @@ model FinancialRecords {
   @@index([costCenterId])
   @@index([bankAccountId])
   @@index([contractId])
+  @@index([measurementId])
   @@index([companyId, dueDate])
   @@index([recurrenceId])
 }

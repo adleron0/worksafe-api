@@ -368,7 +368,7 @@ model Stock_ServiceEvent {
 model Stock_Rental {
   id        Int     @id @default(autoincrement())
   companyId Int
-  // LOC-2026-0001
+  // OL-2026-0001 (Ordem de Locação; as antigas eram LOC-)
   number    String  @db.VarChar(30)
   year      Int
   sequence  Int
@@ -388,6 +388,8 @@ model Stock_Rental {
   period    String  @default("mes") @db.VarChar(8)
   // até onde já foi cobrado (o próximo período começa no dia seguinte)
   billedUntil DateTime? @db.Date
+  // períodos contratados na proposta (nulo = até devolver, ou locação antiga)
+  periods   Int?
   deliveryAddress String? @db.VarChar(300)
   responsibleName String? @db.VarChar(160)
   terms     String?
@@ -438,10 +440,14 @@ model Stock_RentalCharge {
   periodStart DateTime @db.Date
   periodEnd   DateTime @db.Date
   value       Decimal  @db.Decimal(14, 2)
-  // aluguel | avaria | falta | frete
+  // aluguel | avaria | falta | frete | avulso | caucao | abatimento (caução que abate avaria/fatura, valor negativo)
   kind        String   @db.VarChar(10)
   description String?  @db.VarChar(255)
   financialRecordId Int?
+  // boletim de medição em que foi faturada (locação de contrato)
+  measurementId Int?
+  // caução devolvida ao cliente (conta a pagar)
+  payableId     Int?
   createdAt   DateTime @default(now())
 
   @@index([rentalId, periodStart])

@@ -262,6 +262,10 @@ model Commercial_Proposal {
   // altera a proposta (rascunho pode pedir para recalcular).
   snapshot Json
 
+  // Proposta de locação: período, nº de períodos ou "até devolver", cobrança
+  // (por período ou única), caução e endereço de entrega. Nulo nos outros tipos.
+  rental Json?
+
   totalCost      Decimal @default(0) @db.Decimal(14, 2)
   totalSuggested Decimal @default(0) @db.Decimal(14, 2)
   totalNet       Decimal @default(0) @db.Decimal(14, 2)
@@ -502,8 +506,11 @@ model Commercial_Contract {
   customerOrderDate     DateTime? @db.Date
   customerOrderUrl      String?   @db.VarChar(500)
   customerOrderFileName String?   @db.VarChar(200)
+  // parcelas (parcelas fixas da proposta) | periodo (locação: cada período vencido é uma medição)
+  billingMode String @default("parcelas") @db.VarChar(10)
 
   installments Commercial_ContractInstallment[]
+  measurements Commercial_Measurement[]
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
@@ -638,6 +645,9 @@ model Commercial_Activity {
   // responsável
   userId          Int?
   createdByUserId Int?
+  // lembrete automático de uma ordem de locação (fim de período, devolução)
+  rentalId        Int?
+  autoKey         String? @db.VarChar(60)
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
@@ -646,6 +656,8 @@ model Commercial_Activity {
   @@index([companyId, proposalId])
   @@index([companyId, customerId])
   @@index([companyId, doneAt, dueDate])
+  @@index([rentalId])
+  @@unique([companyId, autoKey])
 }
 
 // ---------------------------------------------------------------- turma fechada × venda
@@ -667,4 +679,37 @@ model Commercial_ClassBilling {
 
   @@index([companyId, mode])
   @@index([contractId])
+}
+
+// ---------------------------------------------------------------- faturamento por medição
+
+/// Boletim de medição (BM-01, BM-02… por contrato): o que se fatura de uma vez
+/// numa nota. Na locação é montado sozinho com os períodos vencidos, as avarias
+/// e faltas e as cobranças avulsas da ordem de locação (origem "locacao"); a
+/// medição de obra (plano 08, fase 8) usa a mesma tabela com origem "obra".
+model Commercial_Measurement {
+  id         Int      @id @default(autoincrement())
+  companyId  Int
+  contractId Int
+  contract   Commercial_Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  // sequência dentro do contrato
+  number     Int
+  // locacao | obra
+  source     String   @db.VarChar(10)
+  rentalId   Int?
+  periodStart DateTime? @db.Date
+  periodEnd   DateTime? @db.Date
+  value      Decimal  @db.Decimal(14, 2)
+  // linhas: [{ kind, description, periodStart, periodEnd, value, chargeId }]
+  lines      Json
+  // faturada | cancelada (a obra vai acrescentar rascunho, enviada, aprovada)
+  status     String   @default("faturada") @db.VarChar(12)
+  financialRecordId Int?
+  invoiceNumber     String? @db.VarChar(60)
+  createdByUserId Int?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  @@index([contractId])
+  @@index([rentalId])
 }

@@ -78,15 +78,30 @@ export class PipelineService {
     }];
   }
 
-  /** Locações diretas com período fechado ou cobrança de avaria esperando faturar. */
+  /**
+   * Ordens de locação: as antigas (sem venda) com período fechado esperando
+   * faturar, e a esteira das OL (entregar, devolver, atrasadas). As OL de venda
+   * são faturadas por medição e aparecem em "Parcelas e medições para faturar".
+   */
   private async rentalsToBill(actor: PipelineActor): Promise<PipelineBlock[]> {
     const { rows } = await this.rentals.list(actor, { status: 'todas' });
-    const pending = rows.filter((row) => row.toBill);
-    if (!pending.length) return [];
-    return [{
-      key: 'locacoes_faturar', area: 'Financeiro', title: 'Locações para faturar', hint: 'Período fechado: gerar a conta a receber', count: pending.length, total: null, link: '/suprimentos/locacoes',
-      items: pending.slice(0, TOP).map((row) => ({ id: row.id, title: row.number, subtitle: row.customer, link: `/suprimentos/locacoes/${row.id}`, value: row.ratePerPeriod, late: false })),
-    }];
+    const blocks: PipelineBlock[] = [];
+    const item = (row: (typeof rows)[number], subtitle: string, late = false) => ({ id: row.id, title: `${row.number} · ${row.customer}`, subtitle, link: `/suprimentos/locacoes/${row.id}`, value: null as number | null, late });
+    const br = (value: string | null) => (value ? value.split('-').reverse().join('/') : '');
+    const legacy = rows.filter((row) => row.toBill && !row.fromContract);
+    if (legacy.length) {
+      blocks.push({
+        key: 'locacoes_faturar', area: 'Financeiro', title: 'Locações antigas para faturar', hint: 'Locação sem venda com período fechado: gerar a conta a receber', count: legacy.length, total: null, link: '/suprimentos/locacoes',
+        items: legacy.slice(0, TOP).map((row) => ({ ...item(row, row.summary), value: row.ratePerPeriod })),
+      });
+    }
+    const late = rows.filter((row) => row.stage === 'atrasada');
+    if (late.length) blocks.push({ key: 'ol_atrasadas', area: 'Operação', title: 'Locações atrasadas', hint: 'Passaram da devolução prevista: retirar o equipamento ou combinar a prorrogação', count: late.length, total: null, link: '/suprimentos/locacoes', items: late.slice(0, TOP).map((row) => item(row, `devolução prevista ${br(row.expectedEnd)}`, true)) });
+    const soon = rows.filter((row) => row.stage === 'a_devolver');
+    if (soon.length) blocks.push({ key: 'ol_devolver', area: 'Operação', title: 'Locações a devolver', hint: 'Devolução prevista nos próximos dias: combinar a retirada', count: soon.length, total: null, link: '/suprimentos/locacoes', items: soon.slice(0, TOP).map((row) => item(row, `devolução prevista ${br(row.expectedEnd)}`)) });
+    const deliver = rows.filter((row) => row.stage === 'a_entregar');
+    if (deliver.length) blocks.push({ key: 'ol_entregar', area: 'Operação', title: 'Locações a entregar', hint: 'Venda fechada: separar o equipamento e entregar ao cliente', count: deliver.length, total: null, link: '/suprimentos/locacoes', items: deliver.slice(0, TOP).map((row) => item(row, `início ${br(row.startDate)} · ${row.summary}`)) });
+    return blocks;
   }
 
   /** Comercial: os retornos da pessoa que venceram ou são para hoje. */
@@ -231,10 +246,11 @@ export class PipelineService {
     const queue = await this.contracts.billingQueue({ userId: actor.userId, companyId: actor.companyId }, {});
     const rows = queue.rows.filter((row) => row.stage === 'liberada');
     return [{
-      key: 'faturar', area: 'Financeiro', title: 'Parcelas para faturar', hint: 'Vendas fechadas com parcela liberada: falta emitir a nota', count: rows.length,
+      key: 'faturar', area: 'Financeiro', title: 'Parcelas e medições para faturar', hint: 'Vendas fechadas com parcela liberada ou locação com período vencido: falta emitir a nota', count: rows.length,
       total: round2(rows.reduce((sum, row) => sum + row.value, 0)), link: '/financeiro/faturar',
       items: rows.slice(0, TOP).map((row) => ({
-        id: row.id, title: row.customer.name, subtitle: [row.contractNumber, row.total > 1 ? `parcela ${row.number}/${row.total}` : 'pagamento único', row.title].join(' · '),
+        id: row.id, title: row.customer.name,
+        subtitle: [row.contractNumber, (row as { source?: string }).source === 'medicao' ? row.description : row.total > 1 ? `parcela ${row.number}/${row.total}` : 'pagamento único', row.title].join(' · '),
         link: '/financeiro/faturar', value: row.value, late: false,
       })),
     }];

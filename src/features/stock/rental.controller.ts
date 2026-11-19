@@ -7,7 +7,7 @@ import { stockActorOf } from './stock.controller';
 type Json = Record<string, unknown>;
 type Q = Record<string, string>;
 
-/** Locação de equipamento próprio a clientes. */
+/** Ordem de Locação (OL): equipamento próprio alugado a clientes. */
 @Controller('stock/rentals')
 export class StockRentalController {
   constructor(private readonly rentals: StockRentalService) {}
@@ -30,6 +30,8 @@ export class StockRentalController {
   receiveBack(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.rentals.receiveBack(stockActorOf(req), id, body ?? {}); }
   @Permissions('update_locacoes', 'update_financeiro') @Post(':id/bill') @HttpCode(200)
   bill(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.rentals.bill(stockActorOf(req), id, body ?? {}); }
+  @Permissions('update_locacoes', 'update_financeiro') @Post(':id/deposit') @HttpCode(200)
+  settleDeposit(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.rentals.settleDeposit(stockActorOf(req), id, body ?? {}); }
   @Permissions('update_locacoes') @Patch(':id/status')
   move(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.rentals.move(stockActorOf(req), id, body ?? {}); }
 }

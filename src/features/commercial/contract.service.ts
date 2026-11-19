@@ -1,5 +1,6 @@
 import { rentalsFromContract } from 'src/features/stock/rental.service';
 import { SellerWalletService } from './wallet.service';
+import { MeasurementService } from './measurement.service';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CommercialContractStatus, Prisma, financialRecordsStatus, paymentMethods } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -51,7 +52,7 @@ type ContractRow = Prisma.Commercial_ContractGetPayload<{ include: typeof FULL }
 @Injectable()
 export class ContractService {
   constructor(private readonly prisma: PrismaService, private readonly cache: CacheService, private readonly wallet: SellerWalletService,
-    private readonly orders: ServiceOrderService) {}
+    private readonly orders: ServiceOrderService, private readonly measurements: MeasurementService) {}
 
   // ------------------------------------------------------------------ criação
 
@@ -90,16 +91,18 @@ export class ContractService {
       proposalId, customerId: proposal.customerId, kind: proposal.kind, title: proposal.title, value: total, acceptedAt,
       documentHtml: proposal.frozenHtml, documentHash: proposal.frozenHash, signer: signer as Prisma.InputJsonValue,
       sellerId: proposal.sellerId, classes: classes as unknown as Prisma.InputJsonValue,
+      // locação é cobrada por medição (cada período vencido), não pelas parcelas da proposta
+      billingMode: proposal.kind === 'locacao' ? 'periodo' : 'parcelas',
       // o pedido do cliente pode vir junto com o aceite
       ...(customerOrder as Pick<Prisma.Commercial_ContractUncheckedCreateInput, 'customerOrderNumber' | 'customerOrderDate'>),
-      installments: { create: proposal.installments.map((inst, index) => ({
+      installments: { create: (proposal.kind === 'locacao' ? [] : proposal.installments).map((inst, index) => ({
         companyId: proposal.companyId, number: index + 1, total: proposal.installments.length, description: inst.description,
         value: values[index], dueRule: inst.dueRule, dueDate: inst.dueDate, dueDays: inst.dueDays,
       })) },
     } });
     // venda de serviço abre a ordem de serviço da operação
     await this.orders.createFromContract(tx, created.id, Number(signer.userId) || null);
-    // itens "locação a cliente": a locação nasce reservada, ligada à venda
+    // venda de locação: nasce a Ordem de Locação (OL) a entregar, ligada à venda
     await rentalsFromContract(tx, created.id);
     return { id: created.id, number: created.number };
   }
@@ -192,10 +195,12 @@ export class ContractService {
   }
 
   private async present(row: ContractRow) {
-    const [billing, proposal, classRows] = await Promise.all([
+    const [billing, proposal, classRows, rentals, measurements] = await Promise.all([
       this.billing([row.id]),
       this.prisma.commercial_Proposal.findUnique({ where: { id: row.proposalId }, select: { id: true, number: true } }),
       this.classesOf(row),
+      this.measurements.rentalsOf(row.companyId, row.id),
+      this.measurements.ofContract(row.id),
     ]);
     const b = billing.get(row.id);
     const recordOf = new Map((b?.records ?? []).map((record) => [record.id, record]));
@@ -206,7 +211,16 @@ export class ContractService {
       startDate: iso(row.startDate), endDate: iso(row.endDate), notes: row.notes, statusNote: row.statusNote,
       customerOrder: customerOrderOf(row), serviceOrder: await this.orders.ofContract(row.id),
       customer: row.customer, proposal, documentHash: row.documentHash, hasDocument: Boolean(row.documentHtml), signer: row.signer,
-      billed: round2(b?.billed ?? 0), received: round2(b?.received ?? 0), toBill: round2(value - (b?.billed ?? 0)),
+      billed: round2(b?.billed ?? 0), received: round2(b?.received ?? 0),
+      toBill: row.billingMode === 'periodo' ? round2(rentals.reduce((sum, r) => sum + r.value, 0)) : round2(value - (b?.billed ?? 0)),
+      billingMode: row.billingMode,
+      // locação: as ordens de locação, o que cada uma tem para faturar agora e as medições já faturadas
+      rentals: rentals.map(({ rental, pending, value: pendingValue, open }) => ({
+        id: rental.id, number: rental.number, status: rental.status, startDate: iso(rental.startDate), expectedEnd: iso(rental.expectedEnd), returnedAt: iso(rental.returnedAt),
+        billing: rental.billing, period: rental.period, billedUntil: iso(rental.billedUntil), pending, pendingValue, openPeriod: open,
+        ratePerPeriod: round2(rental.lines.reduce((sum, l) => sum + Number(l.rate) * Number(l.quantity), 0)),
+      })),
+      measurements,
       installments: row.installments.map((inst) => {
         const record = inst.financialRecordId ? recordOf.get(inst.financialRecordId) : undefined;
         return {
@@ -322,7 +336,7 @@ export class ContractService {
         const waitsEnd = inst.dueRule === 'dias_apos_conclusao' && !contract.endDate && contract.status !== 'concluido';
         const stage = paid ? 'recebida' : record ? 'faturada' : waitsEnd ? 'aguardando' : 'liberada';
         return [{
-          id: inst.id, stage, contractId: contract.id, contractNumber: contract.number, contractStatus: contract.status, kind: contract.kind, title: contract.title,
+          source: 'parcela', id: inst.id, stage, contractId: contract.id, contractNumber: contract.number, contractStatus: contract.status, kind: contract.kind, title: contract.title,
           proposal: proposalOf.get(contract.proposalId) ?? null, customer: { id: contract.customer.id, name: contract.customer.name },
           number: inst.number, total: inst.total, description: inst.description, value: Number(inst.value),
           dueRule: inst.dueRule, dueDate: iso(inst.dueDate), dueDays: inst.dueDays, suggestedDue: this.suggestedDue(inst, contract, today()),
@@ -335,6 +349,33 @@ export class ContractService {
         }];
       });
     });
+    // locação (cobrança por período): uma linha por OL com o que fechou (a faturar) ou o período em curso
+    // (aguardando), e uma por medição já faturada
+    const measured: typeof rows = [];
+    for (const contract of contracts.filter((c) => c.billingMode === 'periodo')) {
+      const base = {
+        contractId: contract.id, contractNumber: contract.number, contractStatus: contract.status, kind: contract.kind, title: contract.title,
+        proposal: proposalOf.get(contract.proposalId) ?? null, customer: { id: contract.customer.id, name: contract.customer.name }, customerOrder: customerOrderOf(contract),
+        number: 1, total: 1, dueRule: 'dias_apos_nf' as ContractRow['installments'][number]['dueRule'], dueDate: null, dueDays: 7, suggestedDue: addDays(today(), 7),
+      };
+      for (const { rental, pending, value, open } of await this.measurements.rentalsOf(actor.companyId, contract.id)) {
+        if (pending.length) {
+          measured.push({ ...base, id: `ol-${rental.id}` as unknown as number, stage: 'liberada', description: `${rental.number}: ${pending.map((l) => l.description).join('; ')}`, value, waitingFor: null, record: null,
+            source: 'medicao', rental: { id: rental.id, number: rental.number }, lines: pending } as never);
+        } else if (open && contract.status === 'vigente') {
+          const rate = round2(rental.lines.reduce((sum, l) => sum + Number(l.rate) * Number(l.quantity), 0));
+          measured.push({ ...base, id: `op-${rental.id}` as unknown as number, stage: 'aguardando', description: `${rental.number}: aluguel de ${open.start.split('-').reverse().join('/')} a ${open.end.split('-').reverse().join('/')}`, value: rate,
+            waitingFor: `o fim do período em ${open.end.split('-').reverse().join('/')}`, record: null, source: 'medicao', rental: { id: rental.id, number: rental.number }, lines: [] } as never);
+        }
+      }
+      for (const m of await this.measurements.ofContract(contract.id)) {
+        if (m.record?.paid && m.record.paidAt && m.record.paidAt < since) continue;
+        if (!m.record) continue;
+        measured.push({ ...base, id: `bm-${m.id}` as unknown as number, stage: m.record.paid ? 'recebida' : 'faturada', description: `${m.label}${m.rentalNumber ? ` · ${m.rentalNumber}` : ''}${m.periodStart ? ` · ${m.periodStart.split('-').reverse().join('/')} a ${m.periodEnd!.split('-').reverse().join('/')}` : ''}`,
+          value: m.value, waitingFor: null, record: m.record, source: 'medicao', measurementId: m.id, rental: m.rentalId ? { id: m.rentalId, number: m.rentalNumber } : null, lines: m.lines } as never);
+      }
+    }
+    rows.push(...measured);
     const summary: Record<string, { count: number; total: number }> = {};
     for (const stage of ['aguardando', 'liberada', 'faturada', 'recebida']) summary[stage] = { count: 0, total: 0 };
     for (const row of rows) { summary[row.stage].count += 1; summary[row.stage].total = round2(summary[row.stage].total + row.value); }

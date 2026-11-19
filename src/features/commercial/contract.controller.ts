@@ -6,6 +6,7 @@ import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { ALL_PROPOSALS_PERMISSION } from './ownership';
 import { permissionsOf } from './proposal.controller';
 import { ContractActor, ContractService } from './contract.service';
+import { MeasurementService } from './measurement.service';
 
 const actorOf = (req: Request): ContractActor => {
   const user = (req as Request & { user?: { sub?: number; companyId?: number; permissions?: unknown } }).user;
@@ -19,7 +20,7 @@ type Json = Record<string, unknown>;
  */
 @Controller('commercial/contracts')
 export class ContractController {
-  constructor(private readonly contracts: ContractService) {}
+  constructor(private readonly contracts: ContractService, private readonly measurements: MeasurementService) {}
 
   @Permissions('list_comercial') @Get()
   list(@Req() req: Request, @Query() query: Record<string, string>) { return this.contracts.list(actorOf(req), query ?? {}); }
@@ -55,6 +56,19 @@ export class ContractController {
   @Permissions('inactive_financeiro') @Post(':id/installments/:installmentId/unbill')
   unbill(@Param('id', ParseIntPipe) id: number, @Param('installmentId', ParseIntPipe) installmentId: number, @Req() req: Request) {
     return this.contracts.unbill(actorOf(req), id, installmentId);
+  }
+
+  /** Locação: fatura o que está pendente de uma OL do contrato (períodos vencidos, avarias, avulsas) num boletim de medição. */
+  @Permissions('create_financeiro') @Post(':id/measurements')
+  async billMeasurement(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) {
+    const result = await this.measurements.billRental(actorOf(req), id, body ?? {});
+    return { ...(await this.contracts.get(actorOf(req), id)), billed: result };
+  }
+
+  @Permissions('inactive_financeiro') @Post(':id/measurements/:measurementId/unbill')
+  async unbillMeasurement(@Param('id', ParseIntPipe) id: number, @Param('measurementId', ParseIntPipe) measurementId: number, @Req() req: Request) {
+    await this.measurements.unbill(actorOf(req), id, measurementId);
+    return this.contracts.get(actorOf(req), id);
   }
 
   @Permissions('create_classes') @Post(':id/classes/:index')
