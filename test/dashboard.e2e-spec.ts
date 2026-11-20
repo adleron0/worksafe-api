@@ -118,7 +118,9 @@ describe('Resumo da tela inicial (e2e)', () => {
     const bruno = await makeSeller(company.id);
     const alfa = await makeCustomer(company.id, 'Petro Sul');
     // em aberto: uma enviada há 12 dias (parada) e uma vista ontem
-    await makeProposal(company.id, alfa.id, { status: 'enviada', total: 1000, sellerId: ana.id, sentAt: day(-12), title: 'Resgate em tanque' });
+    const tank = await makeProposal(company.id, alfa.id, { status: 'enviada', total: 1000, sellerId: ana.id, sentAt: day(-12), title: 'Resgate em tanque' });
+    // um contato registrado há 9 dias: a proposta continua parada, contando desde ele
+    await testDb().commercial_Activity.create({ data: { companyId: company.id, customerId: alfa.id, proposalId: tank.id, type: 'ligacao', subject: 'Cobrar retorno', doneAt: day(-9) } });
     await makeProposal(company.id, alfa.id, { status: 'visualizada', total: 3000, sellerId: bruno.id, sentAt: day(-3) });
     // decididas nos últimos 90 dias: 1 aceita e 1 recusada = 50% de conversão
     await makeProposal(company.id, alfa.id, { status: 'aceita', total: 5000, sellerId: ana.id, sentAt: day(-20), decidedAt: day(-10) });
@@ -131,7 +133,7 @@ describe('Resumo da tela inicial (e2e)', () => {
     expect(all.weighted).toBe(2000);
     expect(all.avgDaysToAccept).toBe(10);
     expect(all.stalled.map((p: any) => p.title)).toEqual(['Resgate em tanque']);
-    expect(all.stalled[0]).toMatchObject({ customer: 'Petro Sul', days: 12, value: 1000 });
+    expect(all.stalled[0]).toMatchObject({ customer: 'Petro Sul', days: 9, value: 1000 });
     expect(all.funnel.map((f: any) => [f.key, f.count])).toEqual([['enviada', 1], ['visualizada', 1], ['aceita', Number(day(-10).toISOString().slice(0, 7) === TODAY.slice(0, 7))]]);
 
     // sem "ver todas", a Ana só enxerga as propostas dela

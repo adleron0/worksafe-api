@@ -56,7 +56,7 @@ export class CommercialSection {
     const followUps = await this.activities.followUps(actor.companyId, open.map((p) => p.id));
     const stalled = open
       .map((p) => {
-        const last = [followUps.get(p.id)?.lastAt ?? null, iso(p.viewedAt), iso(p.sentAt)].filter(Boolean).sort().pop() as string | undefined;
+        const last = [iso(followUps.get(p.id)?.lastAt ?? null), iso(p.viewedAt), iso(p.sentAt)].filter(Boolean).sort().pop() as string | undefined;
         return { p, days: last ? daysBetween(last.slice(0, 10), today) : daysBetween(iso(p.updatedAt)!, today) };
       })
       .filter((x) => x.days > STALLED_DAYS)
