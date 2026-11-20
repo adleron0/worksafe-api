@@ -914,20 +914,22 @@ export class ProposalService {
       this.prisma.commercial_Proposal.findMany({
         where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: page * limit, take: limit,
         select: { id: true, number: true, revision: true, kind: true, status: true, title: true, total: true, validUntil: true, createdAt: true, sentAt: true,
-          inactiveAt: true, sellerId: true, dealId: true, customer: { select: { id: true, name: true } } },
+          inactiveAt: true, sellerId: true, createdByUserId: true, dealId: true, customer: { select: { id: true, name: true } } },
       }),
       this.prisma.commercial_Proposal.count({ where }),
       this.prisma.commercial_Proposal.groupBy({ by: ['status'], where: scope, _count: { _all: true }, _sum: { total: true } }),
     ]);
-    const sellerIds = [...new Set(rows.map((r) => r.sellerId).filter((id): id is number => !!id))];
-    const sellers = sellerIds.length ? await this.prisma.user.findMany({ where: { id: { in: sellerIds } }, select: { id: true, name: true } }) : [];
-    const sellerName = new Map(sellers.map((s) => [s.id, s.name]));
+    // vendedor e quem criou a proposta: nomes numa consulta só
+    const userIds = [...new Set(rows.flatMap((r) => [r.sellerId, r.createdByUserId]).filter((id): id is number => !!id))];
+    const users = userIds.length ? await this.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : [];
+    const userName = new Map(users.map((s) => [s.id, s.name]));
     // acompanhamento: próximo retorno marcado e último contato de cada proposta
     const followUps = await this.activities.followUps(actor.companyId, rows.map((row) => row.id));
     return {
       total,
       rows: rows.map((row) => ({
-        ...row, followUp: followUps.get(row.id) ?? { next: null, pending: 0, lastAt: null }, total: Number(row.total), validUntil: iso(row.validUntil), seller: row.sellerId ? sellerName.get(row.sellerId) ?? null : null,
+        ...row, followUp: followUps.get(row.id) ?? { next: null, pending: 0, lastAt: null }, total: Number(row.total), validUntil: iso(row.validUntil), seller: row.sellerId ? userName.get(row.sellerId) ?? null : null,
+        createdBy: row.createdByUserId ? userName.get(row.createdByUserId) ?? null : null,
         expired: SENT.includes(row.status) && !!row.validUntil && iso(row.validUntil)! < today(),
       })),
       summary: Object.fromEntries(groups.map((g) => [g.status, { count: g._count._all, total: Number(g._sum.total ?? 0) }])),

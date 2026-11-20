@@ -315,6 +315,10 @@ describe('Comercial — propostas (e2e)', () => {
     await api().post(`/commercial/proposals/${proposal.id}/revise`).set(h).expect(409);
     const listed = (await api().get('/commercial/proposals').set(h).expect(200)).body;
     expect(listed.rows.map((r: any) => r.number)).toEqual([`PC-${YEAR}-0001-R1`]);
+    // quem criou e quando aparecem na lista
+    const creator = await testDb().user.findUnique({ where: { id: userId }, select: { name: true } });
+    expect(listed.rows[0].createdBy).toBe(creator!.name);
+    expect(listed.rows[0].createdAt).toBeTruthy();
     expect((await api().get('/commercial/proposals?status=substituida').set(h)).body.rows).toHaveLength(1);
 
     // envia a revisão e o cliente aceita
