@@ -330,14 +330,15 @@ export const FINANCE_TOOLS: ToolDefinition[] = [
   {
     name: 'fin_salvar_fornecedor',
     title: 'Salvando o fornecedor',
-    description: 'Cria (sem id) ou edita (com id) um fornecedor: nome, razão social, CNPJ/CPF, o que fornece, contato, PIX e dados bancários.',
+    description: 'Cria (sem id) ou edita (com id) um fornecedor: nome, razão social, CNPJ/CPF, o que fornece, contato, endereço, PIX e dados bancários.',
     inputSchema: obj({
       id: int('Id para editar'), nome: str('Nome fantasia'), razaoSocial: str('Razão social'), documento: str('CNPJ ou CPF'), fornece: str('O que fornece'),
       contato: str('Nome do contato'), email: str('E-mail'), telefone: str('Telefone'), pix: str('Chave PIX'), banco: str('Banco'), agencia: str('Agência'), conta: str('Conta'), observacoes: str('Observações'),
+      cep: str('CEP'), rua: str('Rua'), numero: str('Número'), complemento: str('Complemento'), bairro: str('Bairro'), cidade: str('Cidade'), uf: str('UF (2 letras)'),
     }),
     permissions: [], anyPermissions: ['create_financeiro', 'update_financeiro'], risk: 'draft',
     run: async (ctx, input, deps) => {
-      const body = pick(input, { nome: 'name', razaoSocial: 'legalName', documento: 'document', fornece: 'supplies', contato: 'contactName', email: 'email', telefone: 'phone', pix: 'pixKey', banco: 'bankName', agencia: 'agency', conta: 'account', observacoes: 'notes' });
+      const body = pick(input, { cep: 'zipcode', rua: 'street', numero: 'number', complemento: 'complement', bairro: 'neighborhood', cidade: 'city', uf: 'state', nome: 'name', razaoSocial: 'legalName', documento: 'document', fornece: 'supplies', contato: 'contactName', email: 'email', telefone: 'phone', pix: 'pixKey', banco: 'bankName', agencia: 'agency', conta: 'account', observacoes: 'notes' });
       return slim(positiveInt(input.id)
         ? await api(deps).call(ctx, 'PUT', `financial-suppliers/${input.id}`, { body })
         : await api(deps).call(ctx, 'POST', 'financial-suppliers', { body }));

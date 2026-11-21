@@ -55,6 +55,19 @@ describe('Contas a pagar e fornecedores (e2e)', () => {
       await api().post('/financial-suppliers').set(auth(company.id)).send({ name: 'A' }).expect(400);
     });
 
+    it('grava o endereço com CEP formatado e UF em maiúsculas', async () => {
+      const { db, company } = await cenario();
+      const { body } = await api().post('/financial-suppliers').set(auth(company.id)).send({
+        name: 'Com endereço', zipcode: '51020000', street: ' Rua  das Flores ', number: 'S/N', neighborhood: 'Boa Viagem', city: 'Recife', state: 'pe',
+      }).expect(201);
+      const row = await db.financial_Supplier.findUnique({ where: { id: body.id } });
+      expect(row).toMatchObject({ zipcode: '51020-000', street: 'Rua das Flores', number: 'S/N', city: 'Recife', state: 'PE' });
+      await api().put(`/financial-suppliers/${body.id}`).set(auth(company.id)).send({ zipcode: '123' }).expect(400);
+      await api().put(`/financial-suppliers/${body.id}`).set(auth(company.id)).send({ state: 'Pernambuco' }).expect(400);
+      await api().put(`/financial-suppliers/${body.id}`).set(auth(company.id)).send({ zipcode: '', city: '' }).expect(200);
+      expect(await db.financial_Supplier.findUnique({ where: { id: body.id } })).toMatchObject({ zipcode: null, city: null, state: 'PE' });
+    });
+
     it('não inativa fornecedor com conta em aberto', async () => {
       const { company, supplier } = await cenario();
       await criar(company.id, nova({ supplierId: supplier.id })).expect(201);

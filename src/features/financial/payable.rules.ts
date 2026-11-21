@@ -23,6 +23,7 @@ const crudFail: Fail = (message, field) => { throw new CrudError('VALIDATION_FAI
 const SUPPLIER_TEXT: Array<[string, number]> = [
   ['legalName', 200], ['supplies', 255], ['contactName', 120], ['email', 160], ['phone', 30],
   ['pixKey', 140], ['bankName', 120], ['agency', 20], ['account', 30], ['notes', 500],
+  ['street', 255], ['number', 20], ['complement', 255], ['neighborhood', 120], ['city', 120],
 ];
 
 /** Regras do cadastro de fornecedor, comuns ao CRUD e ao cadastro rápido no pedido de compra. */
@@ -47,6 +48,16 @@ export async function normalizeSupplier(
   }
   for (const [field, max] of SUPPLIER_TEXT) if (field in next) next[field] = clean(next[field]).slice(0, max) || null;
   if (next.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(next.email)) fail('E-mail inválido', 'email');
+  if ('zipcode' in next) {
+    const cep = digits(next.zipcode);
+    if (cep && cep.length !== 8) fail('CEP deve ter 8 dígitos', 'zipcode');
+    next.zipcode = cep ? `${cep.slice(0, 5)}-${cep.slice(5)}` : null;
+  }
+  if ('state' in next) {
+    const uf = clean(next.state).toUpperCase();
+    if (uf && !/^[A-Z]{2}$/.test(uf)) fail('UF deve ter 2 letras', 'state');
+    next.state = uf || null;
+  }
   return next;
 }
 
@@ -55,7 +66,7 @@ export const supplierEntity: EntityRules = {
   entity: 'financial-suppliers', model: 'Financial_Supplier',
   expose: ['list', 'getById', 'create', 'update', 'archive', 'restore'], restorePermission: 'own',
   permissions: PERMISSIONS,
-  filterable: ['name', 'document', 'supplies', 'createdAt'],
+  filterable: ['name', 'document', 'supplies', 'city', 'state', 'createdAt'],
   sortable: ['id', 'name', 'createdAt'],
   includable: ['_count'],
   includes: { _count: { select: { payables: true } } },
