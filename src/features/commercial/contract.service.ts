@@ -9,6 +9,8 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { CacheService } from 'src/common/cache/cache.service';
 import { classificationDefaults } from 'src/features/financial/classification';
 import { installmentValues } from './installments';
+import { addDeposit, assertDepositOpen, depositOf, removeDeposit } from './deposit';
+import { WorkProgress, workProgressOf, workStateOf } from './work-progress';
 import { ownProposalIds } from './ownership';
 import { ServiceOrderService } from 'src/features/operations/service-order.service';
 
@@ -98,11 +100,13 @@ export class ContractService {
       // locação é cobrada por medição (cada período vencido), não pelas parcelas da proposta
       billingMode: proposal.kind === 'locacao' ? 'periodo' : workPlan ? 'medicao' : 'parcelas',
       measurementPlan: workPlan ? (contractPlanOf(workPlan, total) as unknown as Prisma.InputJsonValue) : undefined,
+      // caução contratual das parcelas (a medição de obra antiga leva a dela no plano)
+      ...(proposal.kind === 'servico' && !workPlan ? { depositRate: proposal.depositRate, depositReleaseDays: proposal.depositReleaseDays } : {}),
       // o pedido do cliente pode vir junto com o aceite
       ...(customerOrder as Pick<Prisma.Commercial_ContractUncheckedCreateInput, 'customerOrderNumber' | 'customerOrderDate'>),
       installments: { create: (proposal.kind === 'locacao' || workPlan ? [] : proposal.installments).map((inst, index) => ({
         companyId: proposal.companyId, number: index + 1, total: proposal.installments.length, description: inst.description,
-        value: values[index], dueRule: inst.dueRule, dueDate: inst.dueDate, dueDays: inst.dueDays,
+        value: values[index], dueRule: inst.dueRule, dueDate: inst.dueDate, dueDays: inst.dueDays, workPercent: inst.workPercent,
       })) },
     } });
     // venda de serviço abre a ordem de serviço da operação
@@ -190,6 +194,8 @@ export class ContractService {
   /** Vencimento sugerido da parcela, a partir da regra combinada na proposta. */
   private suggestedDue(installment: ContractRow['installments'][number], contract: ContractRow, invoiceDate: string): string {
     if (installment.dueRule === 'data_fixa' && installment.dueDate) return iso(installment.dueDate)!;
+    // % da obra: a data é a que for combinada com o cliente ao medir; sugere a da nota
+    if (installment.dueRule === 'percentual_obra') return invoiceDate;
     const days = installment.dueDays ?? 0;
     const base = installment.dueRule === 'dias_apos_aceite' ? iso(contract.acceptedAt)!
       : installment.dueRule === 'dias_apos_conclusao' ? iso(contract.endDate) ?? invoiceDate
@@ -199,15 +205,24 @@ export class ContractService {
     return due < invoiceDate ? invoiceDate : due;
   }
 
+  /** Avanço da obra dos contratos de serviço, com os marcos das parcelas por % da obra. */
+  private progressOf(rows: ContractRow[]): Promise<Map<number, WorkProgress>> {
+    const servico = rows.filter((row) => row.kind === 'servico');
+    const marks = new Map(servico.map((row) => [row.id, row.installments.filter((i) => i.dueRule === 'percentual_obra').map((i) => Number(i.workPercent ?? 0))]));
+    return workProgressOf(this.prisma, servico.map((row) => row.id), marks);
+  }
+
   private async present(row: ContractRow) {
-    const [billing, proposal, classRows, rentals, measurements, works] = await Promise.all([
+    const [billing, proposal, classRows, rentals, measurements, works, progress] = await Promise.all([
       this.billing([row.id]),
       this.prisma.commercial_Proposal.findUnique({ where: { id: row.proposalId }, select: { id: true, number: true, schedule: true } }),
       this.classesOf(row),
       this.measurements.rentalsOf(row.companyId, row.id),
       this.measurements.ofContract(row.id),
       this.measurements.worksOf(row),
+      this.progressOf([row]),
     ]);
+    const work = progress.get(row.id);
     const b = billing.get(row.id);
     const recordOf = new Map((b?.records ?? []).map((record) => [record.id, record]));
     const value = Number(row.value);
@@ -225,6 +240,9 @@ export class ContractService {
       // medição de obra: o plano (frentes, mobilização, caução), os boletins e o resumo
       measurementPlan: row.measurementPlan, works,
       retentionRates: ratesOf(row.retentionRates),
+      // avanço da obra (RDO fechado) e caução das parcelas
+      workProgress: row.kind === 'servico' ? { percent: work?.percent ?? null, date: work?.date ?? null } : null,
+      deposit: Number(row.depositRate) > 0 ? { rate: Number(row.depositRate), releaseDays: row.depositReleaseDays } : null,
       // locação: as ordens de locação, o que cada uma tem para faturar agora e as medições já faturadas
       rentals: rentals.map(({ rental, pending, value: pendingValue, open }) => ({
         id: rental.id, number: rental.number, status: rental.status, startDate: iso(rental.startDate), expectedEnd: iso(rental.expectedEnd), returnedAt: iso(rental.returnedAt),
@@ -237,6 +255,8 @@ export class ContractService {
         return {
           id: inst.id, number: inst.number, total: inst.total, description: inst.description, value: Number(inst.value),
           dueRule: inst.dueRule, dueDate: iso(inst.dueDate), dueDays: inst.dueDays, suggestedDue: this.suggestedDue(inst, row, today()),
+          ...(inst.dueRule === 'percentual_obra' ? { work: workStateOf(work, Number(inst.workPercent ?? 0)) } : {}),
+          depositValue: inst.depositValue === null ? (record ? null : depositOf(row, Number(inst.value)) || null) : Number(inst.depositValue),
           record: record ? {
             id: record.id, status: record.status, dueDate: iso(record.dueDate), paidAt: record.paidAt, invoiceNumber: record.invoiceNumber,
             invoiceIssuedAt: iso(record.invoiceIssuedAt), hasInvoiceFile: Boolean(record.invoiceUrl), paid: PAID.includes(record.status),
@@ -337,6 +357,7 @@ export class ContractService {
       this.prisma.commercial_Proposal.findMany({ where: { id: { in: contracts.map((contract) => contract.proposalId) } }, select: { id: true, number: true } }),
     ]);
     const proposalOf = new Map(proposals.map((proposal) => [proposal.id, proposal]));
+    const progress = await this.progressOf(contracts);
     const since = new Date(Date.now() - recentDays * 86400000);
     const rows = contracts.flatMap((contract) => {
       const recordOf = new Map((billing.get(contract.id)?.records ?? []).map((record) => [record.id, record]));
@@ -346,13 +367,19 @@ export class ContractService {
         // recebidas antigas saem do quadro: ficam em Contas a Receber
         if (paid && record!.paidAt && record!.paidAt < since) return [];
         const waitsEnd = inst.dueRule === 'dias_apos_conclusao' && !contract.endDate && contract.status !== 'concluido';
-        const stage = paid ? 'recebida' : record ? 'faturada' : waitsEnd ? 'aguardando' : 'liberada';
+        // % da obra: fica "aguardando" até o RDO fechado cruzar o marco (dá para faturar antes, se o cliente pedir)
+        const work = inst.dueRule === 'percentual_obra' ? workStateOf(progress.get(contract.id), Number(inst.workPercent ?? 0)) : null;
+        const waitsWork = Boolean(work && !work.reached && contract.status !== 'concluido');
+        const stage = paid ? 'recebida' : record ? 'faturada' : waitsEnd || waitsWork ? 'aguardando' : 'liberada';
+        const pctBr = (value: number) => `${String(Math.round(value * 100) / 100).replace('.', ',')}%`;
         return [{
           source: 'parcela', id: inst.id, stage, contractId: contract.id, contractNumber: contract.number, contractStatus: contract.status, kind: contract.kind, title: contract.title,
           proposal: proposalOf.get(contract.proposalId) ?? null, customer: { id: contract.customer.id, name: contract.customer.name },
           number: inst.number, total: inst.total, description: inst.description, value: Number(inst.value),
           dueRule: inst.dueRule, dueDate: iso(inst.dueDate), dueDays: inst.dueDays, suggestedDue: this.suggestedDue(inst, contract, today()),
-          waitingFor: waitsEnd ? 'a conclusão do serviço' : null,
+          waitingFor: waitsEnd ? 'a conclusão do serviço'
+            : waitsWork ? `a obra chegar a ${pctBr(work!.workPercent)} (${work!.workProgress === null ? 'sem RDO fechado' : `agora em ${pctBr(work!.workProgress)}`})` : null,
+          ...(work ? { work } : {}), depositValue: inst.depositValue === null ? depositOf(contract, Number(inst.value)) || null : Number(inst.depositValue),
           customerOrder: customerOrderOf(contract), retentionRates: ratesOf(contract.retentionRates),
           record: record ? {
             id: record.id, status: record.status, dueDate: iso(record.dueDate), paidAt: record.paidAt, invoiceNumber: record.invoiceNumber,
@@ -487,15 +514,20 @@ export class ContractService {
     }).filter((r) => r.value > 0));
     const method = METHODS.includes(body.paymentMethod) ? (body.paymentMethod as paymentMethods) : 'outro';
     const many = chosen.length > 1;
+    // caução contratual: parte de cada nota fica retida na conta da caução (a receber = nota − caução)
+    const deposits = values.map((value) => depositOf(row, value));
+    if (chosen.length === 1 && netRaw !== null && deposits[0] > 0 && netRaw > values[0] - deposits[0]) throw new BadRequestException('Valor líquido deve ficar abaixo do valor da parcela menos a caução');
 
     const recordIds = await this.prisma.$transaction(async (tx) => {
       const out: number[] = [];
       for (const [index, installment] of chosen.entries()) {
-        const value = values[index];
+        const invoiceValue = values[index];
+        const deposit = deposits[index];
+        const value = round2(invoiceValue - deposit);
         const dueDate = blank(dueDates[installment.id]) ? this.suggestedDue(installment, row, invoiceDate) : dateOf(dueDates[installment.id], 'Vencimento');
         const label = `${row.number} — ${installment.total > 1 ? `parcela ${installment.number}/${installment.total}` : 'pagamento único'}`;
         // trava a parcela: duas pessoas faturando a mesma não geram dois títulos
-        const locked = await tx.commercial_ContractInstallment.updateMany({ where: { id: installment.id, financialRecordId: null }, data: { billedAt: new Date() } });
+        const locked = await tx.commercial_ContractInstallment.updateMany({ where: { id: installment.id, financialRecordId: null }, data: { billedAt: new Date(), depositValue: deposit > 0 ? deposit : null } });
         if (!locked.count) throw new ConflictException('Esta parcela já foi faturada');
         const share = shares[index];
         const record = await tx.financialRecords.create({ data: {
@@ -506,18 +538,23 @@ export class ContractService {
           dueDate: noonUtc(dueDate), accrualDate: invoiceDate.slice(0, 7),
           invoiceNumber, invoiceIssuedAt: noonUtc(invoiceDate), installmentNumber: installment.number, installmentTotal: installment.total,
           description: (!many && clean(body.description, 255)) || `${label} · ${row.title}`.slice(0, 255),
-          observations: (!many && clean(body.observations, 255)) || (row.customerOrderNumber ? `Pedido do cliente ${row.customerOrderNumber}` : null),
+          observations: (!many && clean(body.observations, 255)) || [row.customerOrderNumber ? `Pedido do cliente ${row.customerOrderNumber}` : '', deposit > 0 ? `Nota de ${invoiceValue.toFixed(2).replace('.', ',')} com caução de ${deposit.toFixed(2).replace('.', ',')} retida` : ''].filter(Boolean).join(' · ') || null,
           contractId: id, contractInstallmentId: installment.id,
           ...(await classificationDefaults(tx, actor.companyId, 'contrato')),
         } });
         // a base da retenção é a parte desta parcela na nota
-        await writeRetentions(tx, { ...record, accrualDate: invoiceDate.slice(0, 7) }, share, value, actor.userId);
+        await writeRetentions(tx, { ...record, accrualDate: invoiceDate.slice(0, 7) }, share, invoiceValue, actor.userId);
         await tx.commercial_ContractInstallment.update({ where: { id: installment.id }, data: { financialRecordId: record.id } });
+        if (deposit > 0) await addDeposit(tx, row, deposit);
         out.push(record.id);
       }
       return out;
     });
     for (const recordId of recordIds) await this.wallet.syncRecordSafe(recordId);
+    if (deposits.some((d) => d > 0)) {
+      const fresh = await this.prisma.commercial_Contract.findUnique({ where: { id }, select: { depositRecordId: true } });
+      if (fresh?.depositRecordId) await this.wallet.syncRecordSafe(fresh.depositRecordId);
+    }
     return { ...(await this.get(actor, id)), financialRecordId: recordIds[0], financialRecordIds: recordIds };
   }
 
@@ -537,12 +574,17 @@ export class ContractService {
     if (!installment.financialRecordId) throw new ConflictException('Esta parcela ainda não foi faturada');
     const record = await this.prisma.financialRecords.findUnique({ where: { id: installment.financialRecordId }, select: { id: true, status: true } });
     if (record && PAID.includes(record.status)) throw new ConflictException('Esta parcela já foi paga: estorne a baixa em Contas a Receber antes de desfazer o faturamento');
-    await this.prisma.$transaction(async (tx) => {
+    const deposit = Number(installment.depositValue ?? 0);
+    if (deposit > 0) await assertDepositOpen(this.prisma, id);
+    const depositRecordId = await this.prisma.$transaction(async (tx) => {
       if (record) await tx.financialRecords.update({ where: { id: record.id }, data: { inactiveAt: new Date(), status: 'cancelled' } });
-      await tx.commercial_ContractInstallment.update({ where: { id: installmentId }, data: { financialRecordId: null, billedAt: null } });
+      await tx.commercial_ContractInstallment.update({ where: { id: installmentId }, data: { financialRecordId: null, billedAt: null, depositValue: null } });
+      // a caução retida nesta nota volta
+      return removeDeposit(tx, id, deposit);
     });
     // o título saiu do Contas a Receber: a comissão prevista dele é cancelada
     if (record) await this.wallet.syncRecordSafe(record.id);
+    if (depositRecordId) await this.wallet.syncRecordSafe(depositRecordId);
     return this.get(actor, id);
   }
 

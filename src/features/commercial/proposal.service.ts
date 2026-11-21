@@ -5,7 +5,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { ActivityService } from './activity.service';
 import { CommercialService, PricingSnapshot } from './commercial.service';
 import { ContractService } from './contract.service';
-import { installmentValues } from './installments';
+import { installmentValues, workMarksProblem } from './installments';
 import { ProposalImage, Schedule } from './document.blocks';
 import { DocumentData, DocumentService, ITEMS_MODES, ItemsMode, VARIABLES, renderDocument, sanitizeBody, sha256 } from './document.service';
 import { computeBase, price, PriceInput, PriceItemInput, PriceResult, PricingError, professionalCost, resolveRentalTax, resolveTax, round2 } from './pricing/engine';
@@ -23,7 +23,7 @@ export interface Actor { userId: number; companyId: number; canSeeCosts: boolean
 const KINDS: CommercialProposalKind[] = ['servico', 'treinamento', 'locacao'];
 const ITEM_TYPES: CommercialItemType[] = ['mao_de_obra', 'locacao', 'material', 'treinamento', 'avulso', 'locacao_cliente'];
 const RENT_PERIODS = ['dia', 'semana', 'mes'];
-const DUE_RULES: CommercialDueRule[] = ['data_fixa', 'dias_apos_aceite', 'dias_apos_nf', 'dias_apos_conclusao'];
+const DUE_RULES: CommercialDueRule[] = ['data_fixa', 'dias_apos_aceite', 'dias_apos_nf', 'dias_apos_conclusao', 'percentual_obra'];
 /** Ainda em negociação: pode ser revisada, cancelada ou decidida. */
 const SENT: CommercialProposalStatus[] = ['enviada', 'visualizada'];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -110,7 +110,7 @@ export interface DraftItem {
   unitCost: number; extraCost: number; margin: number | null; finalValue: number | null; showInDocument: boolean;
 }
 export interface DraftSection { id?: number; title: string; kind: CommercialItemType; margin: number; showInDocument: boolean; items: DraftItem[] }
-export interface DraftInstallment { percent: number | null; amount: number | null; dueRule: CommercialDueRule; dueDate: string | null; dueDays: number | null; description: string | null }
+export interface DraftInstallment { percent: number | null; amount: number | null; dueRule: CommercialDueRule; dueDate: string | null; dueDays: number | null; workPercent?: number | null; description: string | null }
 export interface Draft {
   kind: CommercialProposalKind; customerId: number; contactName: string | null; contactEmail: string | null; contactPhone: string | null;
   requester: string | null; department: string | null; title: string; description: string | null; sellerId: number | null;
@@ -131,6 +131,8 @@ export interface Draft {
   rental: RentalTerms | null;
   /** serviço: faturamento por medição de obra (frentes, mobilização, caução); null = parcelas */
   measurement: MeasurementPlanInput | null;
+  /** caução contratual nas parcelas: fração retida de cada nota (0–0,3) e dias após a conclusão para liberar */
+  depositRate: number; depositReleaseDays: number;
   sections: DraftSection[]; installments: DraftInstallment[];
 }
 
@@ -268,10 +270,14 @@ export class ProposalService {
       const percent = optional(raw.percent, `${label} — percentual`, 0, 1);
       const amount = optional(raw.amount, `${label} — valor`, 0, 1e11);
       if ((percent === null) === (amount === null)) throw new BadRequestException(`${label}: informe o percentual ou o valor`);
-      const dueRule = (DUE_RULES.includes(raw.dueRule) ? raw.dueRule : 'dias_apos_nf') as CommercialDueRule;
+      // "% da obra" só existe no serviço (é o avanço da OS, lido do RDO)
+      const asked = (DUE_RULES.includes(raw.dueRule) ? raw.dueRule : 'dias_apos_nf') as CommercialDueRule;
+      const dueRule = asked === 'percentual_obra' && kind !== 'servico' ? 'dias_apos_nf' : asked;
       const dueDate = dueRule === 'data_fixa' ? dateOf(raw.dueDate, `${label} — vencimento`) : null;
-      const dueDays = dueRule === 'data_fixa' ? null : Math.round(number(raw.dueDays, `${label} — dias`, 0, 3650, 0));
-      return { percent, amount: amount === null ? null : round2(amount), dueRule, dueDate, dueDays, description: clean(raw.description, 200) || null };
+      const byWork = dueRule === 'percentual_obra';
+      const dueDays = dueRule === 'data_fixa' || byWork ? null : Math.round(number(raw.dueDays, `${label} — dias`, 0, 3650, 0));
+      const workPercent = byWork ? Math.round(number(raw.workPercent, `${label} — % da obra`, 0, 100, 0) * 1e4) / 1e4 : null;
+      return { percent, amount: amount === null ? null : round2(amount), dueRule, dueDate, dueDays, workPercent, description: clean(raw.description, 200) || null };
     });
 
     const commission = (body.commission ?? {}) as Body;
@@ -302,6 +308,9 @@ export class ProposalService {
       schedule: this.documents.parseSchedule('schedule' in body ? body.schedule : keep?.schedule),
       // locação é cobrada por medição: parcelas não se aplicam
       rental, sections, installments: kind === 'locacao' || measurement ? [] : installments, measurement,
+      // caução contratual das parcelas (no serviço; a locação tem a caução própria e a medição de obra, a do plano)
+      depositRate: kind === 'servico' && !measurement ? Math.round(number('depositRate' in body ? body.depositRate : keep ? Number(keep.depositRate) : 0, 'Caução', 0, 0.3, 0) * 1e6) / 1e6 : 0,
+      depositReleaseDays: kind === 'servico' && !measurement ? Math.round(number('depositReleaseDays' in body ? body.depositReleaseDays : keep?.depositReleaseDays ?? 0, 'Prazo de liberação da caução', 0, 3650, 0)) : 0,
     };
   }
 
@@ -438,7 +447,7 @@ export class ProposalService {
         ...(see ? { cost: r(t.cost), taxInside: r(t.taxInside), tax: r(t.tax), profit: r(t.profit), profitRate: rate(t.profitRate), commission: r(t.commission),
           customerCredit: r(t.customerCredit), customerCost: r(t.customerCost) } : {}),
       },
-      installments, installmentsTotal: r(planned), installmentsDiff: r(round2(t.total) - planned),
+      installments, installmentsTotal: r(planned), installmentsDiff: r(round2(t.total) - planned), installmentsProblem: workMarksProblem(draft.installments),
       // medição de obra: o valor de cada frente e da mobilização com o total de agora
       measurementPlan: draft.measurement ? { ...contractPlanOf(draft.measurement, round2(t.total)), problem: planProblem(draft.measurement) } : null,
       ...(see ? {
@@ -538,6 +547,7 @@ export class ProposalService {
       schedule: this.documents.parseSchedule(row.schedule),
       rental: row.kind === 'locacao' ? rentalTermsOf(row.rental, (row.items.find((item) => item.type === 'locacao_cliente')?.extra ?? undefined) as Record<string, unknown> | undefined) : null,
       measurement: row.kind === 'servico' ? parsePlan(row.measurement, row.schedule) : null,
+      depositRate: Number(row.depositRate), depositReleaseDays: row.depositReleaseDays,
       sections: row.sections.map((section) => ({
         id: section.id, title: section.title, kind: section.kind, margin: Number(section.margin), showInDocument: section.showInDocument,
         items: row.items.filter((item) => item.sectionId === section.id).map((item) => ({
@@ -549,7 +559,7 @@ export class ProposalService {
         })),
       })),
       installments: row.installments.map((inst) => ({
-        percent: n(inst.percent), amount: n(inst.amount), dueRule: inst.dueRule, dueDate: iso(inst.dueDate), dueDays: inst.dueDays, description: inst.description,
+        percent: n(inst.percent), amount: n(inst.amount), dueRule: inst.dueRule, dueDate: iso(inst.dueDate), dueDays: inst.dueDays, workPercent: n(inst.workPercent), description: inst.description,
       })),
     };
   }
@@ -730,7 +740,10 @@ export class ProposalService {
       contactName: draft.contactName, contactEmail: draft.contactEmail, contactPhone: draft.contactPhone, sellerName: seller?.name ?? null, number, title: draft.title, description: draft.description,
       date, validUntil: draft.validUntil, workDays: draft.workDays, total, sections,
       brand, images: draft.images, schedule: draft.schedule, kind: draft.kind, seller: { name: seller?.name ?? null, email: seller?.email ?? null, phone: seller?.phone ?? null },
-      installments: draft.installments.map((inst, index) => ({ description: inst.description, value: values[index], dueRule: inst.dueRule, dueDate: inst.dueDate, dueDays: inst.dueDays })),
+      installments: draft.installments.map((inst, index) => ({ description: inst.description, value: values[index], dueRule: inst.dueRule, dueDate: inst.dueDate, dueDays: inst.dueDays, workPercent: inst.workPercent ?? null })),
+      depositTerms: draft.depositRate > 0 && draft.installments.length
+        ? `Caução contratual: ${String(Math.round(draft.depositRate * 10000) / 100).replace('.', ',')}% de cada nota fiscal fica retido e é pago ${draft.depositReleaseDays ? `${draft.depositReleaseDays} dias após` : 'na'} conclusão da obra.`
+        : null,
       rentalTerms: draft.kind === 'locacao' && draft.rental ? this.rentalTermsText(draft, result)
         // medição de obra: as condições da medição entram no lugar das parcelas
         : draft.measurement ? planTerms(draft.measurement, total) : null,
@@ -1113,6 +1126,8 @@ export class ProposalService {
       if (row.kind !== 'locacao' && !plan && Math.abs(planned - total) > 0.005) {
         throw new BadRequestException('As parcelas não somam o total da proposta');
       }
+      const marks = workMarksProblem(row.installments.map((inst) => ({ dueRule: inst.dueRule, workPercent: inst.workPercent === null ? null : Number(inst.workPercent) })));
+      if (row.kind !== 'locacao' && !plan && marks) throw new BadRequestException(marks);
     }
     // "Enviar por e-mail": o link segue para o e-mail do contato DESTA proposta, exatamente como está nela.
     const notify = target === 'enviada' && (body.notify === true || body.notify === 'true');

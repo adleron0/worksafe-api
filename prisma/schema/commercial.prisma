@@ -193,6 +193,8 @@ enum CommercialDueRule {
   dias_apos_aceite
   dias_apos_nf
   dias_apos_conclusao
+  // ao atingir `workPercent`% de avanço da obra (RDO fechado); só referência, nunca trava
+  percentual_obra
 }
 
 // Tabela de preço in-company de um curso (sugestão para itens de
@@ -273,6 +275,9 @@ model Commercial_Proposal {
   // { mode: parcelas|medicao, fronts: [{ step, title, weight, rule: percentual|conclusao }],
   //   mobilization: { mode: nenhuma|etapa|adiantamento, rate }, depositRate, depositReleaseDays }
   measurement Json?
+  // caução contratual (parcelas): fração retida de cada nota e dias após a conclusão para liberar
+  depositRate        Decimal @default(0) @db.Decimal(7, 6)
+  depositReleaseDays Int     @default(0)
 
   totalCost      Decimal @default(0) @db.Decimal(14, 2)
   totalSuggested Decimal @default(0) @db.Decimal(14, 2)
@@ -404,6 +409,8 @@ model Commercial_ProposalInstallment {
   dueRule     CommercialDueRule   @default(dias_apos_nf)
   dueDate     DateTime?           @db.Date
   dueDays     Int?
+  // vencimento `percentual_obra`: % de avanço da obra que libera a parcela (1–100)
+  workPercent Decimal?            @db.Decimal(7, 4)
   description String?             @db.VarChar(200)
 
   @@index([proposalId])
@@ -521,6 +528,9 @@ model Commercial_Contract {
   retentionRates Json?
   // medição de obra (billingMode = medicao): frentes com valor, mobilização e caução (copiado da proposta)
   measurementPlan Json?
+  // caução contratual nas parcelas: fração retida de cada nota e dias após a conclusão para liberar
+  depositRate        Decimal @default(0) @db.Decimal(7, 6)
+  depositReleaseDays Int     @default(0)
   // conta a receber da caução contratual acumulada nos boletins (liberada no fim da obra)
   depositRecordId Int?
 
@@ -548,6 +558,9 @@ model Commercial_ContractInstallment {
   dueRule           CommercialDueRule
   dueDate           DateTime?           @db.Date
   dueDays           Int?
+  workPercent       Decimal?            @db.Decimal(7, 4)
+  // caução contratual retida na nota desta parcela (vai para a conta da caução do contrato)
+  depositValue      Decimal?            @db.Decimal(14, 2)
   // conta a receber gerada ao registrar a nota fiscal desta parcela
   financialRecordId Int?                @unique
   billedAt          DateTime?

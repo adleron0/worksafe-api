@@ -101,7 +101,7 @@ export const READ_TOOLS: ToolDefinition[] = [
           titulo: section.title, tipo: section.kind,
           itens: (section.items ?? []).map((item: any) => ({ descricao: item.description, quantidade: item.quantity, unidade: item.unit, valor: money(item.total ?? item.finalValue ?? item.price) })),
         })),
-        parcelas: (row.installments ?? []).map((inst: any) => ({ percentual: inst.percent, valor: inst.amount, regra: inst.dueRule, dias: inst.dueDays, vencimento: inst.dueDate })),
+        parcelas: (row.installments ?? []).map((inst: any) => ({ percentual: inst.percent, valor: inst.amount, regra: inst.dueRule, dias: inst.dueDays, percentualObra: inst.workPercent ?? undefined, vencimento: inst.dueDate })),
         totais: row.result ? { total: money(row.result.total ?? row.total), custo: row.result.cost ?? undefined, margem: row.result.margin ?? undefined } : { total: money(row.total) },
         link: `/comercial/propostas/${row.id}`,
       };

@@ -20,7 +20,9 @@ export interface DocumentData {
   number: string; title: string; description: string | null;
   date: Date; validUntil: string | null; workDays: number; total: number;
   sections: Array<{ title: string; show: boolean; value: number; items: Array<{ description: string; unit: string | null; quantity: number; value: number; show: boolean; detail?: string }> }>;
-  installments: Array<{ description: string | null; value: number; dueRule: string; dueDate: string | null; dueDays: number | null }>;
+  installments: Array<{ description: string | null; value: number; dueRule: string; dueDate: string | null; dueDays: number | null; workPercent?: number | null }>;
+  /** caução contratual retida das notas das parcelas, em texto (nulo = sem caução) */
+  depositTerms?: string | null;
   /** identidade da empresa, imagens da proposta e contato do responsável (blocos de capa, quem somos, imagens...) */
   brand?: Brand;
   images?: ProposalImage[];
@@ -176,6 +178,8 @@ function classicItemsTable(data: DocumentData, mode: ItemsMode, c: Classic): str
 
 const rentalTermsHtml = (data: DocumentData) => `<ul style="margin:4px 0 0 18px">${(data.rentalTerms ?? []).map((line) => `<li>${escape(line)}</li>`).join('')}</ul>`;
 
+const depositNote = (data: DocumentData) => (data.depositTerms ? `<p style="margin:6px 0 0">${escape(data.depositTerms)}</p>` : '');
+
 function classicPaymentTable(data: DocumentData, c: Classic): string {
   if (data.rentalTerms?.length) return rentalTermsHtml(data);
   if (!data.installments.length) return '<p>A combinar.</p>';
@@ -183,7 +187,7 @@ function classicPaymentTable(data: DocumentData, c: Classic): string {
   const rows = data.installments.map((inst, index) =>
     `<tr><td style="${cTd(c, true)}">${many ? `${index + 1}` : 'Única'}</td><td style="${cTd(c, false)}">${escape(dueText(inst))}${inst.description && inst.description !== dueText(inst) ? ` <span style="color:#555">— ${escape(inst.description)}</span>` : ''}</td>`
     + `<td style="${cTd(c, true)}${RIGHT}">${money(inst.value)}</td></tr>`);
-  return `<table style="${cTable}"><thead><tr><th style="${cTh(c)}">Parcela</th><th style="${cTh(c)}">Vencimento</th><th style="${cTh(c)}${RIGHT}">Valor</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+  return `<table style="${cTable}"><thead><tr><th style="${cTh(c)}">Parcela</th><th style="${cTh(c)}">Vencimento</th><th style="${cTh(c)}${RIGHT}">Valor</th></tr></thead><tbody>${rows.join('')}</tbody></table>${depositNote(data)}`;
 }
 
 /** Termos no modelo de orçamento: um traço, o título em caixa alta e o texto em letra menor. */
@@ -223,8 +227,11 @@ function itemsTable(data: DocumentData, mode: ItemsMode): string {
   return `<table style="${TABLE}"><thead>${head}</thead><tbody>${rows.join('')}</tbody></table>`;
 }
 
+const pctBr = (value: number) => `${String(Math.round(value * 100) / 100).replace('.', ',')}%`;
+
 function dueText(inst: DocumentData['installments'][number]): string {
   if (inst.dueRule === 'data_fixa') return `em ${dateBr(inst.dueDate)}`;
+  if (inst.dueRule === 'percentual_obra') return `ao atingir ${pctBr(Number(inst.workPercent ?? 0))} da obra`;
   const event = inst.dueRule === 'dias_apos_aceite' ? 'o aceite desta proposta' : inst.dueRule === 'dias_apos_conclusao' ? 'a conclusão' : 'a emissão da nota fiscal';
   const days = inst.dueDays ?? 0;
   if (days === 0) return inst.dueRule === 'dias_apos_aceite' ? 'no aceite desta proposta' : inst.dueRule === 'dias_apos_conclusao' ? 'na conclusão' : 'na emissão da nota fiscal';
@@ -237,7 +244,7 @@ function paymentTable(data: DocumentData): string {
   const rows = data.installments.map((inst, index) =>
     `<tr><td style="${TD}">${escape(inst.description || (data.installments.length === 1 ? 'Pagamento único' : `Parcela ${index + 1} de ${data.installments.length}`))}</td>`
     + `<td style="${TD}">${escape(dueText(inst))}</td><td style="${TD}${RIGHT}">${money(inst.value)}</td></tr>`);
-  return `<table style="${TABLE}"><thead><tr><th style="${TH}">Parcela</th><th style="${TH}">Vencimento</th><th style="${TH}${RIGHT}">Valor</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+  return `<table style="${TABLE}"><thead><tr><th style="${TH}">Parcela</th><th style="${TH}">Vencimento</th><th style="${TH}${RIGHT}">Valor</th></tr></thead><tbody>${rows.join('')}</tbody></table>${depositNote(data)}`;
 }
 
 const termsBlock = (terms: TermText[]) => terms.map((term) => `<h3>${escape(term.title)}</h3>${term.body}`).join('') || '';

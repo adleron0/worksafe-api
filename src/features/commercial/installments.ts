@@ -16,3 +16,21 @@ export function installmentValues(total: number, installments: Array<{ percent: 
   }
   return values;
 }
+
+const pct = (value: number) => `${String(Math.round(value * 100) / 100).replace('.', ',')}%`;
+
+/**
+ * Marcos de "% da obra" (vencimento `percentual_obra`): entre 1% e 100%, em
+ * ordem crescente e sem repetir. Devolve o que impede enviar, ou null.
+ */
+export function workMarksProblem(installments: Array<{ dueRule: string; workPercent?: number | null }>): string | null {
+  let last = 0;
+  for (const [index, inst] of installments.entries()) {
+    if (inst.dueRule !== 'percentual_obra') continue;
+    const mark = Number(inst.workPercent ?? 0);
+    if (!(mark >= 1 && mark <= 100)) return `Parcela ${index + 1}: o % da obra deve ficar entre 1% e 100%`;
+    if (mark <= last) return `Parcela ${index + 1}: os marcos de % da obra precisam crescer (${pct(mark)} depois de ${pct(last)})`;
+    last = mark;
+  }
+  return null;
+}
