@@ -58,10 +58,10 @@ describe('Contas a pagar e fornecedores (e2e)', () => {
     it('grava o endereço com CEP formatado e UF em maiúsculas', async () => {
       const { db, company } = await cenario();
       const { body } = await api().post('/financial-suppliers').set(auth(company.id)).send({
-        name: 'Com endereço', zipcode: '51020000', street: ' Rua  das Flores ', number: 'S/N', neighborhood: 'Boa Viagem', city: 'Recife', state: 'pe',
+        name: 'Com endereço', phone2: ' (81) 3333-4444 ', stateRegistration: '0234133-60', zipcode: '51020000', street: ' Rua  das Flores ', number: 'S/N', neighborhood: 'Boa Viagem', city: 'Recife', state: 'pe',
       }).expect(201);
       const row = await db.financial_Supplier.findUnique({ where: { id: body.id } });
-      expect(row).toMatchObject({ zipcode: '51020-000', street: 'Rua das Flores', number: 'S/N', city: 'Recife', state: 'PE' });
+      expect(row).toMatchObject({ phone2: '(81) 3333-4444', stateRegistration: '0234133-60', zipcode: '51020-000', street: 'Rua das Flores', number: 'S/N', city: 'Recife', state: 'PE' });
       await api().put(`/financial-suppliers/${body.id}`).set(auth(company.id)).send({ zipcode: '123' }).expect(400);
       await api().put(`/financial-suppliers/${body.id}`).set(auth(company.id)).send({ state: 'Pernambuco' }).expect(400);
       await api().put(`/financial-suppliers/${body.id}`).set(auth(company.id)).send({ zipcode: '', city: '' }).expect(200);

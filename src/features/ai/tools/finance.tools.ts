@@ -334,11 +334,11 @@ export const FINANCE_TOOLS: ToolDefinition[] = [
     inputSchema: obj({
       id: int('Id para editar'), nome: str('Nome fantasia'), razaoSocial: str('Razão social'), documento: str('CNPJ ou CPF'), fornece: str('O que fornece'),
       contato: str('Nome do contato'), email: str('E-mail'), telefone: str('Telefone'), pix: str('Chave PIX'), banco: str('Banco'), agencia: str('Agência'), conta: str('Conta'), observacoes: str('Observações'),
-      cep: str('CEP'), rua: str('Rua'), numero: str('Número'), complemento: str('Complemento'), bairro: str('Bairro'), cidade: str('Cidade'), uf: str('UF (2 letras)'),
+      telefone2: str('Telefone 2'), ie: str('Inscrição estadual'), cep: str('CEP'), rua: str('Rua'), numero: str('Número'), complemento: str('Complemento'), bairro: str('Bairro'), cidade: str('Cidade'), uf: str('UF (2 letras)'),
     }),
     permissions: [], anyPermissions: ['create_financeiro', 'update_financeiro'], risk: 'draft',
     run: async (ctx, input, deps) => {
-      const body = pick(input, { cep: 'zipcode', rua: 'street', numero: 'number', complemento: 'complement', bairro: 'neighborhood', cidade: 'city', uf: 'state', nome: 'name', razaoSocial: 'legalName', documento: 'document', fornece: 'supplies', contato: 'contactName', email: 'email', telefone: 'phone', pix: 'pixKey', banco: 'bankName', agencia: 'agency', conta: 'account', observacoes: 'notes' });
+      const body = pick(input, { telefone2: 'phone2', ie: 'stateRegistration', cep: 'zipcode', rua: 'street', numero: 'number', complemento: 'complement', bairro: 'neighborhood', cidade: 'city', uf: 'state', nome: 'name', razaoSocial: 'legalName', documento: 'document', fornece: 'supplies', contato: 'contactName', email: 'email', telefone: 'phone', pix: 'pixKey', banco: 'bankName', agencia: 'agency', conta: 'account', observacoes: 'notes' });
       return slim(positiveInt(input.id)
         ? await api(deps).call(ctx, 'PUT', `financial-suppliers/${input.id}`, { body })
         : await api(deps).call(ctx, 'POST', 'financial-suppliers', { body }));

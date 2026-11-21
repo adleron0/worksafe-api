@@ -130,6 +130,9 @@ model Financial_Supplier {
   contactName String? @db.VarChar(120)
   email       String? @db.VarChar(160)
   phone       String? @db.VarChar(30)
+  phone2      String? @db.VarChar(30)
+  // inscrição estadual
+  stateRegistration String? @db.VarChar(30)
   pixKey      String? @db.VarChar(140)
   bankName    String? @db.VarChar(120)
   agency      String? @db.VarChar(20)

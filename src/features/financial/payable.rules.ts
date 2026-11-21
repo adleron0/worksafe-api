@@ -21,7 +21,7 @@ const crudFail: Fail = (message, field) => { throw new CrudError('VALIDATION_FAI
 // ---------------------------------------------------------------- fornecedores
 
 const SUPPLIER_TEXT: Array<[string, number]> = [
-  ['legalName', 200], ['supplies', 255], ['contactName', 120], ['email', 160], ['phone', 30],
+  ['legalName', 200], ['supplies', 255], ['contactName', 120], ['email', 160], ['phone', 30], ['phone2', 30], ['stateRegistration', 30],
   ['pixKey', 140], ['bankName', 120], ['agency', 20], ['account', 30], ['notes', 500],
   ['street', 255], ['number', 20], ['complement', 255], ['neighborhood', 120], ['city', 120],
 ];
