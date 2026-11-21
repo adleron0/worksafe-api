@@ -11,8 +11,9 @@ model Customer {
   description   String?    @db.VarChar(255)
   rankId        Int
   rank          DOM_Ranks  @relation(fields: [rankId], references: [id])
-  phone         String     @db.VarChar(100)
-  email         String     @db.VarChar(255)
+  // opcionais: há clientes sem telefone ou e-mail cadastrados
+  phone         String?    @db.VarChar(100)
+  email         String?    @db.VarChar(255)
   stateId       Int
   state         DOM_States @relation(fields: [stateId], references: [id])
   cityId        Int

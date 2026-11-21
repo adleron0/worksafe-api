@@ -81,6 +81,24 @@ describe('Clientes — CPF ou CNPJ (e2e)', () => {
     expect(await db.customer.findUnique({ where: { id: row!.id } })).toMatchObject({ icmsContributor: false, stateRegistration: 'ISENTO' });
   });
 
+  it('cadastra e edita cliente sem e-mail e sem telefone (campos opcionais)', async () => {
+    const { db, company, base } = await cenario();
+    const req = api().post('/customer').set(auth(company.id));
+    const campos: Record<string, string> = {
+      ...Object.fromEntries(Object.entries(base).map(([k, v]) => [k, String(v)])),
+      email: '',
+      phone: '',
+      cnpj: '52998224725',
+    };
+    for (const [k, v] of Object.entries(campos)) req.field(k, v);
+    const res = await req;
+    expect(res.status).toBeLessThan(300);
+    const row = await db.customer.findFirst({ where: { companyId: company.id, cnpj: '52998224725' } });
+    expect(row?.email ?? '').toBe('');
+    expect(row?.phone ?? '').toBe('');
+    await api().put(`/customer/${row!.id}`).set(auth(company.id)).field('name', 'Fulano Silva').field('email', '').field('phone', '').expect(200);
+  });
+
   it('recusa CPF ou CNPJ com dígito errado e tamanho que não é nenhum dos dois', async () => {
     const { company, base } = await cenario();
     const cpf = await api().post('/customer').set(auth(company.id)).send({ ...base, cnpj: '52998224724' });
