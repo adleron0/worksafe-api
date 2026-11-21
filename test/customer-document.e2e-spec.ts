@@ -58,6 +58,29 @@ describe('Clientes — CPF ou CNPJ (e2e)', () => {
     expect(res.status).toBeLessThan(300);
   });
 
+  it('grava os dados fiscais (IE, IM, ICMS, ramo) pelo formulário multipart', async () => {
+    const { db, company, base } = await cenario();
+    const req = api().post('/customer').set(auth(company.id));
+    const campos: Record<string, string> = {
+      ...Object.fromEntries(Object.entries(base).map(([k, v]) => [k, String(v)])),
+      cnpj: '33714458000161',
+      stateRegistration: '0123456-78',
+      municipalRegistration: '998877',
+      icmsContributor: 'true',
+      activityType: 'Industrial',
+      cnae: '2063100 Fabricação de cosméticos',
+      simplesNacional: 'true',
+      phone2: '8133334444',
+    };
+    for (const [k, v] of Object.entries(campos)) req.field(k, v);
+    const res = await req;
+    expect(res.status).toBeLessThan(300);
+    const row = await db.customer.findFirst({ where: { companyId: company.id, cnpj: '33714458000161' } });
+    expect(row).toMatchObject({ stateRegistration: '0123456-78', municipalRegistration: '998877', icmsContributor: true, activityType: 'Industrial', cnae: '2063100 Fabricação de cosméticos', simplesNacional: true, phone2: '8133334444' });
+    await api().put(`/customer/${row!.id}`).set(auth(company.id)).field('icmsContributor', 'false').field('stateRegistration', 'ISENTO').expect(200);
+    expect(await db.customer.findUnique({ where: { id: row!.id } })).toMatchObject({ icmsContributor: false, stateRegistration: 'ISENTO' });
+  });
+
   it('recusa CPF ou CNPJ com dígito errado e tamanho que não é nenhum dos dois', async () => {
     const { company, base } = await cenario();
     const cpf = await api().post('/customer').set(auth(company.id)).send({ ...base, cnpj: '52998224724' });

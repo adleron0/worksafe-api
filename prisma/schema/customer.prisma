@@ -22,6 +22,17 @@ model Customer {
   number        Int?
   complement    String?    @db.VarChar(255)
   zipcode       String?    @db.VarChar(10)
+  // dados fiscais: inscrição estadual (ou "ISENTO"), municipal e se contribui com ICMS
+  stateRegistration     String? @db.VarChar(30)
+  municipalRegistration String? @db.VarChar(30)
+  icmsContributor       Boolean @default(false)
+  // ramo: Prestação de Serviços, Industrial, Comercial, Construção Civil, Órgão Público...
+  activityType          String? @db.VarChar(60)
+  // CNAE principal ("código descrição") e optante do Simples Nacional
+  cnae                  String? @db.VarChar(255)
+  simplesNacional       Boolean @default(false)
+  // segundo telefone (fixo, fax ou outro celular)
+  phone2                String? @db.VarChar(100)
   // ponto no mapa: calculado pelo endereço (geocodedAt preenchido) ou ajustado à mão (geocodedAt vazio)
   latitude      Float?
   longitude     Float?

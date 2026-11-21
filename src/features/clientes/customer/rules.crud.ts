@@ -58,6 +58,8 @@ export const customerEntity: EntityRules = {
     'rankId',
     'stateId',
     'cityId',
+    'activityType',
+    'icmsContributor',
     'createdAt',
   ],
   sortable: ['id', 'name', 'corporateName', 'createdAt'],
