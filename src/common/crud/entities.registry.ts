@@ -113,6 +113,7 @@ import { AiController } from 'src/features/ai/ai.controller';
 import { McpController } from 'src/features/ai/mcp/mcp.controller';
 import { ReportController } from 'src/features/ai/reports/report.controller';
 import { ImageLinkController } from 'src/features/ai/images/image-link.controller';
+import { ConnectorsController } from 'src/features/ai/connectors/connectors.controller';
 import { PlaceController } from 'src/features/places/place.controller';
 import { StockModule } from 'src/features/stock/module';
 import { StockController } from 'src/features/stock/stock.controller';
@@ -311,6 +312,7 @@ export const crudExtraControllers = [
   McpController,
   ReportController,
   ImageLinkController,
+  ConnectorsController,
   ContractController,
   ClassBillingController,
   ReservationController,

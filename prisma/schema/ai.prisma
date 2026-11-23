@@ -341,3 +341,54 @@ model Ai_ProviderKey {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @default(now()) @updatedAt
 }
+
+/// Conta externa conectada pela empresa (hoje: Instagram). A chave de acesso fica criptografada.
+model Ai_Connector {
+  id                Int       @id @default(autoincrement())
+  companyId         Int
+  provider          String    @db.VarChar(30)
+  accountId         String    @db.VarChar(60)
+  username          String?   @db.VarChar(120)
+  name              String?   @db.VarChar(200)
+  pictureUrl        String?   @db.Text
+  accountType       String?   @db.VarChar(40)
+  tokenEncrypted    String    @db.Text
+  tokenExpiresAt    DateTime?
+  refreshedAt       DateTime  @default(now())
+  /// connected | expired
+  status            String    @default("connected") @db.VarChar(20)
+  lastError         String?   @db.Text
+  connectedByUserId Int?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @default(now()) @updatedAt
+
+  @@unique([companyId, provider])
+}
+
+/// Post ou story agendado para uma rede social (hoje: Instagram).
+model Ai_SocialPost {
+  id              Int       @id @default(autoincrement())
+  companyId       Int
+  provider        String    @default("instagram") @db.VarChar(30)
+  /// feed | story | carousel
+  kind            String    @db.VarChar(20)
+  caption         String    @default("") @db.Text
+  /// URLs das imagens (no bucket do sistema)
+  media           Json
+  scheduledAt     DateTime
+  /// scheduled | processing | published | failed | canceled
+  status          String    @default("scheduled") @db.VarChar(20)
+  containerId     String?   @db.VarChar(60)
+  externalId      String?   @db.VarChar(60)
+  permalink       String?   @db.Text
+  error           String?   @db.Text
+  attempts        Int       @default(0)
+  botId           Int?
+  createdByUserId Int?
+  publishedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
+
+  @@index([status, scheduledAt])
+  @@index([companyId, scheduledAt])
+}

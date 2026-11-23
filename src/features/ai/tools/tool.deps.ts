@@ -14,6 +14,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { ImageIntakeService } from '../images/image-intake.service';
 import { NotifyService } from '../reports/notify.service';
 import { InternalApiService } from './internal-api.service';
+import { InstagramService } from '../connectors/instagram.service';
 
 /**
  * Os serviços de domínio que as ferramentas usam. As ferramentas não
@@ -45,5 +46,6 @@ export class ToolDeps {
     readonly images: ImageIntakeService,
     readonly api: InternalApiService,
     readonly notify: NotifyService,
+    readonly instagram: InstagramService,
   ) {}
 }

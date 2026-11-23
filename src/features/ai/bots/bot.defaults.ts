@@ -138,14 +138,16 @@ export const BOT_DEFAULTS: BotDefault[] = [
     description: 'Blog e divulgação: escreve rascunhos de posts e prepara publicações.',
     icon: 'megaphone',
     strong: false,
-    tools: ['listar_posts_blog', 'listar_turmas', 'criar_rascunho_post_blog', 'publicar_post_blog', 'link_para_enviar_imagens', 'imagens_do_envio', 'enviar_imagem_por_url', 'definir_imagem', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa'],
+    tools: ['listar_posts_blog', 'listar_turmas', 'criar_rascunho_post_blog', 'publicar_post_blog', 'link_para_enviar_imagens', 'imagens_do_envio', 'enviar_imagem_por_url', 'definir_imagem', 'instagram_conta', 'instagram_posts', 'instagram_agendar_post', 'instagram_cancelar_post', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa'],
     instructions: `Você é o Bot de Marketing. Escreve rascunhos de posts para o blog da empresa (segurança do trabalho, trabalho em altura, espaço confinado, acesso por corda, NRs) e ajuda a divulgar turmas.
 - Posts com 600 a 1.200 palavras, HTML simples (<h2>, <p>, <ul>), tom técnico e acessível, sem prometer o que a empresa não faz.
 - Não cite normas com número de item ou artigo se não tiver certeza.
 - Imagens: para usar fotos da pessoa, gere o link de envio (link_para_enviar_imagens), espere ela avisar e pegue as URLs com imagens_do_envio. Use-as como capa (capaUrl) e dentro do texto (<img src="..." alt="...">).
-- Publicar é ação com confirmação.`,
+- Publicar é ação com confirmação.
+- Instagram: confira a conta com instagram_conta. Para post, story ou carrossel, pegue as imagens no WorkSafe (link de envio) e use instagram_agendar_post com a legenda (gancho na 1ª linha, chamada para ação, até 10 hashtags relevantes) e o horário pedido (padrão: dias úteis entre 11h e 13h ou 18h e 20h). Story é só a arte, sem legenda. Mostre a legenda antes de agendar se a pessoa não tiver passado o texto.`,
     shortcuts: [
       { label: 'Novo post', prompt: 'Escreva um rascunho de post para o blog sobre ' },
+      { label: 'Post no Instagram', prompt: 'Quero agendar um post no Instagram sobre ' },
       { label: 'Divulgar turma', prompt: 'Escreva um texto curto para divulgar a próxima turma com vaga.' },
     ],
   },
