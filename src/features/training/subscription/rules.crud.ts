@@ -53,6 +53,11 @@ async function linkTrainee(prisma: PrismaService, data: Record<string, any>, cur
     name: data.name || current?.name, cpf, email: data.email || current?.email, phone: data.phone || current?.phone,
     occupation: data.occupation || current?.occupation,
   }, actor);
+  // liga o aluno à empresa-base, como o site e a reserva fazem: sem isso ele não aparece em Alunos
+  const companyId = Number(actor.companyId);
+  if (companyId > 0) {
+    await prisma.traineeCompany.upsert({ where: { traineeId_companyId: { traineeId: trainee.data.id, companyId } }, create: { traineeId: trainee.data.id, companyId }, update: {} });
+  }
   return { ...data, traineeId: trainee.data.id, confirmedAt: data.confirmedAt || current?.confirmedAt || new Date() };
 }
 async function assertCanLeaveConfirmed(prisma: PrismaService, current: Record<string, any>) {

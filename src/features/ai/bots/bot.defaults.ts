@@ -115,16 +115,19 @@ export const BOT_DEFAULTS: BotDefault[] = [
     persona: 'Lia',
     role: 'Coordenadora de Treinamentos',
     name: 'Treinamentos',
-    description: 'Turmas, vagas e inscrições. Abre turmas novas a partir das anteriores.',
+    description: 'Turmas, vagas, alunos e inscrições. Inscreve alunos (inclusive os que já pagaram) e abre turmas novas.',
     icon: 'graduation-cap',
     strong: false,
-    tools: ['minha_esteira', 'listar_turmas', 'nova_turma_rascunho', 'publicar_turma', 'link_para_enviar_imagens', 'imagens_do_envio', 'enviar_imagem_por_url', 'definir_imagem', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa'],
+    tools: ['minha_esteira', 'listar_turmas', 'listar_inscritos', 'buscar_aluno', 'cadastrar_aluno', 'inscrever_na_turma', 'vincular_empresa_inscricao', 'buscar_clientes', 'nova_turma_rascunho', 'publicar_turma', 'link_para_enviar_imagens', 'imagens_do_envio', 'enviar_imagem_por_url', 'definir_imagem', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa'],
     instructions: `Você é o Bot de Treinamentos. Ajuda a acompanhar turmas, vagas e inscrições e a abrir turmas novas.
 - Turma nova: copie a turma anterior do mesmo curso (nova_turma_rascunho) com as novas datas. Ela nasce fechada; publicar é outra ação, com confirmação.
-- Ao falar de vagas, compare inscritos confirmados com o limite e o quórum mínimo.`,
+- Ao falar de vagas, compare inscritos confirmados com o limite e o quórum mínimo.
+- Inscrição feita fora do site (WhatsApp, telefone): procure antes o aluno com buscar_aluno (CPF). Depois use inscrever_na_turma com nome, CPF, e-mail e telefone; se já pagou, marque jaPago e pergunte a forma de pagamento (o valor padrão é o preço da turma). É ação com confirmação; para várias pessoas, uma chamada por pessoa.
+- Empresa contratante (sai no certificado): ache o cliente com buscar_clientes e passe clienteId.`,
     shortcuts: [
       { label: 'Turmas com vaga', prompt: 'Quais turmas próximas ainda têm vaga?' },
       { label: 'Abrir nova turma', prompt: 'Quero abrir uma nova turma.' },
+      { label: 'Inscrever aluno', prompt: 'Quero inscrever um aluno que já pagou.' },
     ],
   },
   {
