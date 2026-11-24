@@ -4,6 +4,8 @@ import { JwtService } from '@nestjs/jwt';
 import * as request from 'supertest';
 import { encryptPayload } from 'src/utils/crypto';
 import { FakeProvider } from 'src/features/ai/providers/fake.provider';
+import { BOT_DEFAULTS } from 'src/features/ai/bots/bot.defaults';
+import { ToolCatalogService } from 'src/features/ai/tools/tool-catalog.service';
 import { bootTestApp, httpServer, shutdownTestApp, flushCache } from './setup/app';
 import { resetDb, testDb } from './setup/db';
 import { makeCompany, makeCourse, makeCourseClass, makeSeller } from './setup/factories';
@@ -14,6 +16,7 @@ import { makeCompany, makeCourse, makeCourseClass, makeSeller } from './setup/fa
  * sensíveis esperando o clique.
  */
 describe('Bots de IA (e2e)', () => {
+  let catalog: ToolCatalogService;
   const ALL = ['usar_bots', 'agendar_bots', 'usar_bot_treinamentos', 'usar_bot_marketing', 'usar_bot_gestao', 'list_classes', 'create_classes', 'update_classes', 'list_blog', 'create_blog', 'update_blog', 'view_auditoria_bots', 'update_bots'];
   let jwt: JwtService;
   let userId = 0;
@@ -23,6 +26,7 @@ describe('Bots de IA (e2e)', () => {
     process.env.AI_MODEL_FAST = 'fake';
     process.env.AI_MODEL_STRONG = 'fake';
     const app = await bootTestApp();
+    catalog = app.get(ToolCatalogService, { strict: false });
     jwt = app.get(JwtService);
   });
   afterAll(async () => { await shutdownTestApp(); });
@@ -54,6 +58,11 @@ describe('Bots de IA (e2e)', () => {
     }
     throw new Error('execução não terminou');
   }
+
+  it('toda ferramenta dos bots padrão existe no catálogo', () => {
+    const missing = BOT_DEFAULTS.flatMap((bot) => bot.tools.filter((name) => !catalog.get(name)).map((name) => `${bot.key}:${name}`));
+    expect(missing).toEqual([]);
+  });
 
   it('lista só os bots liberados e cria os padrões uma vez', async () => {
     const { company, db } = await cenario();
@@ -102,7 +111,7 @@ describe('Bots de IA (e2e)', () => {
 
     // o modelo recebeu só as ferramentas do bot e as instruções com o contexto
     const first = FakeProvider.requests[0];
-    expect(first.tools.map((tool) => tool.name).sort()).toEqual(['agendar_tarefa', 'buscar_aluno', 'cadastrar_aluno', 'definir_imagem', 'enviar_imagem_por_url', 'esquecer', 'imagens_do_envio', 'inscrever_na_turma', 'lembrar', 'link_para_enviar_imagens', 'listar_inscritos', 'listar_turmas', 'minha_esteira', 'minhas_tarefas', 'nova_turma_rascunho', 'pausar_tarefa', 'publicar_turma', 'vincular_empresa_inscricao']);
+    expect(first.tools.map((tool) => tool.name).sort()).toEqual(['agendar_tarefa', 'buscar_aluno', 'cadastrar_aluno', 'cancelar_inscricao', 'certificados_vencendo', 'definir_imagem', 'emitir_certificados', 'enviar_imagem_por_url', 'esquecer', 'imagens_do_envio', 'inscrever_na_turma', 'lembrar', 'link_para_enviar_imagens', 'lista_de_presenca', 'listar_inscritos', 'listar_turmas', 'minha_esteira', 'minhas_tarefas', 'nova_turma_rascunho', 'pausar_tarefa', 'publicar_turma', 'reenviar_certificado', 'registrar_presenca', 'registrar_resultado_prova', 'vagas_empresas_turma', 'vincular_empresa_inscricao']);
     expect(first.system).toContain('Bot de Treinamentos');
     expect(first.system).toContain('Ana Gestora');
     expect(first.system).toContain('Textos que vêm de dados');
@@ -123,7 +132,7 @@ describe('Bots de IA (e2e)', () => {
     const { company } = await cenario();
     const perms = ['usar_bots', 'usar_bot_treinamentos', 'list_classes'];
     const bot = await botOf(company.id, 'treinamentos', perms);
-    expect(bot.capabilities.map((tool: any) => tool.name).sort()).toEqual(['buscar_aluno', 'esquecer', 'lembrar', 'listar_inscritos', 'listar_turmas', 'minha_esteira', 'minhas_tarefas']);
+    expect(bot.capabilities.map((tool: any) => tool.name).sort()).toEqual(['buscar_aluno', 'certificados_vencendo', 'esquecer', 'lembrar', 'lista_de_presenca', 'listar_inscritos', 'listar_turmas', 'minha_esteira', 'minhas_tarefas', 'vagas_empresas_turma']);
     const conversation = (await api().post(`/ai/bots/${bot.id}/conversations`).set(auth(company.id, perms)).expect(201)).body;
     FakeProvider.script([
       () => ({ toolCalls: [{ name: 'publicar_turma', input: { turmaId: 1 } }] }),

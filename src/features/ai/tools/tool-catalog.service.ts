@@ -69,7 +69,7 @@ export class ToolCatalogService {
   private readonly tools = new Map<string, ToolDefinition>();
 
   constructor(private readonly prisma: PrismaService, private readonly deps: ToolDeps) {
-    for (const tool of [...READ_TOOLS, ...WRITE_TOOLS, ...IMAGE_TOOLS, ...INSTAGRAM_TOOLS, ...FINANCE_TOOLS, ...STATEMENT_TOOLS, ...SCHEDULE_TOOLS, ...RDO_TOOLS, ...TRAINING_TOOLS, ...TEAM_TOOLS, ...MEMORY_TOOLS]) this.tools.set(tool.name, tool);
+    for (const tool of [...READ_TOOLS, ...WRITE_TOOLS, ...IMAGE_TOOLS, ...INSTAGRAM_TOOLS, ...FINANCE_TOOLS, ...STATEMENT_TOOLS, ...SCHEDULE_TOOLS, ...RDO_TOOLS, ...TRAINING_TOOLS, ...HR_TOOLS, ...STOCK_TOOLS, ...TRAINING_EXTRA_TOOLS, ...WORKS_TOOLS, ...TEAM_TOOLS, ...MEMORY_TOOLS]) this.tools.set(tool.name, tool);
   }
 
   all(): ToolDefinition[] {
