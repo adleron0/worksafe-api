@@ -8,7 +8,7 @@ import { ToolDefinition, ToolRefusal } from './tool.types';
  * - passar_para_colega: o assunto é de outra área; abre a conversa com o colega
  *   já com o resumo, e a pessoa continua por lá.
  */
-const COLEGA = { type: 'string', description: 'A área do colega, como aparece em "Sua equipe" (ex.: financeiro, comercial, operacao, treinamentos, marketing, gestao).' };
+const COLEGA = { type: 'string', description: 'A área do colega, como aparece em "Sua equipe" (ex.: financeiro, comercial, operacao, rh, suprimentos, treinamentos, marketing, gestao).' };
 
 export const TEAM_TOOLS: ToolDefinition[] = [
   {

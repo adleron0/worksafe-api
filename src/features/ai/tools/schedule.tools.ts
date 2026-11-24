@@ -36,7 +36,7 @@ export const SCHEDULE_TOOLS: ToolDefinition[] = [
     title: 'Preparando a tarefa agendada',
     description: 'Agenda uma tarefa recorrente, única ou disparada por evento para um assistente (por padrão, você mesmo), que vai rodar sozinho com as permissões da pessoa e mandar o resultado para ela. Ex.: "toda segunda às 8h, categorize as despesas da semana". Ações que saem para fora continuam esperando confirmação. Precisa da confirmação da pessoa no cartão.',
     inputSchema: obj({
-      assistente: str('Chave ou nome do assistente (comercial, operacao, treinamentos, marketing, financeiro, gestao, ou Helena, Rafael...). Padrão: você.'),
+      assistente: str('Chave ou nome do assistente (comercial, operacao, rh, suprimentos, treinamentos, marketing, financeiro, gestao, ou Helena, Rafael...). Padrão: você.'),
       nome: str('Nome curto da tarefa'),
       oQueFazer: str('O pedido completo que o assistente vai executar a cada vez'),
       quando: str('Tipo de agenda', { enum: ['uma_vez', 'a_cada_horas', 'diario', 'semanal', 'mensal', 'evento'] }),

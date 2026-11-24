@@ -60,9 +60,9 @@ describe('Bots de IA (e2e)', () => {
     const bots = (await api().get('/ai/bots').set(auth(company.id)).expect(200)).body;
     expect(bots.map((bot: any) => bot.key).sort()).toEqual(['gestao', 'marketing', 'treinamentos']);
     expect(bots.find((bot: any) => bot.key === 'treinamentos')).toMatchObject({ provider: 'fake', providerReady: true });
-    expect(await db.ai_Bot.count({ where: { companyId: company.id } })).toBe(6);
+    expect(await db.ai_Bot.count({ where: { companyId: company.id } })).toBe(8);
     await api().get('/ai/bots').set(auth(company.id)).expect(200);
-    expect(await db.ai_Bot.count({ where: { companyId: company.id } })).toBe(6);
+    expect(await db.ai_Bot.count({ where: { companyId: company.id } })).toBe(8);
     await api().get('/ai/bots').set(auth(company.id, ['list_classes'])).expect(403);
     // sem a permissão do bot, não conversa com ele
     const treino = bots.find((bot: any) => bot.key === 'treinamentos');

@@ -38,7 +38,7 @@ export class BotService {
       const { provider, model } = defaultModelFor(bot);
       await this.prisma.ai_Bot.create({
         data: {
-          companyId, key: bot.key, name: bot.name, persona: bot.persona, role: bot.role, avatar: bot.key, description: bot.description, icon: bot.icon, instructions: bot.instructions,
+          companyId, key: bot.key, name: bot.name, persona: bot.persona, role: bot.role, avatar: bot.avatar ?? bot.key, description: bot.description, icon: bot.icon, instructions: bot.instructions,
           tools: bot.tools, provider, model, permissionKey: `usar_bot_${bot.key}`, shortcuts: bot.shortcuts,
           versions: { create: { version: 1, instructions: bot.instructions, tools: bot.tools, provider, model } },
         },

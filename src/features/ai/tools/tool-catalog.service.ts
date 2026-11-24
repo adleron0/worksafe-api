@@ -15,6 +15,8 @@ import { TEAM_TOOLS } from './team.tools';
 import { MEMORY_TOOLS } from './memory.tools';
 import { RDO_TOOLS } from './rdo.tools';
 import { TRAINING_TOOLS } from './training.tools';
+import { HR_TOOLS } from './hr.tools';
+import { STOCK_TOOLS } from './stock.tools';
 
 /** Resultado de uma chamada, como volta para o modelo. */
 export interface ToolOutcome {
