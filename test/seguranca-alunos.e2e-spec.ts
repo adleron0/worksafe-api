@@ -299,7 +299,7 @@ describe('Segurança das rotas públicas do aluno (e2e)', () => {
       return { key, trainee };
     }
 
-    it('lista pública não traz CPF nem nascimento, mas mantém nome e curso', async () => {
+    it('lista pública mascara CPF e nascimento, mas mantém nome e curso', async () => {
       await certificado();
       const res = await request(httpServer())
         .get('/trainee-certificate/public?show=trainee')
@@ -308,8 +308,8 @@ describe('Segurança das rotas públicas do aluno (e2e)', () => {
       const vars = res.body.rows[0].variableToReplace;
       expect(vars.aluno_nome.value).toBe('ANA LIMA');
       expect(vars.curso_nome.value).toBe('NR-35');
-      expect(vars.aluno_cpf).toBeUndefined();
-      expect(vars.aluno_data_nascimento).toBeUndefined();
+      expect(vars.aluno_cpf.value).toBe('***.***.777-**');
+      expect(vars.aluno_data_nascimento.value).toBe('**/**/****');
       expect(JSON.stringify(res.body)).not.toContain(CPF);
     });
 
@@ -330,6 +330,7 @@ describe('Segurança das rotas públicas do aluno (e2e)', () => {
         .expect(200);
       expect(res.body.rows[0].variableToReplace).toEqual({
         aluno_nome: { value: 'ANA' },
+        aluno_cpf: { value: '***.***.777-**' },
       });
     });
 
@@ -341,12 +342,12 @@ describe('Segurança das rotas públicas do aluno (e2e)', () => {
       expect(res.status).toBe(400);
     });
 
-    it('verificação pelo código exato continua completa', async () => {
+    it('página pelo código exato sai mascarada sem o selo (veio da busca)', async () => {
       const { key } = await certificado();
       const res = await request(httpServer())
         .get(`/trainee-certificate/public?key=${key}`)
         .expect(200);
-      expect(res.body.rows[0].variableToReplace.aluno_cpf.value).toBe(CPF);
+      expect(res.body.rows[0].variableToReplace.aluno_cpf.value).toBe('***.***.777-**');
     });
   });
 });

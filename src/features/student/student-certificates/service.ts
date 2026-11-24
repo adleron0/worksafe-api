@@ -1,3 +1,4 @@
+import { certificateUnlockToken } from 'src/features/training/trainee_certificate/cpf-unlock';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { UploadService } from 'src/features/upload/upload.service';
@@ -47,7 +48,10 @@ export class StudentCertificatesService {
         },
       );
 
-      return certificates;
+      // Selo para o portal do aluno ver/baixar o próprio certificado completo
+      return (certificates as any[]).map((c) =>
+        c?.key ? { ...c, unlockToken: certificateUnlockToken(String(c.key)) } : c,
+      );
     } catch (error) {
       throw new BadRequestException(error.message);
     }

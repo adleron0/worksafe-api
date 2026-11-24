@@ -11,7 +11,18 @@ import {
   ValidationPipe,
   Query,
   applyDecorators,
+  ForbiddenException,
+  HttpCode,
+  HttpException,
+  HttpStatus,
+  NotFoundException,
 } from '@nestjs/common';
+import {
+  certificateUnlockToken,
+  isValidUnlockToken,
+  onlyDigits,
+} from './cpf-unlock';
+import { parseCertificateVariables } from './render/variable-replacer';
 import { Throttle } from '@nestjs/throttler';
 import { PrismaClient } from '@prisma/client';
 import { Request, Response } from 'express';
@@ -84,12 +95,56 @@ export class TraineeCertificateCustomController {
     @Query() query: Record<string, unknown>,
     @Req() req: Request,
   ) {
+    // `u` (selo de desbloqueio) não é filtro do CRUD
+    const { u: _u, ...crudQuery } = query;
     const result = await this.crud.listPublic(
       certificateDef,
-      query as never,
+      crudQuery as never,
       req,
     );
     return redactPublicCertificates(result, query);
+  }
+
+  // --- Desbloqueio do certificado completo (LGPD) ---------------------------
+  // Sem o selo, página/imagem/PDF saem com CPFs mascarados. O aluno digita o
+  // CPF dele e recebe o selo. Contra tentativa e erro: 10/min por IP e, por
+  // certificado, 5 erros travam por 1 h.
+
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @Post('public/:key/unlock')
+  @HttpCode(200)
+  async unlockWithCpf(@Param('key') key: string, @Body() body: { cpf?: string }) {
+    const cert = await this.renderer.findByKey(key);
+    const failsKey = `sec:cert-unlock:fails:${cert.key}`;
+    const fails = Number((await this.cacheService.get(failsKey)) || 0);
+    if (fails >= 5) {
+      throw new HttpException(
+        'Muitas tentativas para este certificado. Tente de novo em 1 hora.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    const typed = onlyDigits(body?.cpf);
+    const vars = parseCertificateVariables(cert.variableToReplace) as Record<string, any>;
+    const real = onlyDigits(vars.aluno_cpf?.value ?? cert.trainee?.cpf);
+    if (typed.length !== 11 || !real || typed !== real) {
+      await this.cacheService.increment(failsKey, 3600).catch(() => 0);
+      throw new ForbiddenException('O CPF não confere com o deste certificado.');
+    }
+    await this.cacheService.del(failsKey).catch(() => undefined);
+    return { u: certificateUnlockToken(cert.key) };
+  }
+
+  /** Empresa logada (tela de certificados) recebe o selo para ver/baixar completo. */
+  @UserPermission('list_classes')
+  @Get('unlock/:key')
+  async unlockForCompany(@Param('key') key: string, @Req() req: Request) {
+    const cert = await this.renderer.findByKey(key);
+    const owner = await this.renderer.companyOf(cert.key);
+    if (owner !== Number(req.user?.companyId)) {
+      throw new NotFoundException('Certificado não encontrado');
+    }
+    return { u: certificateUnlockToken(cert.key) };
   }
 
   // --- Compartilhamento em redes sociais -------------------------------------
@@ -147,13 +202,15 @@ export class TraineeCertificateCustomController {
     @Query('side') side: string,
     @Query('scale') scale: string,
     @Query('v') version: string,
+    @Query('u') unlock: string,
     @Res() res: Response,
   ) {
     const cert = await this.renderer.findByKey(key);
+    const full = isValidUnlockToken(cert.key, unlock);
     const which: CertificateSide = side === 'back' ? 'back' : 'front';
     // 2 = tela (1684 px); 3–4 = impressão
     const multiplier = [3, 4].includes(Number(scale)) ? Number(scale) : 2;
-    const png = await this.renderer.renderPng(cert, which, multiplier);
+    const png = await this.renderer.renderPng(cert, which, multiplier, full);
     res
       .status(200)
       .set({
@@ -161,10 +218,12 @@ export class TraineeCertificateCustomController {
         // exibida/aberta pelo front em outra origem (helmet usa same-origin)
         'Cross-Origin-Resource-Policy': 'cross-origin',
         'Content-Length': String(png.length),
-        'Cache-Control': version
-          ? 'public, max-age=86400'
-          : 'public, max-age=300',
-        ETag: `"${this.renderer.version(cert)}-${which}-${multiplier}"`,
+        'Cache-Control': full
+          ? 'private, max-age=3600'
+          : version
+            ? 'public, max-age=86400'
+            : 'public, max-age=300',
+        ETag: `"${this.renderer.version(cert)}-${which}-${multiplier}-${full ? 'f' : 'm'}"`,
       })
       .send(png);
   }
@@ -201,10 +260,12 @@ export class TraineeCertificateCustomController {
     @Param('key') key: string,
     @Query('download') download: string,
     @Query('v') version: string,
+    @Query('u') unlock: string,
     @Res() res: Response,
   ) {
     const cert = await this.renderer.findByKey(key);
-    const pdf = await this.renderer.renderPdf(cert);
+    const full = isValidUnlockToken(cert.key, unlock);
+    const pdf = await this.renderer.renderPdf(cert, full);
     const name = `${this.renderer.fileBaseName(cert)}.pdf`;
     res
       .status(200)
@@ -214,9 +275,11 @@ export class TraineeCertificateCustomController {
         'Cross-Origin-Resource-Policy': 'cross-origin',
         'Content-Length': String(pdf.length),
         'Content-Disposition': `${download === '0' ? 'inline' : 'attachment'}; filename="${name}"; filename*=UTF-8''${encodeURIComponent(name)}`,
-        'Cache-Control': version
-          ? 'public, max-age=86400'
-          : 'public, max-age=300',
+        'Cache-Control': full
+          ? 'private, max-age=3600'
+          : version
+            ? 'public, max-age=86400'
+            : 'public, max-age=300',
       })
       .send(pdf);
   }

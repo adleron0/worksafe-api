@@ -24,6 +24,10 @@ import {
 } from './highlight-seal';
 import { drawStaticFoil } from './highlight-static';
 import { QR_STYLES, QrStyle, styledQrPng } from './qr-styled';
+import {
+  certificateUnlockToken,
+  maskCertificateVariables,
+} from '../cpf-unlock';
 import { layoutInstructorSlots } from './instructor-slots';
 import { applyConditionalVisibility } from './conditional-visibility';
 import { drawExpiredMark } from './expired-mark';
@@ -91,7 +95,7 @@ export class CertificateRenderService {
         canvasWidth: true,
         canvasHeight: true,
         variableToReplace: true,
-        trainee: { select: { name: true } },
+        trainee: { select: { name: true, cpf: true } },
         course: { select: { name: true } },
         highlightStudent: true,
         highlightTheme: true,
@@ -110,6 +114,15 @@ export class CertificateRenderService {
     });
     if (!cert) throw new NotFoundException('Certificado não encontrado');
     return cert;
+  }
+
+  /** Empresa dona do certificado (para a tela logada pedir o selo). */
+  async companyOf(key: string): Promise<number | null> {
+    const row = await this.prisma.traineeCourseCertificate.findFirst({
+      where: { key },
+      select: { companyId: true },
+    });
+    return row?.companyId ?? null;
   }
 
   /**
@@ -194,31 +207,37 @@ export class CertificateRenderService {
   }
 
   /** PNG de um lado. `scale` 2 = 1684×1190 em paisagem. */
+  /**
+   * `full` = certificado completo (CPFs à vista e QR com o selo que desbloqueia).
+   * Sem ele, CPFs mascarados e QR simples — ver cpf-unlock.ts.
+   */
   async renderPng(
     cert: CertificateRecord,
     side: CertificateSide = 'front',
     scale = 2,
+    full = false,
   ): Promise<Buffer> {
     if (side === 'back' && !this.hasBack(cert)) {
       throw new NotFoundException('Certificado sem verso');
     }
     return this.cached(
-      `${this.version(cert)}:${cert.key}:${side}:${scale}`,
-      () => this.limit(() => this.renderSide(cert, side, scale)),
+      `${this.version(cert)}:${cert.key}:${side}:${scale}:${full ? 'full' : 'masked'}`,
+      () => this.limit(() => this.renderSide(cert, side, scale, full)),
     );
   }
 
   /** Miniatura JPEG da frente (listagens). */
   async renderThumb(cert: CertificateRecord): Promise<Buffer> {
     return this.cached(`${this.version(cert)}:${cert.key}:thumb`, async () => {
-      const png = await this.renderPng(cert, 'front', 1);
+      const png = await this.renderPng(cert, 'front', 1, false);
       return sharp(png).jpeg({ quality: 82 }).toBuffer();
     });
   }
 
   /** PDF com frente (e verso, se houver), uma página A4 por lado. */
-  async renderPdf(cert: CertificateRecord): Promise<Buffer> {
-    return this.cached(`${this.version(cert)}:${cert.key}:pdf`, async () => {
+  async renderPdf(cert: CertificateRecord, full = false): Promise<Buffer> {
+    const mode = full ? 'full' : 'masked';
+    return this.cached(`${this.version(cert)}:${cert.key}:pdf:${mode}`, async () => {
       const sides: CertificateSide[] = this.hasBack(cert)
         ? ['front', 'back']
         : ['front'];
@@ -228,7 +247,7 @@ export class CertificateRenderService {
       );
       const pages: Buffer[] = [];
       for (const side of sides) {
-        const png = await this.renderPng(cert, side, 3);
+        const png = await this.renderPng(cert, side, 3, full);
         pages.push(await sharp(png).jpeg({ quality: 92 }).toBuffer());
       }
       return new Promise<Buffer>((resolve, reject) => {
@@ -257,6 +276,7 @@ export class CertificateRenderService {
     cert: CertificateRecord,
     side: CertificateSide,
     scale: number,
+    full = false,
   ): Promise<Buffer> {
     const started = Date.now();
     const fabric = setupFabric();
@@ -265,7 +285,8 @@ export class CertificateRenderService {
     );
     if (!raw) throw new NotFoundException('Certificado sem desenho');
 
-    const variables = parseCertificateVariables(cert.variableToReplace);
+    const parsed = parseCertificateVariables(cert.variableToReplace);
+    const variables = full ? parsed : maskCertificateVariables(parsed);
     const json = replaceInCanvasJSON(
       layoutInstructorSlots(
         applyConditionalVisibility(raw, variables),
@@ -302,7 +323,7 @@ export class CertificateRenderService {
         },
       ];
     });
-    const images = await this.resolveImages(json, cert.key, scale);
+    const images = await this.resolveImages(json, cert.key, scale, full);
     const tImages = Date.now();
 
     const { width, height } = getLogicalCanvasSize(
@@ -401,7 +422,12 @@ export class CertificateRenderService {
    * entregue já decodificado depois do load (`attachImages`). Passar data URLs
    * grandes pelo jsdom custava ~1–2 s por lado só para parsear a URL.
    */
-  private async resolveImages(json: any, key: string, scale: number) {
+  private async resolveImages(
+    json: any,
+    key: string,
+    scale: number,
+    full = false,
+  ) {
     const images = new Map<string, PreparedImage>();
     const attach = (obj: any, img: PreparedImage) => {
       const id = String(images.size + 1);
@@ -424,7 +450,12 @@ export class CertificateRenderService {
       if (!qrs.has(style))
         qrs.set(
           style,
-          styledQrPng(`${FRONT_URL}/certificados/${key}`, { size: 600, style }),
+          styledQrPng(
+            full
+              ? `${FRONT_URL}/certificados/${key}?u=${certificateUnlockToken(key)}`
+              : `${FRONT_URL}/certificados/${key}`,
+            { size: 600, style },
+          ),
         );
       return qrs.get(style)!;
     };

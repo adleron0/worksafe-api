@@ -1,3 +1,4 @@
+import { certificateUnlockToken } from './cpf-unlock';
 import {
   BadRequestException,
   Injectable,
@@ -488,7 +489,8 @@ export class TraineeCertificateService {
       console.log(`[CERTIFICATE EMAIL] Montando URL do certificado`);
       const systemDomain =
         company.system_domain || 'sistema.worksafebrasil.com.br';
-      const certificateUrl = `https://${systemDomain}/certificados/${certificateKey}`;
+      // E-mail vai para o próprio aluno: link já desbloqueado (CPF à vista)
+      const certificateUrl = `https://${systemDomain}/certificados/${certificateKey}?u=${certificateUnlockToken(certificateKey)}`;
       console.log(`[CERTIFICATE EMAIL] URL do certificado: ${certificateUrl}`);
 
       // Preparar dados para o template
