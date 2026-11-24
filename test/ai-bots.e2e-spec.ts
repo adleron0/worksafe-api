@@ -332,7 +332,8 @@ describe('Bots de IA (e2e)', () => {
     await api().put(`/ai/bots/${created.id}`).set(auth(company.id)).send({ avatar: 'r:<script>' }).expect(200);
     expect((await db.ai_Bot.findUniqueOrThrow({ where: { id: created.id } })).avatar).toBeNull();
     // personalidade de trabalho (Big Five) guardada no rosto entra no prompt
-    await api().put(`/ai/bots/${created.id}`).set(auth(company.id)).send({ avatar: 'r:ovo.ciano.oculos.cb.analitico' }).expect(200);
+    await api().put(`/ai/bots/${created.id}`).set(auth(company.id)).send({ avatar: 'r:ovo.ciano.oculos.cb.analitico.vermelho' }).expect(200);
+    expect((await db.ai_Bot.findUniqueOrThrow({ where: { id: created.id } })).avatar).toBe('r:ovo.ciano.oculos.cb.analitico.vermelho');
     const conversa = (await api().post(`/ai/bots/${created.id}/conversations`).set(auth(company.id, [...ALL, 'usar_bot_ana_julia'])).expect(201)).body;
     FakeProvider.script([() => ({ text: 'Oi.' })]);
     const { runId } = (await api().post(`/ai/conversations/${conversa.id}/messages`).set(auth(company.id, [...ALL, 'usar_bot_ana_julia'])).send({ text: 'Oi' }).expect(201)).body;

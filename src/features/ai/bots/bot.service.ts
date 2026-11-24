@@ -11,8 +11,8 @@ export interface BotActor { userId: number; companyId: number; permissions: stri
 
 const clean = (value: unknown, max: number) => String(value ?? '').trim().slice(0, max);
 
-/** Chave de um modelo de rosto ("gestao") ou combinação do editor ("r:forma.cor.acessorio.olhos.jeito"). */
-const AVATAR_RE = /^(?:[a-z0-9_-]{2,40}|r:[a-z0-9_]{1,16}(?:\.[a-z0-9_]{1,16}){4})$/;
+/** Chave de um modelo de rosto ("gestao") ou combinação do editor ("r:forma.cor.acessorio.olhos.jeito[.corDoAcessorio]"). */
+const AVATAR_RE = /^(?:[a-z0-9_-]{2,40}|r:[a-z0-9_]{1,16}(?:\.[a-z0-9_]{1,16}){4,5})$/;
 export const validAvatar = (value: unknown) => (AVATAR_RE.test(String(value ?? '')) ? String(value) : null);
 
 /** "Ana Júlia" -> "ana_julia": vira a chave e a permissão (usar_bot_ana_julia). */

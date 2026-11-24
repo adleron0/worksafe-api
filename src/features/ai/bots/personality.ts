@@ -44,7 +44,8 @@ const LEGACY: Record<string, string> = { normal: 'equilibrado', calma: 'analitic
 
 /** Lê a personalidade do campo avatar. */
 export function personalityOf(avatar?: string | null): { id: string; traits: Traits } {
-  const last = avatar?.startsWith('r:') ? avatar.split('.').pop() ?? '' : '';
+  // 5º pedaço de "r:forma.cor.acessorio.olhos.jeito[.corDoAcessorio]"
+  const last = avatar?.startsWith('r:') ? avatar.split('.')[4] ?? '' : '';
   const custom = /^t([1-5])([1-5])([1-5])([1-5])([1-5])$/.exec(last);
   if (custom) return { id: last, traits: t(+custom[1], +custom[2], +custom[3], +custom[4], +custom[5]) };
   const id = PERSONALITIES[last] ? last : LEGACY[last] ?? 'equilibrado';
