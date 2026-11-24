@@ -300,6 +300,45 @@ describe('Bots de IA (e2e)', () => {
     await api().put(`/ai/bots/${bot.id}`).set(auth(company.id, ['usar_bots'])).send({ name: 'X' }).expect(403);
   });
 
+  it('criar bot: chave pelo nome, permissão no super e em quem criou, versão 1, rosto montado e excluir', async () => {
+    const { company, db } = await cenario();
+    const superProfile = await db.profile.create({ data: { name: 'super' } });
+    const body = { persona: 'Ana Júlia', role: 'Analista de Compras', name: 'Compras', description: 'Pedidos de compra e fornecedores', avatar: 'r:ovo.ciano.oculos.cb.calma', provider: 'fake', model: 'fake', instructions: 'Você ajuda o time de compras a acompanhar pedidos e fornecedores.', tools: ['listar_propostas'] };
+    await api().post('/ai/bots').set(auth(company.id, ['usar_bots'])).send(body).expect(403);
+    await api().post('/ai/bots').set(auth(company.id)).send({ ...body, instructions: 'curta' }).expect(400);
+    await api().post('/ai/bots').set(auth(company.id)).send({ ...body, tools: ['apagar_tudo'] }).expect(400);
+    const created = (await api().post('/ai/bots').set(auth(company.id)).send(body).expect(201)).body;
+    expect(created).toMatchObject({ key: 'ana_julia', permissionKey: 'usar_bot_ana_julia', version: 1, custom: true, avatar: 'r:ovo.ciano.oculos.cb.calma', persona: 'Ana Júlia', role: 'Analista de Compras', name: 'Compras' });
+    const permission = await db.permission.findUniqueOrThrow({ where: { name: 'usar_bot_ana_julia' } });
+    expect(permission.group).toBe('bots');
+    expect(await db.profilePermission.count({ where: { profileId: superProfile.id, permissionId: permission.id } })).toBe(1);
+    expect(await db.userPermission.count({ where: { userId, permissionId: permission.id } })).toBe(1);
+    expect(await db.ai_BotVersion.count({ where: { botId: created.id, version: 1 } })).toBe(1);
+    // mesmo nome de novo: chave com número; padrão não vira chave de bot criado
+    const second = (await api().post('/ai/bots').set(auth(company.id)).send(body).expect(201)).body;
+    expect(second.key).toBe('ana_julia_2');
+    const gestaoClone = (await api().post('/ai/bots').set(auth(company.id)).send({ ...body, persona: 'Gestão' }).expect(201)).body;
+    expect(gestaoClone.key).toBe('gestao_2');
+    // rosto inválido cai no padrão; rosto montado pode ser trocado
+    await api().put(`/ai/bots/${created.id}`).set(auth(company.id)).send({ avatar: 'r:<script>' }).expect(200);
+    expect((await db.ai_Bot.findUniqueOrThrow({ where: { id: created.id } })).avatar).toBeNull();
+    // quem tem a permissão conversa com ele
+    const usable = (await api().get('/ai/bots').set(auth(company.id, ['usar_bots', 'usar_bot_ana_julia'])).expect(200)).body;
+    expect(usable.map((bot: any) => bot.key)).toEqual(['ana_julia']);
+    // padrão não exclui; criado exclui e some das listas
+    const config = (await api().get('/ai/bots/config').set(auth(company.id)).expect(200)).body;
+    const gestao = config.bots.find((item: any) => item.key === 'gestao');
+    expect(gestao.custom).toBe(false);
+    await api().delete(`/ai/bots/${gestao.id}`).set(auth(company.id)).expect(400);
+    await api().delete(`/ai/bots/${created.id}`).set(auth(company.id, ['usar_bots'])).expect(403);
+    await api().delete(`/ai/bots/${created.id}`).set(auth(company.id)).expect(200);
+    const after = (await api().get('/ai/bots/config').set(auth(company.id)).expect(200)).body;
+    expect(after.bots.map((item: any) => item.key)).not.toContain('ana_julia');
+    await api().get('/ai/bots').set(auth(company.id, ['usar_bots', 'usar_bot_ana_julia'])).expect(200).expect([]);
+    // a chave continua ocupada (conversas antigas guardadas)
+    expect((await api().post('/ai/bots').set(auth(company.id)).send(body).expect(201)).body.key).toBe('ana_julia_3');
+  });
+
   it('escolha de modelo: catálogo com preço e troca de todos os bots de uma vez', async () => {
     const { company, db } = await cenario();
     const config = (await api().get('/ai/bots/config').set(auth(company.id)).expect(200)).body;

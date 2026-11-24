@@ -82,6 +82,12 @@ export class AiController {
   @Permissions('update_bots') @Put('bots/model')
   applyModel(@Req() req: Request, @Body() body: Json) { return this.bots.applyModelToAll(actorOf(req), body ?? {}); }
 
+  @Permissions('update_bots') @Post('bots')
+  createBot(@Req() req: Request, @Body() body: Json) { return this.bots.create(actorOf(req), body); }
+
+  @Permissions('update_bots') @Delete('bots/:id')
+  archiveBot(@Req() req: Request, @Param('id', ParseIntPipe) id: number) { return this.bots.archive(actorOf(req), id); }
+
   @Permissions('update_bots') @Put('bots/:id')
   update(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.bots.update(actorOf(req), id, body ?? {}); }
 
