@@ -54,6 +54,13 @@ describe('Ferramentas de propostas: código PC e resumo com rascunho (e2e)', () 
     const other = await makeCompany({ cnpj: String(70000000000000 + Math.floor(Math.random() * 9e12)), comercial_name: `Outra ${uniq}` });
     await expect(run('ver_proposta', { ...ctx, companyId: other.id }, { numero: row.number })).rejects.toBeInstanceOf(ToolRefusal);
 
+    // excluída: abre, mas avisa
+    await db.commercial_Proposal.update({ where: { id: row.id }, data: { inactiveAt: new Date() } });
+    const gone = await run('ver_proposta', ctx, { numero: row.number });
+    expect(gone).toMatchObject({ excluida: true });
+    expect(gone.aviso).toMatch(/EXCLUÍDA/);
+    await db.commercial_Proposal.update({ where: { id: row.id }, data: { inactiveAt: null } });
+
     const list = await run('listar_propostas', ctx, {});
     expect(Array.isArray(list.resumoPorSituacao)).toBe(true);
     expect(list.resumoPorSituacao).toEqual(expect.arrayContaining([expect.objectContaining({ situacao: 'rascunho', quantidade: 1 })]));

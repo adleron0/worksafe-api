@@ -97,14 +97,16 @@ export const READ_TOOLS: ToolDefinition[] = [
       let id = positiveInt(input.propostaId);
       const code = text(input.numero ?? (typeof input.propostaId === 'string' && /[a-z]/i.test(input.propostaId) ? input.propostaId : ''), 30).toUpperCase();
       if (!id && code) {
-        const found = await deps.prisma.commercial_Proposal.findFirst({ where: { companyId: ctx.companyId, number: { equals: code, mode: 'insensitive' } }, select: { id: true } })
+        const found = await deps.prisma.commercial_Proposal.findFirst({ where: { companyId: ctx.companyId, number: { equals: code, mode: 'insensitive' } }, orderBy: { inactiveAt: { sort: 'asc', nulls: 'first' } }, select: { id: true } })
           ?? await deps.prisma.commercial_Proposal.findFirst({ where: { companyId: ctx.companyId, number: { startsWith: code, mode: 'insensitive' } }, orderBy: { id: 'desc' }, select: { id: true } });
         if (!found) throw new ToolRefusal(`Não há proposta com o código ${code}. Confira o código ou procure com listar_propostas (busca).`);
         id = found.id;
       }
       if (!id) throw new ToolRefusal('Informe o id ou o código da proposta (ex.: PC-2026-0004)');
       const row: any = await asRefusal(() => deps.proposals.get(proposalActor(ctx), id));
+      const inactiveAt = row.inactiveAt ?? (await deps.prisma.commercial_Proposal.findUnique({ where: { id }, select: { inactiveAt: true } }))?.inactiveAt;
       return {
+        ...(inactiveAt ? { excluida: true, aviso: `Esta proposta foi EXCLUÍDA em ${iso(inactiveAt)}: não ofereça enviar, editar nem mudar a situação; diga que ela foi excluída.` } : {}),
         id: row.id, numero: row.number, revisao: row.revision, tipo: row.kind, situacao: row.status, titulo: row.title,
         cliente: row.customer ? { id: row.customer.id, nome: row.customer.name } : row.customerId,
         contato: { nome: row.contactName ?? null, email: row.contactEmail ?? null },
