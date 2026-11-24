@@ -38,8 +38,19 @@ export class InstagramError extends Error {
 
 const appId = () => process.env.INSTAGRAM_APP_ID?.trim() || '';
 const appSecret = () => process.env.INSTAGRAM_APP_SECRET?.trim() || '';
+/**
+ * Apps novos da Meta (desde 2026) só têm o "login unificado": Login do Facebook
+ * para Empresas com uma configuração (config_id), chave de usuário do sistema
+ * da empresa (não expira) e API em graph.facebook.com. Com INSTAGRAM_CONFIG_ID,
+ * é esse o caminho; sem ela, o Login do Instagram antigo (graph.instagram.com).
+ * Nos dois, INSTAGRAM_APP_ID/SECRET são o ID e a chave secreta do app.
+ */
+const configId = () => process.env.INSTAGRAM_CONFIG_ID?.trim() || '';
+export const instagramUnified = () => !!configId();
+const UNIFIED_VERSION = 'v27.0';
 const graph = (path: string) => {
   const version = process.env.INSTAGRAM_GRAPH_VERSION?.trim();
+  if (instagramUnified()) return `https://graph.facebook.com/${version || UNIFIED_VERSION}${path}`;
   return `https://graph.instagram.com${version ? `/${version}` : ''}${path}`;
 };
 export const instagramRedirectUri = () => `${apiUrl()}/ai/connectors/instagram/callback`;
@@ -83,6 +94,11 @@ export class InstagramService {
     if (!instagramConfigured()) throw new BadRequestException('O app da Meta ainda não foi cadastrado neste servidor. Peça para quem administra o sistema seguir o passo a passo de cadastro.');
     const body = Buffer.from(JSON.stringify({ c: actor.companyId, u: actor.userId, e: Date.now() + STATE_MINUTES * 60000, n: randomBytes(8).toString('hex') })).toString('base64url');
     const state = `${body}.${this.sign(body)}`;
+    if (instagramUnified()) {
+      const version = process.env.INSTAGRAM_GRAPH_VERSION?.trim() || UNIFIED_VERSION;
+      const params = new URLSearchParams({ client_id: appId(), config_id: configId(), redirect_uri: instagramRedirectUri(), response_type: 'code', override_default_response_type: 'true', state });
+      return { url: `https://www.facebook.com/${version}/dialog/oauth?${params.toString()}` };
+    }
     const params = new URLSearchParams({ client_id: appId(), redirect_uri: instagramRedirectUri(), response_type: 'code', scope: SCOPES.join(','), state, enable_fb_login: 'false', force_reauth: 'true' });
     return { url: `https://www.instagram.com/oauth/authorize?${params.toString()}` };
   }
@@ -111,6 +127,10 @@ export class InstagramService {
       if (!code) throw new InstagramError('A Meta não devolveu o código de acesso. Tente de novo.');
       if (!instagramConfigured()) throw new InstagramError('O app da Meta não está configurado neste servidor.');
 
+      if (instagramUnified()) {
+        await this.saveUnified(actor, code);
+        return back({ instagram: 'ok' });
+      }
       const form = new URLSearchParams({ client_id: appId(), client_secret: appSecret(), grant_type: 'authorization_code', redirect_uri: instagramRedirectUri(), code });
       const short = await axios.post('https://api.instagram.com/oauth/access_token', form.toString(), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15000 });
       const shortData = Array.isArray(short.data?.data) ? short.data.data[0] : short.data;
@@ -153,6 +173,39 @@ export class InstagramService {
     }
   }
 
+  /**
+   * Login unificado: troca o código pela chave de usuário do sistema da empresa
+   * (não expira) e pega a conta do Instagram que a pessoa autorizou.
+   */
+  private async saveUnified(actor: InstagramActor, code: string) {
+    const out = await axios.get(graph('/oauth/access_token'), { params: { client_id: appId(), client_secret: appSecret(), redirect_uri: instagramRedirectUri(), code }, timeout: 15000 });
+    const token = String(out.data?.access_token ?? '');
+    if (!token) throw new InstagramError('A Meta não devolveu a chave de acesso.');
+    const accounts = await axios.get(graph('/me/assigned_instagram_accounts'), { params: { fields: 'id,username,name,profile_picture_url', access_token: token }, timeout: 15000 });
+    const list: any[] = Array.isArray(accounts.data?.data) ? accounts.data.data : [];
+    const profile = list[0];
+    if (!profile?.id) throw new InstagramError('Nenhuma conta do Instagram foi autorizada. Conecte de novo e escolha a conta da empresa na tela da Meta.');
+    const expiresIn = Number(out.data?.expires_in) || 0;
+    const data = {
+      accountId: String(profile.id),
+      username: profile.username ? String(profile.username) : null,
+      name: profile.name ? String(profile.name) : null,
+      pictureUrl: profile.profile_picture_url ? String(profile.profile_picture_url) : null,
+      accountType: 'BUSINESS',
+      tokenEncrypted: encryptPayload(token),
+      tokenExpiresAt: expiresIn ? new Date(Date.now() + expiresIn * 1000) : null,
+      refreshedAt: new Date(),
+      status: 'connected',
+      lastError: list.length > 1 ? `Mais de uma conta autorizada; usando @${profile.username ?? profile.id}` : null,
+      connectedByUserId: actor.userId || null,
+    };
+    await this.prisma.ai_Connector.upsert({
+      where: { companyId_provider: { companyId: actor.companyId, provider: 'instagram' } },
+      create: { companyId: actor.companyId, provider: 'instagram', ...data },
+      update: data,
+    });
+  }
+
   /** O que a tela e os bots veem da conexão (nunca a chave). */
   async status(companyId: number) {
     const row = await this.prisma.ai_Connector.findUnique({ where: { companyId_provider: { companyId, provider: 'instagram' } } });
@@ -187,6 +240,8 @@ export class InstagramService {
 
   /** Renova as chaves com mais de 7 dias (a Meta só renova chave com 24 h ou mais e ainda válida). */
   async refreshTokens() {
+    // a chave do login unificado não expira (é da empresa, não da pessoa)
+    if (instagramUnified()) return 0;
     const rows = await this.prisma.ai_Connector.findMany({ where: { provider: 'instagram', status: 'connected', refreshedAt: { lt: new Date(Date.now() - 7 * 86400000) } } });
     for (const row of rows) {
       try {

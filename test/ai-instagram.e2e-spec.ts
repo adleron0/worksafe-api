@@ -207,6 +207,49 @@ describe('Instagram (e2e)', () => {
     await api().patch(`/ai/instagram/posts/${post.id}/cancel`).set(auth(company.id)).expect(400);
   });
 
+  it('login unificado (apps novos): Login do Facebook para Empresas, chave que não expira e API em graph.facebook.com', async () => {
+    const { company, db } = await cenario();
+    process.env.INSTAGRAM_CONFIG_ID = '1511424607547228';
+    try {
+      const FB = 'https://graph.facebook.com/v27.0';
+      const start = (await api().post('/ai/connectors/instagram/start').set(auth(company.id)).expect(200)).body;
+      const url = new URL(start.url);
+      expect(url.origin + url.pathname).toBe('https://www.facebook.com/v27.0/dialog/oauth');
+      expect(Object.fromEntries(url.searchParams)).toMatchObject({ client_id: '999', config_id: '1511424607547228', response_type: 'code', override_default_response_type: 'true' });
+      expect(url.searchParams.get('scope')).toBeNull();
+
+      nock(FB).get('/oauth/access_token').query((q) => q.code === 'codigo-da-meta' && q.client_secret === 'segredo-do-app' && q.client_id === '999').reply(200, { access_token: 'chave-do-sistema', token_type: 'bearer' });
+      nock(FB).get('/me/assigned_instagram_accounts').query((q) => q.access_token === 'chave-do-sistema').reply(200, { data: [{ id: '1784', username: 'worksafebrasil', name: 'WorkSafe Brasil' }] });
+      const res = await api().get('/ai/connectors/instagram/callback').query({ code: 'codigo-da-meta#_', state: url.searchParams.get('state')! }).expect(302);
+      expect(res.headers.location).toMatch(/instagram=ok$/);
+      const row = await db.ai_Connector.findFirstOrThrow({ where: { companyId: company.id } });
+      expect(row).toMatchObject({ accountId: '1784', username: 'worksafebrasil', status: 'connected', tokenExpiresAt: null });
+      expect(decryptPayload(row.tokenEncrypted)).toBe('chave-do-sistema');
+      expect(await instagram.refreshTokens()).toBe(0);
+
+      // publica pelo graph.facebook.com
+      const up = (await api().post('/ai/instagram/upload').set(auth(company.id)).attach('file', png, 'arte.png').expect(201)).body;
+      const post = (await api().post('/ai/instagram/posts').set(auth(company.id)).send({ kind: 'feed', media: [up.url], caption: 'Oi' }).expect(201)).body;
+      nock('https://imagens.teste.local').get(/.*/).reply(200, png, { 'Content-Type': 'image/png' });
+      nock(FB).post('/1784/media').query((q) => q.access_token === 'chave-do-sistema').reply(200, { id: 'c1' });
+      nock(FB).get('/c1').query(true).reply(200, { status_code: 'FINISHED' });
+      nock(FB).post('/1784/media_publish').query(true).reply(200, { id: '9002' });
+      nock(FB).get('/9002').query(true).reply(200, { permalink: 'https://www.instagram.com/p/xyz/' });
+      const published = (await api().post(`/ai/instagram/posts/${post.id}/publish`).set(auth(company.id)).expect(200)).body;
+      expect(published).toMatchObject({ status: 'published', permalink: 'https://www.instagram.com/p/xyz/' });
+
+      // ninguém autorizou conta: explica
+      const other = await cenario();
+      const start2 = (await api().post('/ai/connectors/instagram/start').set(auth(other.company.id)).expect(200)).body;
+      nock(FB).get('/oauth/access_token').query(true).reply(200, { access_token: 'x' });
+      nock(FB).get('/me/assigned_instagram_accounts').query(true).reply(200, { data: [] });
+      const bad = await api().get('/ai/connectors/instagram/callback').query({ code: 'c', state: new URL(start2.url).searchParams.get('state')! }).expect(302);
+      expect(new URL(bad.headers.location).searchParams.get('motivo')).toMatch(/Nenhuma conta do Instagram foi autorizada/);
+    } finally {
+      delete process.env.INSTAGRAM_CONFIG_ID;
+    }
+  });
+
   it('a Nina agenda com cartão de confirmação e quem não tem permissão não vê as ferramentas', async () => {
     const { company, db } = await cenario();
     const ctx: ToolContext = { userId, companyId: company.id, permissions: PERMS, origin: 'bots' };
