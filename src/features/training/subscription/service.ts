@@ -31,8 +31,7 @@ export class SubscriptionService {
     private alunosService: AlunosService,
     private couponService: CouponService,
     private checkoutLock: CheckoutLockService,
-  ) {
-  }
+  ) {}
 
   /**
    * Método específico customizado
@@ -59,6 +58,8 @@ export class SubscriptionService {
         select: {
           id: true,
           allowSubscriptions: true,
+          openClass: true,
+          inactiveAt: true,
           unlimitedSubscriptions: true,
           maxSubscriptions: true,
           name: true,
@@ -78,6 +79,16 @@ export class SubscriptionService {
       if (!courseClass) {
         throw new BadRequestException(
           `Turma com ID ${search.classId} não encontrada`,
+        );
+      }
+
+      // Inscrição pública só em turma aberta no site (openClass) e não
+      // cancelada. O site só mostra/abre a página de turma com openClass=true;
+      // turma fechada para empresa (customerId) nasce com openClass=false e os
+      // alunos dela entram pelo sistema, não por esta rota.
+      if (!courseClass.openClass || courseClass.inactiveAt) {
+        throw new BadRequestException(
+          'Esta turma não está aberta para inscrições',
         );
       }
 

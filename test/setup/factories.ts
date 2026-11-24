@@ -71,6 +71,8 @@ export async function makeCourseClass(
       dividedIn: 12,
       allowCheckout: true,
       allowSubscriptions: true,
+      // turma aberta no site: /subscription/subscribe recusa turma fechada
+      openClass: true,
       unlimitedSubscriptions: true,
       paymentMethods: ['pix', 'boleto', 'cartaoCredito'],
       periodSubscriptionsType: 'UNLIMITED',

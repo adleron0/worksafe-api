@@ -7,6 +7,7 @@ import * as cookieParser from 'cookie-parser';
 import * as express from 'express';
 import { defaultSecurityConfig } from './common/security/security.config';
 import { isTrustedServerRequest } from './common/security/trusted-server';
+import { clientIpOf } from './common/security/client-ip';
 import { mountMcp } from './features/ai/mcp/mcp.mount';
 
 const PORT = process.env.PORT || 3000;
@@ -45,9 +46,8 @@ async function bootstrap() {
 
     if (securityEnabled) {
       // Middleware de detecção de ataques (aplicado globalmente)
-      const { SecurityService } = await import(
-        './common/security/security.service'
-      );
+      const { SecurityService } =
+        await import('./common/security/security.service');
       const securityService = app.get(SecurityService);
 
       app.use((req, res, next) => {
@@ -55,7 +55,7 @@ async function bootstrap() {
         const { allowed, reason } = securityService.logRequest(req);
         if (!allowed) {
           console.error(`🚫 REQUISIÇÃO BLOQUEADA:`, {
-            ip: req.ip,
+            ip: clientIpOf(req),
             url: req.url,
             method: req.method,
             reason,

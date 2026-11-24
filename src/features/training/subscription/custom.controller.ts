@@ -8,8 +8,6 @@ import {
   Post,
   Put,
   Req,
-  UploadedFile,
-  UseInterceptors,
   UsePipes,
   ValidationPipe,
   Query,
@@ -18,14 +16,17 @@ import {
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { Throttle } from '@nestjs/throttler';
-import { checkHuman, issueHumanPass, turnstileEnabled, verifyTurnstile } from './anti-bot';
+import {
+  checkHuman,
+  issueHumanPass,
+  turnstileEnabled,
+  verifyTurnstile,
+} from './anti-bot';
 import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 // Import entity template
 import { SubscriptionService as Service } from './service';
-// Import utils specifics
-import { FileInterceptor } from '@nestjs/platform-express';
-import { getMulterOptions } from '../../upload/upload.middleware';
+import { PublicFormFields } from '../public-form';
 // Import generic controller
 import { Public } from 'src/auth/decorators/public.decorator';
 // Import cache
@@ -47,7 +48,11 @@ const entity = {
 /** search de duplicidade do subscribe (era getSearchParams do rules.ts). */
 function getSearchParams(request: Request, dto: any) {
   return {
-    companyId: request.user?.companyId ? Number(request.user.companyId) : dto.companyId ? Number(dto.companyId) : undefined,
+    companyId: request.user?.companyId
+      ? Number(request.user.companyId)
+      : dto.companyId
+        ? Number(dto.companyId)
+        : undefined,
     cpf: dto.cpf,
     classId: Number(dto.classId),
   };
@@ -59,8 +64,7 @@ export class SubscriptionCustomController {
     private readonly Service: Service,
     // cacheService é usado pelos decorators de cache
     private readonly cacheService: CacheService,
-  ) {
-  }
+  ) {}
 
   /**
    * Troca o token do Cloudflare Turnstile por um passe de 1 hora que vai em
@@ -75,7 +79,8 @@ export class SubscriptionCustomController {
     const result = await verifyTurnstile(body?.token, clientIpOf(request));
     if (!result.ok) {
       throw new BadRequestException({
-        message: 'Não foi possível confirmar que você não é um robô. Recarregue a página.',
+        message:
+          'Não foi possível confirmar que você não é um robô. Recarregue a página.',
         codes: result.codes,
       });
     }
@@ -93,15 +98,11 @@ export class SubscriptionCustomController {
     'training-classes:*',
     'cache:*/classes*',
   ) // limpa cache de subscription e classes
-  @UseInterceptors(
-    FileInterceptor('image', getMulterOptions('subscription-image')),
-  )
+  // O site manda multipart: parser só de campos (o arquivo nunca foi usado e
+  // abria upload anônimo de 20 MB, SVG inclusive, no bucket público).
+  @PublicFormFields()
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
-  async subscription(
-    @Req() request: Request,
-    @Body() body: any,
-    @UploadedFile() file?: Express.MulterS3.File,
-  ) {
+  async subscription(@Req() request: Request, @Body() body: any) {
     // robô: campo-isca, envio rápido demais ou sem o passe do Turnstile
     checkHuman(body);
 
@@ -117,9 +118,13 @@ export class SubscriptionCustomController {
       } else {
         try {
           body.creditCard = JSON.parse(body.creditCard);
-        } catch (e) {
-          console.error('Erro ao fazer parse de creditCard:', e);
-          console.error('String recebida:', body.creditCard);
+        } catch {
+          // Nada do conteúdo vai para o log: a string é o cartão (número/CVV),
+          // e a mensagem do JSON.parse cita um trecho dela.
+          console.error(
+            'Erro ao fazer parse de creditCard (conteúdo omitido do log), tamanho:',
+            String(body.creditCard).length,
+          );
           delete body.creditCard; // Remove se não conseguir fazer parse
         }
       }

@@ -28,13 +28,13 @@ export class AuthService {
     if (!result) {
       throw new UnauthorizedException('Dados de acesso incorretos!');
     }
-    if (!result.active) {
-      throw new UnauthorizedException('Acesso negado para este usuário!');
-    }
-
+    // Senha primeiro: sem ela, ninguém descobre se a conta existe ou está inativa
     const isPasswordCorrect = await compare(password, result.password);
     if (!isPasswordCorrect) {
       throw new UnauthorizedException('Dados de acesso incorretos!');
+    }
+    if (!result.active) {
+      throw new UnauthorizedException('Acesso negado para este usuário!');
     }
 
     // Verificar se o usuário tem uma profile associada

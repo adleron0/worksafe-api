@@ -1,7 +1,12 @@
 import './setup/env'; // precisa ser o primeiro import
 
 import * as request from 'supertest';
-import { bootTestApp, httpServer, shutdownTestApp, flushCache } from './setup/app';
+import {
+  bootTestApp,
+  httpServer,
+  shutdownTestApp,
+  flushCache,
+} from './setup/app';
 import { resetDb, testDb } from './setup/db';
 import { makeCheckoutScenario } from './setup/factories';
 import {
@@ -63,10 +68,24 @@ describe('Webhook de pagamento — confirmação e idempotência (e2e)', () => {
     };
   }
 
-  function sendWebhook(companyId: number, payload: any) {
-    return request(httpServer())
-      .post(`/webhooks/asaas/${companyId}`)
-      .send(payload);
+  // Token global de teste (ASAAS_WEBHOOK_TOKEN): sem token o webhook é recusado.
+  const GLOBAL_TOKEN = 'whtok_global_teste_0123456789abcdef';
+  const previousGlobal = process.env.ASAAS_WEBHOOK_TOKEN;
+  beforeAll(() => {
+    process.env.ASAAS_WEBHOOK_TOKEN = GLOBAL_TOKEN;
+  });
+  afterAll(() => {
+    process.env.ASAAS_WEBHOOK_TOKEN = previousGlobal;
+  });
+
+  function sendWebhook(
+    companyId: number,
+    payload: any,
+    token: string | null = GLOBAL_TOKEN,
+  ) {
+    const req = request(httpServer()).post(`/webhooks/asaas/${companyId}`);
+    if (token) req.set('asaas-access-token', token);
+    return req.send(payload);
   }
 
   function receivedEvent(externalId: string, subscriptionId: number) {
@@ -87,8 +106,10 @@ describe('Webhook de pagamento — confirmação e idempotência (e2e)', () => {
   it('confirma a inscrição e cria o aluno ao receber PAYMENT_RECEIVED', async () => {
     const s = await pendingPixSubscription();
 
-    await sendWebhook(s.company.id, receivedEvent(s.externalId, s.subscriptionId))
-      .expect(201);
+    await sendWebhook(
+      s.company.id,
+      receivedEvent(s.externalId, s.subscriptionId),
+    ).expect(201);
 
     const sub = await testDb().courseClassSubscription.findUnique({
       where: { id: s.subscriptionId },
@@ -161,12 +182,12 @@ describe('Webhook de pagamento — confirmação e idempotência (e2e)', () => {
   });
 
   /**
-   * MODO DE TRANSIÇÃO (C2): empresa que ainda não tem `webhookToken` no
-   * gateway é aceita sem header, porque o Asaas entrega em fila sequencial e
-   * um 401 pararia todos os pagamentos até alguém re-salvar a integração.
-   * Assim que o token existe, vale o teste seguinte.
+   * C2: o modo de transição acabou — sem token configurado (nem da empresa
+   * nem global) ou sem o header, o evento é recusado e nada é gravado.
    */
-  it('[C2] transição: empresa sem webhookToken ainda aceita evento sem header', async () => {
+  it('[C2] evento sem token é recusado (não cria registro forjado)', async () => {
+    const saved = process.env.ASAAS_WEBHOOK_TOKEN;
+    delete process.env.ASAAS_WEBHOOK_TOKEN;
     const scenario = await makeCheckoutScenario();
     const sub = await testDb().courseClassSubscription.create({
       data: {
@@ -180,26 +201,29 @@ describe('Webhook de pagamento — confirmação e idempotência (e2e)', () => {
       },
     });
 
-    await sendWebhook(scenario.company.id, {
-      event: 'PAYMENT_RECEIVED',
-      payment: {
-        id: 'pay_forjado_sem_autenticacao',
-        status: 'RECEIVED',
-        value: 1,
-        billingType: 'PIX',
-        dueDate: '2026-12-01',
-        externalReference: `sub_${sub.id}`,
-        deleted: false,
+    await sendWebhook(
+      scenario.company.id,
+      {
+        event: 'PAYMENT_RECEIVED',
+        payment: {
+          id: 'pay_forjado_sem_autenticacao',
+          status: 'RECEIVED',
+          value: 1,
+          billingType: 'PIX',
+          dueDate: '2026-12-01',
+          externalReference: `sub_${sub.id}`,
+          deleted: false,
+        },
       },
-    }).expect(201);
+      null,
+    ).expect(401);
+    process.env.ASAAS_WEBHOOK_TOKEN = saved;
 
     const forged = await testDb().financialRecords.findFirst({
       where: { externalId: 'pay_forjado_sem_autenticacao' },
     });
 
-    // Falha de segurança confirmada: registro criado sem pagamento real.
-    expect(forged).not.toBeNull();
-    expect(forged?.status).toBe('received');
+    expect(forged).toBeNull();
   });
 
   describe('[C2] empresa com webhookToken configurado', () => {
@@ -209,12 +233,23 @@ describe('Webhook de pagamento — confirmação e idempotência (e2e)', () => {
       const scenario = await makeCheckoutScenario();
       await testDb().companyGateWays.updateMany({
         where: { companyId: scenario.company.id, gateway: 'asaas' },
-        data: { payload: { token: 'tok_teste_asaas', webhookId: 'wh_teste', webhookToken: TOKEN } },
+        data: {
+          payload: {
+            token: 'tok_teste_asaas',
+            webhookId: 'wh_teste',
+            webhookToken: TOKEN,
+          },
+        },
       });
       const sub = await testDb().courseClassSubscription.create({
         data: {
-          name: 'Comprador', cpf: '11144477735', email: 'c@teste.local', phone: '81900000000',
-          classId: scenario.courseClass.id, companyId: scenario.company.id, subscribeStatus: 'pending',
+          name: 'Comprador',
+          cpf: '11144477735',
+          email: 'c@teste.local',
+          phone: '81900000000',
+          classId: scenario.courseClass.id,
+          companyId: scenario.company.id,
+          subscribeStatus: 'pending',
         },
       });
       return { scenario, sub };
@@ -222,25 +257,43 @@ describe('Webhook de pagamento — confirmação e idempotência (e2e)', () => {
 
     it('recusa evento sem header e não cria registro financeiro', async () => {
       const { scenario, sub } = await scenarioWithToken();
-      const res = await sendWebhook(scenario.company.id, receivedEvent('pay_sem_header', sub.id));
+      const res = await sendWebhook(
+        scenario.company.id,
+        receivedEvent('pay_sem_header', sub.id),
+      );
       expect(res.status).toBe(401);
-      expect(await testDb().financialRecords.findFirst({ where: { externalId: 'pay_sem_header' } })).toBeNull();
+      expect(
+        await testDb().financialRecords.findFirst({
+          where: { externalId: 'pay_sem_header' },
+        }),
+      ).toBeNull();
     });
 
     it('recusa evento com token errado', async () => {
       const { scenario, sub } = await scenarioWithToken();
-      const res = await sendWebhook(scenario.company.id, receivedEvent('pay_token_errado', sub.id))
-        .set('asaas-access-token', 'whtok_errado');
+      const res = await sendWebhook(
+        scenario.company.id,
+        receivedEvent('pay_token_errado', sub.id),
+      ).set('asaas-access-token', 'whtok_errado');
       expect(res.status).toBe(401);
-      expect(await testDb().financialRecords.findFirst({ where: { externalId: 'pay_token_errado' } })).toBeNull();
+      expect(
+        await testDb().financialRecords.findFirst({
+          where: { externalId: 'pay_token_errado' },
+        }),
+      ).toBeNull();
     });
 
     it('aceita evento com o token correto', async () => {
       const { scenario, sub } = await scenarioWithToken();
-      await sendWebhook(scenario.company.id, receivedEvent('pay_token_ok', sub.id))
+      await sendWebhook(
+        scenario.company.id,
+        receivedEvent('pay_token_ok', sub.id),
+      )
         .set('asaas-access-token', TOKEN)
         .expect(201);
-      const rec = await testDb().financialRecords.findFirst({ where: { externalId: 'pay_token_ok' } });
+      const rec = await testDb().financialRecords.findFirst({
+        where: { externalId: 'pay_token_ok' },
+      });
       expect(rec?.status).toBe('received');
     });
   });

@@ -1,4 +1,6 @@
 import { Throttle } from '@nestjs/throttler';
+import { LoginAttemptsService } from 'src/common/security/login-attempts.service';
+import { clientIpOf } from 'src/common/security/client-ip';
 import {
   Controller,
   Post,
@@ -17,7 +19,10 @@ import { LoginDto } from './dtos/auth.dto';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly loginAttempts: LoginAttemptsService,
+  ) {}
 
   @Public()
   @Throttle({ default: { limit: 10, ttl: 60000 } }) // tentativa de senha: 10/min por IP
@@ -25,10 +30,22 @@ export class AuthController {
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async login(
     @Body() user: LoginDto,
+    @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const result = await this.authService.login(user, response);
-    return result;
+    const ip = clientIpOf(request);
+    const account = `${user.email ?? ''}|${(user as any).cnpj ?? ''}`;
+    await this.loginAttempts.assertAllowed('user', ip, account);
+    try {
+      const result = await this.authService.login(user, response);
+      await this.loginAttempts.registerSuccess('user', ip, account);
+      return result;
+    } catch (e) {
+      if (e instanceof UnauthorizedException) {
+        await this.loginAttempts.registerFailure('user', ip, account);
+      }
+      throw e;
+    }
   }
 
   @Public()

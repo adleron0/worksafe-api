@@ -7,8 +7,6 @@ import {
   Post,
   Put,
   Req,
-  UploadedFile,
-  UseInterceptors,
   UsePipes,
   ValidationPipe,
   Query,
@@ -21,15 +19,11 @@ import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { ValidateStudentDto } from './dto/validate-student.dto';
 import { GenerateCertificatesSelectiveDto } from './dto/generate-certificates-selective.dto';
 import { ClassesService as Service } from './service';
-// Import utils specifics
-import { FileInterceptor } from '@nestjs/platform-express';
-import {
-  getMulterOptions,
-  getOptimizedMulterOptions,
-} from '../../upload/upload.middleware';
-import { ImageOptimizationInterceptor } from '../../upload/image-optimization.interceptor';
 // Import generic controller
 import { Public } from 'src/auth/decorators/public.decorator';
+import { Throttle } from '@nestjs/throttler';
+import { PublicFormFields } from '../public-form';
+import { openExamSession } from '../exames/exam-session';
 import { Cache, CacheEvictAll } from 'src/common/cache';
 import { CacheService } from 'src/common/cache/cache.service';
 
@@ -54,13 +48,29 @@ export class ClassesCustomController {
   ) {}
 
   // ROTA PÚBLICA PARA VALIDAR ALUNO PELO CPF E CÓDIGO DA TURMA
+  // Throttle baixo: o código da turma tem 4 caracteres e, com um CPF, a rota
+  // responde se o par confere. Sem upload (nunca usou o arquivo); o front
+  // manda multipart, então fica o parser só de campos.
   @Public()
   @Post('validate-student')
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('classes-image')))
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @PublicFormFields()
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async validateStudent(@Body() validateDto: ValidateStudentDto): Promise<any> {
     const { cpf, classCode, classId } = validateDto;
-    return this.Service.validateStudent(cpf, classCode, classId);
+    const result = await this.Service.validateStudent(cpf, classCode, classId);
+    // Abre a sessão de prova que o POST /exames/register exige.
+    await openExamSession(
+      this.cacheService,
+      Number(result.traineeId),
+      Number(result.classId),
+    ).catch((error) =>
+      console.error(
+        '[validate-student] sessão de prova não gravada:',
+        error?.message,
+      ),
+    );
+    return result;
   }
 
   // Candidatos a aluno destaque da turma, com a nota da prova (sugestão)

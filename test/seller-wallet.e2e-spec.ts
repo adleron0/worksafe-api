@@ -26,7 +26,11 @@ describe('Vendedores — carteira de comissões (e2e)', () => {
   let userId = 0;
   let seq = 0;
 
+  // Webhook exige token: usa o global de teste.
+  const previousWebhookToken = process.env.ASAAS_WEBHOOK_TOKEN;
+  afterAll(() => { process.env.ASAAS_WEBHOOK_TOKEN = previousWebhookToken; });
   beforeAll(async () => {
+    process.env.ASAAS_WEBHOOK_TOKEN = 'whtok_global_teste_0123456789abcdef';
     blockRealNetwork();
     const app = await bootTestApp();
     jwt = app.get(JwtService);
@@ -171,12 +175,12 @@ describe('Vendedores — carteira de comissões (e2e)', () => {
     const event = (status: string, name: string) => ({
       event: name, payment: { id: record.externalId, status, value: 450, billingType: 'PIX', externalReference: `sub_${res.body.id}` },
     });
-    await api().post(`/webhooks/asaas/${scenario.company.id}`).send(event('RECEIVED', 'PAYMENT_RECEIVED')).expect((r) => expect(r.status).toBeLessThan(300));
-    await api().post(`/webhooks/asaas/${scenario.company.id}`).send(event('RECEIVED', 'PAYMENT_RECEIVED')).expect((r) => expect(r.status).toBeLessThan(300));
+    await api().post(`/webhooks/asaas/${scenario.company.id}`).set('asaas-access-token', process.env.ASAAS_WEBHOOK_TOKEN!).send(event('RECEIVED', 'PAYMENT_RECEIVED')).expect((r) => expect(r.status).toBeLessThan(300));
+    await api().post(`/webhooks/asaas/${scenario.company.id}`).set('asaas-access-token', process.env.ASAAS_WEBHOOK_TOKEN!).send(event('RECEIVED', 'PAYMENT_RECEIVED')).expect((r) => expect(r.status).toBeLessThan(300));
     expect(await wallet(hc, ana.id)).toMatchObject({ balance: 90, pending: 0, generated: 90, sales: 1 });
     expect(await testDb().commercial_SellerWalletEntry.count({ where: { sellerId: ana.id } })).toBe(1);
 
-    await api().post(`/webhooks/asaas/${scenario.company.id}`).send(event('REFUNDED', 'PAYMENT_REFUNDED')).expect((r) => expect(r.status).toBeLessThan(300));
+    await api().post(`/webhooks/asaas/${scenario.company.id}`).set('asaas-access-token', process.env.ASAAS_WEBHOOK_TOKEN!).send(event('REFUNDED', 'PAYMENT_REFUNDED')).expect((r) => expect(r.status).toBeLessThan(300));
     expect(await wallet(hc, ana.id)).toMatchObject({ balance: 0, pending: 0, generated: 0 });
     expect(h.Authorization).toBeDefined();
   });

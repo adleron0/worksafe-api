@@ -1,4 +1,5 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
+import { LoginAttemptsService } from './login-attempts.service';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { SecurityService } from './security.service';
@@ -7,6 +8,8 @@ import { SecurityGuard } from './security.guard';
 import { CustomThrottlerGuard } from './custom-throttler.guard';
 import { defaultSecurityConfig } from './security.config';
 
+// Global: o login (AuthModule) usa o LoginAttemptsService.
+@Global()
 @Module({
   imports: [
     // Configuração global de rate limiting
@@ -19,14 +22,12 @@ import { defaultSecurityConfig } from './security.config';
         name: 'default',
         ttl: defaultSecurityConfig.global.windowMs,
         limit: defaultSecurityConfig.global.maxRequests,
-        ignoreUserAgents: [/googlebot/gi, /bingbot/gi],
       },
       {
         // rajada: segura loops/scripts sem atrapalhar navegação normal
         name: 'burst',
         ttl: 5000,
         limit: defaultSecurityConfig.global.maxBurst,
-        ignoreUserAgents: [/googlebot/gi, /bingbot/gi],
       },
     ]),
   ],
@@ -34,11 +35,12 @@ import { defaultSecurityConfig } from './security.config';
     SecurityService,
     AttackDetectionMiddleware,
     SecurityGuard,
+    LoginAttemptsService,
     {
       provide: APP_GUARD,
       useClass: CustomThrottlerGuard, // Usando o guard customizado
     },
   ],
-  exports: [SecurityService, AttackDetectionMiddleware],
+  exports: [SecurityService, AttackDetectionMiddleware, LoginAttemptsService],
 })
 export class SecurityModule {}

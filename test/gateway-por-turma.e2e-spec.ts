@@ -1,7 +1,12 @@
 import './setup/env'; // precisa ser o primeiro import
 
 import * as request from 'supertest';
-import { bootTestApp, httpServer, shutdownTestApp, flushCache } from './setup/app';
+import {
+  bootTestApp,
+  httpServer,
+  shutdownTestApp,
+  flushCache,
+} from './setup/app';
 import { resetDb, testDb } from './setup/db';
 import {
   makeCompany,
@@ -23,7 +28,13 @@ import {
  * arriscar o faturamento inteiro numa troca só.
  */
 describe('Gateway por turma (e2e)', () => {
+  // Webhook exige token: usa o global de teste.
+  const previousWebhookToken = process.env.ASAAS_WEBHOOK_TOKEN;
+  afterAll(() => {
+    process.env.ASAAS_WEBHOOK_TOKEN = previousWebhookToken;
+  });
   beforeAll(async () => {
+    process.env.ASAAS_WEBHOOK_TOKEN = 'whtok_global_teste_0123456789abcdef';
     blockRealNetwork();
     await bootTestApp();
   });
@@ -166,6 +177,7 @@ describe('Gateway por turma (e2e)', () => {
 
     await request(httpServer())
       .post(`/webhooks/asaas/${company.id}`)
+      .set('asaas-access-token', process.env.ASAAS_WEBHOOK_TOKEN!)
       .send({
         event: 'PAYMENT_RECEIVED',
         payment: {

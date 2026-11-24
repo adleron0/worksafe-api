@@ -11,6 +11,46 @@ import { ConfigService } from '@nestjs/config';
 import statusMappings from './asaas.status';
 import { CacheService } from 'src/common/cache/cache.service';
 
+/** Campos que nunca podem ir para log: dados do cartão e do titular. */
+const SENSITIVE_PAYLOAD_KEYS = [
+  'creditCard',
+  'creditCardHolderInfo',
+  'creditCardToken',
+];
+
+/** Cópia rasa do payload com os dados de cartão trocados por um marcador. */
+export function redactAsaasPayload<T extends Record<string, any>>(
+  data: T,
+): Record<string, any> {
+  if (!data || typeof data !== 'object') return data;
+  const copy: Record<string, any> = { ...data };
+  for (const key of SENSITIVE_PAYLOAD_KEYS) {
+    if (key in copy && copy[key] != null) copy[key] = '[REDACTED]';
+  }
+  return copy;
+}
+
+/**
+ * Resumo seguro de um erro (axios ou não) para log: status, código e a
+ * mensagem do Asaas. Nunca inclui `config` (headers com access_token, corpo
+ * enviado com o cartão) nem a requisição crua.
+ */
+export function describeAsaasError(error: any) {
+  if (!error || typeof error !== 'object') return { message: String(error) };
+  const errors = error?.response?.data?.errors;
+  return {
+    status: error?.response?.status ?? error?.status,
+    code: error?.code,
+    message:
+      (Array.isArray(errors) && errors[0]?.description) ||
+      error?.response?.data?.message ||
+      error?.message,
+    errors: Array.isArray(errors)
+      ? errors.map((e: any) => ({ code: e?.code, description: e?.description }))
+      : undefined,
+  };
+}
+
 const BASE_URL = {
   prod: 'https://api.asaas.com/v3',
   sandbox: 'https://sandbox.asaas.com/api/v3',
@@ -203,7 +243,7 @@ export class AsaasService {
       return error.response.data.message;
     }
 
-    console.error('Erro na API Asaas:', error);
+    console.error('Erro na API Asaas:', describeAsaasError(error));
     return 'Erro na solicitação à API Asaas';
   }
 
@@ -311,7 +351,10 @@ export class AsaasService {
       }
       return null;
     } catch (error) {
-      console.error('Erro ao buscar cliente por CPF:', error);
+      console.error(
+        'Erro ao buscar cliente por CPF:',
+        describeAsaasError(error),
+      );
       return null;
     }
   }
@@ -409,7 +452,7 @@ export class AsaasService {
 
     console.log('=== DADOS ENVIADOS PARA ASAAS ===');
     console.log('URL:', url);
-    console.log('Payload:', JSON.stringify(data, null, 2));
+    console.log('Payload:', JSON.stringify(redactAsaasPayload(data), null, 2));
     console.log('=== FIM DADOS ASAAS ===');
 
     try {
@@ -479,7 +522,7 @@ export class AsaasService {
       console.log('=== FIM PIX DATA ===');
       return response.data;
     } catch (error) {
-      console.error('Erro ao buscar dados do PIX:', error);
+      console.error('Erro ao buscar dados do PIX:', describeAsaasError(error));
       throw this.handleAsaasError(error);
     }
   }
@@ -551,7 +594,7 @@ export class AsaasService {
 
     console.log('=== ATUALIZANDO PAGAMENTO NO ASAAS ===');
     console.log('URL:', url);
-    console.log('Payload:', JSON.stringify(data, null, 2));
+    console.log('Payload:', JSON.stringify(redactAsaasPayload(data), null, 2));
     console.log('=== FIM DADOS UPDATE ASAAS ===');
 
     try {
@@ -591,7 +634,10 @@ export class AsaasService {
 
       return payment;
     } catch (error) {
-      console.error('Erro ao processar cartão em pagamento existente:', error);
+      console.error(
+        'Erro ao processar cartão em pagamento existente:',
+        describeAsaasError(error),
+      );
       throw error;
     }
   }
@@ -664,7 +710,10 @@ export class AsaasService {
 
       return allData;
     } catch (error) {
-      console.error('Erro ao listar cobranças do customer:', error);
+      console.error(
+        'Erro ao listar cobranças do customer:',
+        describeAsaasError(error),
+      );
       throw new HttpException(
         this.handleAsaasError(error),
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -672,7 +721,11 @@ export class AsaasService {
     }
   }
 
-  async configureWebhooks(companyId: number, webhookId?: string, authToken?: string) {
+  async configureWebhooks(
+    companyId: number,
+    webhookId?: string,
+    authToken?: string,
+  ) {
     const { baseUrl, token } = await this.getConfig(companyId);
     const headers = this.getHeaders(token);
     const webhookUrl =
@@ -812,7 +865,11 @@ export class AsaasService {
             accrualDate,
             companyId,
             // classificação gerencial padrão; nunca falha (devolve {} em qualquer erro)
-            ...(await classificationDefaults(this.prisma, companyId, 'inscricao')),
+            ...(await classificationDefaults(
+              this.prisma,
+              companyId,
+              'inscricao',
+            )),
             subscriptionId,
             externalId: payment.id,
             gateway: 'asaas',
@@ -871,7 +928,7 @@ export class AsaasService {
 
       return { success: true, record: updatedRecord };
     } catch (error) {
-      console.error('Erro ao processar webhook:', error);
+      console.error('Erro ao processar webhook:', describeAsaasError(error));
       return { success: false, error: error.message };
     }
   }
@@ -900,7 +957,11 @@ export class AsaasService {
           accrualDate,
           companyId,
           // classificação gerencial padrão; nunca falha (devolve {} em qualquer erro)
-          ...(await classificationDefaults(this.prisma, companyId, 'inscricao')),
+          ...(await classificationDefaults(
+            this.prisma,
+            companyId,
+            'inscricao',
+          )),
           externalId: paymentData.id,
           gateway: 'asaas',
           status: this.mapPaymentStatus(paymentData.status),

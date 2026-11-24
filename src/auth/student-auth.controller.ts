@@ -7,7 +7,10 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  UnauthorizedException,
 } from '@nestjs/common';
+import { LoginAttemptsService } from 'src/common/security/login-attempts.service';
+import { clientIpOf } from 'src/common/security/client-ip';
 import { StudentAuthService } from './student-auth.service';
 import { PasswordCodeService } from './password-code.service';
 import { StudentLoginDto } from './dtos/student-auth.dto';
@@ -26,14 +29,29 @@ export class StudentAuthController {
   constructor(
     private readonly studentAuthService: StudentAuthService,
     private readonly passwordCodeService: PasswordCodeService,
+    private readonly loginAttempts: LoginAttemptsService,
   ) {}
 
   @Public()
   @Throttle({ default: { limit: 40, ttl: 60000 } }) // alunos de uma turma entram juntos, da mesma rede
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  async login(@Body() dto: StudentLoginDto) {
-    return this.studentAuthService.loginStudent(dto.credential, dto.password);
+  async login(@Body() dto: StudentLoginDto, @Req() req: Request) {
+    const ip = clientIpOf(req);
+    await this.loginAttempts.assertAllowed('student', ip, dto.credential);
+    try {
+      const result = await this.studentAuthService.loginStudent(
+        dto.credential,
+        dto.password,
+      );
+      await this.loginAttempts.registerSuccess('student', ip, dto.credential);
+      return result;
+    } catch (e) {
+      if (e instanceof UnauthorizedException) {
+        await this.loginAttempts.registerFailure('student', ip, dto.credential);
+      }
+      throw e;
+    }
   }
 
   @StudentAuth()

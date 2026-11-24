@@ -29,6 +29,12 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 // Import cache
 import { CacheService } from 'src/common/cache/cache.service';
+import { CrudService } from '@adleron/crud-core';
+import { defineWorksafeEntity } from 'src/common/crud/crud.module';
+import { traineeCertificateEntity } from './rules.crud';
+import { redactPublicCertificates } from './public-redaction';
+
+const certificateDef = defineWorksafeEntity(traineeCertificateEntity);
 // Import de configuraões
 
 /**
@@ -64,7 +70,27 @@ export class TraineeCertificateCustomController {
     private readonly renderer: CertificateRenderService,
     // cacheService é usado pelos decorators de cache
     private readonly cacheService: CacheService,
+    private readonly crud: CrudService<Request>,
   ) {}
+
+  // --- Vitrine (lista pública) -------------------------------------------------
+  // Substitui o GET /public gerado pela fábrica (controllers custom são
+  // registrados antes): mesma consulta do CrudService, mas sem CPF e data de
+  // nascimento no variableToReplace — ver public-redaction.ts.
+  @Public()
+  @Throttle({ default: { limit: 500, ttl: 60000 } })
+  @Get('public')
+  async listPublic(
+    @Query() query: Record<string, unknown>,
+    @Req() req: Request,
+  ) {
+    const result = await this.crud.listPublic(
+      certificateDef,
+      query as never,
+      req,
+    );
+    return redactPublicCertificates(result, query);
+  }
 
   // --- Compartilhamento em redes sociais -------------------------------------
   // Consumidas pelo middleware da Vercel (worksafe-front/middleware.ts), que

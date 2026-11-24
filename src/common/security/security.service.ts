@@ -1,5 +1,6 @@
 import { clientIpOf } from './client-ip';
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit, Optional } from '@nestjs/common';
+import { CacheService } from 'src/common/cache/cache.service';
 import { Request } from 'express';
 import {
   SecurityConfig,
@@ -24,39 +25,83 @@ interface RateLimitConfig {
 }
 
 @Injectable()
-export class SecurityService {
+export class SecurityService implements OnModuleInit {
   private requestLogs = new Map<string, RequestLog>();
   private blockedIps = new Set<string>();
   private config: SecurityConfig;
 
   private rateLimitConfig: RateLimitConfig;
   private endpointLimits = new Map<string, RateLimitConfig>();
+  /**
+   * Padrões de ataque procurados na URL (caminho + query). Precisos de propósito:
+   * um falso positivo bloqueia alguém de verdade.
+   */
   private suspiciousPatterns = [
-    // SQL Injection - mais específico
-    /(\b|;)(SELECT|DROP|INSERT|UPDATE|DELETE|UNION|ALTER|CREATE|EXEC|EXECUTE)\s+/i,
-    /(\b|;)(TABLE|DATABASE|SCHEMA|PROCEDURE|FUNCTION)\s+(DROP|ALTER|CREATE)/i,
+    // SQL Injection — só formas de ataque, não palavras soltas ("update", "create")
+    /\bunion\s+(all\s+)?select\b/i,
+    /\bselect\b[^&]{1,80}\bfrom\b[^&]{1,80}\b(where|information_schema|pg_)/i,
+    /\b(drop|truncate)\s+(table|database|schema)\b/i,
+    /\binsert\s+into\b/i,
+    /\bdelete\s+from\b/i,
+    /['"]\s*(or|and)\s+['"\d]+\s*=\s*['"\d]/i, // ' or '1'='1
+    /\b(sleep|pg_sleep|benchmark)\s*\(/i,
 
-    // XSS - mais específico para evitar falsos positivos
-    /<script[^a-z]/i, // <script com espaço ou >
+    // XSS
+    /<script[^a-z]/i,
     /<iframe[^a-z]/i,
     /javascript:/i,
-    /<img[^>]+on(load|error)\s*=/i, // Apenas em tags img
-    /<[^>]+on(click|mouseover|focus|blur)\s*=/i, // Eventos inline em tags HTML
+    /<img[^>]+on(load|error)\s*=/i,
+    /<[^>]+on(click|mouseover|focus|blur)\s*=/i,
 
-    // Path Traversal - mais específico
-    /(\.\.[\/\\]){3,}/, // Pelo menos 3 níveis de ../
-    /\.\.%2[fF]/, // Encoded path traversal
+    // Path Traversal
+    /(\.\.[\/\\]){2,}/, // ../../
+    /\.\.%2[fF]|%2[fF]\.\./, // ..%2f e %2f.. (já decodificado uma vez)
+    /%2[eE]%2[eE]/, // %2e%2e
+    /%25(2[eEfF]|5[cC])/, // codificação dupla (%252f, %252e, %255c)
+    /\/\.\.;\//, // /..;/ (Tomcat)
 
-    // OS Command Injection
+    // OS Command Injection / arquivos do sistema
     /[;&|`]\s*(ls|cat|echo|rm|chmod|chown|wget|curl|nc|bash|sh)\s/i,
     /\/etc\/(passwd|shadow|hosts)/,
+    /\/proc\/self\//,
     /(cmd|powershell)\.exe/i,
+  ];
+
+  /**
+   * Caminhos que só robôs de varredura pedem (a API não tem nada disso).
+   * Conferido só no caminho, sem a query.
+   */
+  private probePathPatterns = [
+    /^\/(\.env|\.git|\.svn|\.hg|\.aws|\.ssh|\.docker|\.kube|\.npmrc|\.htaccess|\.htpasswd|\.DS_Store|\.vscode|\.idea|\.config\/gcloud)(\/|$|\.|\?)/i,
+    /\/\.env(\.[a-z0-9_-]+)?$/i, // /app/.env, /.env.production
+    /\/\.git\/(config|HEAD)/i,
+    /\/(wp-admin|wp-login\.php|wp-content|wp-includes|xmlrpc\.php|phpmyadmin|pma|adminer|cgi-bin|actuator|server-status|vendor\/phpunit|boaform|HNAP1|manager\/html|solr\/admin|telescope|_profiler)(\/|$)/i,
+    /\.(php\d?|asp|aspx|jsp|cgi|pl)$/i,
+    /\/(id_rsa|id_ed25519|credentials|\.git-credentials|privkey\.pem|web\.config|config\.json\.bak|backup\.sql|dump\.sql|database\.sql)$/i,
+  ];
+
+  /** No corpo (JSON) só o que não aparece em texto normal — chat e propostas usam "update", "select"... */
+  private bodyPatterns = [
+    /<script[^a-z]/i,
+    /(\.\.[\/\\]){3,}/,
+    /\/etc\/(passwd|shadow)/,
+    /\/proc\/self\//,
+    /\bunion\s+(all\s+)?select\b/i,
   ];
 
   private suspiciousIps = new Set<string>();
   private whitelistedIps = new Set<string>();
 
-  constructor() {
+  /** Ataques recentes, para alertar o dono em rajada (um aviso a cada 15 min no máximo). */
+  private recentEvents: {
+    at: number;
+    kind: string;
+    ip: string;
+    detail: string;
+  }[] = [];
+  private lastAlertAt = 0;
+
+  constructor(@Optional() private readonly cache?: CacheService) {
     // Carrega configuração
     this.loadConfig();
 
@@ -123,17 +168,112 @@ export class SecurityService {
   }
 
   /**
-   * Adiciona IP à lista de bloqueados
+   * Bloqueia o IP. Fica também no Redis (sobrevive a restart/deploy) e quem
+   * reincide em 24 h fica mais tempo de fora: 1x, 4x, depois 24 h.
    */
-  blockIp(ip: string, duration: number = 300000): void {
+  blockIp(ip: string, duration: number = 300000, reason = 'bloqueio'): void {
+    if (this.isIpWhitelisted(ip)) return;
+    if (this.blockedIps.has(ip)) return;
     this.blockedIps.add(ip);
-    console.error(`🚫 IP BLOQUEADO: ${ip} por ${duration / 1000} segundos`);
+    console.error(
+      `🚫 IP BLOQUEADO: ${ip} por ${Math.round(duration / 1000)} segundos (${reason})`,
+    );
+    this.scheduleUnblock(ip, duration);
+    this.recordEvent('bloqueio', ip, reason);
 
-    // Remove o bloqueio após o tempo especificado
-    setTimeout(() => {
+    if (!this.cache) return;
+    const offensesKey = `sec:offenses:${ip}`;
+    this.cache
+      .increment(offensesKey, 24 * 3600)
+      .then((n) => {
+        const factor = n <= 1 ? 1 : n === 2 ? 4 : 0;
+        const finalMs = factor ? duration * factor : 24 * 3600 * 1000;
+        if (finalMs > duration) {
+          console.error(
+            `🚫 IP ${ip} reincidente (${n}ª vez em 24 h): bloqueio estendido para ${Math.round(finalMs / 60000)} min`,
+          );
+          this.scheduleUnblock(ip, finalMs);
+        }
+        return this.cache!.set(
+          `sec:block:${ip}`,
+          { reason, until: Date.now() + finalMs },
+          Math.ceil(finalMs / 1000),
+        );
+      })
+      .catch(() => undefined);
+  }
+
+  private unblockTimers = new Map<string, NodeJS.Timeout>();
+  private scheduleUnblock(ip: string, ms: number): void {
+    const prev = this.unblockTimers.get(ip);
+    if (prev) clearTimeout(prev);
+    const t = setTimeout(() => {
       this.blockedIps.delete(ip);
+      this.unblockTimers.delete(ip);
       console.log(`✅ IP DESBLOQUEADO: ${ip}`);
-    }, duration);
+    }, ms);
+    t.unref?.();
+    this.unblockTimers.set(ip, t);
+  }
+
+  /** Recarrega do Redis os bloqueios ainda válidos (depois de um deploy/restart). */
+  async onModuleInit(): Promise<void> {
+    if (!this.cache) return;
+    try {
+      const keys = await this.cache.keys('sec:block:*');
+      for (const key of keys) {
+        const ip = key.slice('sec:block:'.length);
+        const ttl = await this.cache.ttl(key);
+        if (ttl > 0 && !this.isIpWhitelisted(ip)) {
+          this.blockedIps.add(ip);
+          this.scheduleUnblock(ip, ttl * 1000);
+        }
+      }
+      if (keys.length)
+        console.log(
+          `🔒 ${this.blockedIps.size} IP(s) bloqueados recarregados do Redis`,
+        );
+    } catch {
+      // Redis fora: começa sem a lista
+    }
+  }
+
+  /**
+   * Registra um evento de ataque. Em rajada (5+ em 10 min), avisa o dono pelo
+   * webhook SECURITY_ALERT_WEBHOOK (ntfy, Discord, Slack, Telegram via bot...).
+   */
+  recordEvent(kind: string, ip: string, detail: string): void {
+    const now = Date.now();
+    this.recentEvents.push({
+      at: now,
+      kind,
+      ip,
+      detail: String(detail).slice(0, 200),
+    });
+    this.recentEvents = this.recentEvents
+      .filter((e) => now - e.at < 10 * 60 * 1000)
+      .slice(-200);
+    if (this.cache) {
+      const day = new Date().toISOString().slice(0, 10);
+      this.cache
+        .increment(`sec:stats:${day}:${kind}`, 8 * 24 * 3600)
+        .catch(() => undefined);
+    }
+    if (
+      this.recentEvents.length >= 5 &&
+      now - this.lastAlertAt > 15 * 60 * 1000
+    ) {
+      this.lastAlertAt = now;
+      const ips = [...new Set(this.recentEvents.map((e) => e.ip))];
+      this.notifyAdmins({
+        type: 'RAJADA_DE_ATAQUE',
+        eventos: this.recentEvents.length,
+        ips: ips.slice(0, 10),
+        exemplos: this.recentEvents
+          .slice(-5)
+          .map((e) => `${e.kind}: ${e.ip} — ${e.detail}`),
+      });
+    }
   }
 
   /**
@@ -169,7 +309,7 @@ export class SecurityService {
     // Verifica se o IP é suspeito (blacklist)
     if (this.isIpSuspicious(ip)) {
       console.warn(`⚠️ IP SUSPEITO DETECTADO: ${ip} - ${request.url}`);
-      this.blockIp(ip, 600000); // Bloqueia por 10 minutos
+      this.blockIp(ip, 600000, 'lista de IPs suspeitos'); // Bloqueia por 10 minutos
       return { allowed: false, reason: 'IP suspeito' };
     }
 
@@ -179,7 +319,7 @@ export class SecurityService {
       console.error(
         `🚨 PADRÃO MALICIOSO DETECTADO: ${ip} - ${maliciousPattern}`,
       );
-      this.blockIp(ip, 1800000); // Bloqueia por 30 minutos
+      this.blockIp(ip, 1800000, maliciousPattern); // Bloqueia por 30 minutos
       return {
         allowed: false,
         reason: `Padrão malicioso detectado: ${maliciousPattern}`,
@@ -233,7 +373,11 @@ export class SecurityService {
       console.error(
         `🚨 POSSÍVEL DDOS: ${ip} fez ${log.timestamps.length} requests em ${windowMs / 1000}s (Score: ${log.suspiciousScore})`,
       );
-      this.blockIp(ip, config.blockDuration);
+      this.blockIp(
+        ip,
+        config.blockDuration,
+        `excesso de requisições (${log.timestamps.length}/min)`,
+      );
       log.suspicious = true;
 
       // Notificar se configurado e realmente suspeito
@@ -285,18 +429,23 @@ export class SecurityService {
       }
     }
 
-    // Verifica query parameters
-    const queryString = JSON.stringify(request.query || {});
-    for (const pattern of this.suspiciousPatterns) {
-      if (pattern.test(queryString)) {
-        return `Query maliciosa: ${pattern}`;
+    // Caminhos de varredura (/.env, /.git/config, /wp-admin, *.php...)
+    const path = decodedUrl.split('?')[0];
+    for (const pattern of this.probePathPatterns) {
+      if (pattern.test(path)) {
+        return `Varredura: ${path.slice(0, 120)}`;
       }
     }
 
-    // Verifica body (se existir)
-    if (request.body) {
-      const bodyString = JSON.stringify(request.body);
-      for (const pattern of this.suspiciousPatterns) {
+    // Corpo: só padrões que não aparecem em texto normal
+    if (request.body && typeof request.body === 'object') {
+      let bodyString = '';
+      try {
+        bodyString = JSON.stringify(request.body);
+      } catch {
+        bodyString = '';
+      }
+      for (const pattern of this.bodyPatterns) {
         if (pattern.test(bodyString)) {
           return `Body malicioso: ${pattern}`;
         }
@@ -306,9 +455,9 @@ export class SecurityService {
     // Verifica headers suspeitos
     const userAgent = request.headers['user-agent'] || '';
     if (
-      userAgent.includes('sqlmap') ||
-      userAgent.includes('nikto') ||
-      userAgent.includes('scanner')
+      /sqlmap|nikto|nuclei|masscan|zgrab|gobuster|dirbuster|wpscan|acunetix|nessus|scanner/i.test(
+        String(userAgent),
+      )
     ) {
       return `User-Agent suspeito: ${userAgent}`;
     }
@@ -349,12 +498,26 @@ export class SecurityService {
   private notifyAdmins(alert: any): void {
     if (!this.config.enableNotifications) return;
 
-    console.error('🚨 ALERTA DE SEGURANÇA:', alert);
+    console.error('🚨 ALERTA DE SEGURANÇA:', JSON.stringify(alert));
 
-    // Exemplo de integração com webhook
-    // if (process.env.SECURITY_WEBHOOK_URL) {
-    //   axios.post(process.env.SECURITY_WEBHOOK_URL, alert);
-    // }
+    const url = process.env.SECURITY_ALERT_WEBHOOK;
+    if (!url || !/^https:\/\//.test(url)) return;
+    const text =
+      `WorkSafe: ${alert.eventos ?? ''} tentativas de ataque bloqueadas nos últimos minutos.\n` +
+      `IPs: ${(alert.ips ?? [alert.ip]).join(', ')}\n` +
+      (alert.exemplos ?? []).join('\n');
+    // Formato aceito por ntfy (texto puro), Discord ({content}) e Slack ({text})
+    const isNtfy = /ntfy\./.test(url);
+    fetch(url, {
+      method: 'POST',
+      headers: isNtfy
+        ? { Title: 'Alerta de seguranca WorkSafe' }
+        : { 'Content-Type': 'application/json' },
+      body: isNtfy
+        ? text
+        : JSON.stringify({ text, content: text.slice(0, 1900) }),
+      signal: AbortSignal.timeout(5000),
+    }).catch(() => undefined);
   }
 
   /**

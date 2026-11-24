@@ -17,15 +17,19 @@ export class WebhooksService {
   /**
    * Autenticação do webhook pelo header `asaas-access-token`.
    *
-   * Token esperado: `payload.webhookToken` do CompanyGateWays da empresa (o
-   * GatewayCredentialsService gera e registra no Asaas como authToken ao
-   * salvar o gateway), com fallback no env ASAAS_WEBHOOK_TOKEN.
+   * Token esperado: `payload.webhookToken` do CompanyGateWays ativo da
+   * empresa (o GatewayCredentialsService gera e registra no Asaas como
+   * authToken ao salvar o gateway), com fallback no env ASAAS_WEBHOOK_TOKEN.
    *
-   * MODO DE TRANSIÇÃO: empresa SEM token configurado ainda é aceita, com
-   * alerta. O Asaas envia em sendType SEQUENTIALLY e um não-2xx INTERROMPE a
-   * fila inteira — recusar antes de o token existir pararia todos os
-   * pagamentos no deploy. Assim que o token existe, o header passa a ser
-   * obrigatório e a comparação é em tempo constante.
+   * Sem token configurado (nem da empresa nem global) o evento é RECUSADO:
+   * aceitar deixava qualquer um forjar PAYMENT_CONFIRMED. Idem para empresa
+   * sem gateway Asaas ativo — não há o que confirmar lá.
+   *
+   * Válvula de emergência: `WEBHOOK_REQUIRE_TOKEN=false` volta ao modo de
+   * transição (aceita, com alerta, quando não há token). Existe porque o
+   * Asaas envia em sendType SEQUENTIALLY e um não-2xx INTERROMPE a fila
+   * inteira: se a produção ainda não tiver o token, recusar pararia todos os
+   * pagamentos. Padrão: exigir.
    */
   async verifyWebhookToken(
     gateway: string,
@@ -33,24 +37,43 @@ export class WebhooksService {
     received: string | undefined,
   ): Promise<boolean> {
     if (gateway !== 'asaas') return false;
+    if (!Number.isInteger(companyId) || companyId <= 0) return false;
+
+    const requireToken =
+      String(process.env.WEBHOOK_REQUIRE_TOKEN ?? 'true').toLowerCase() !==
+      'false';
 
     const companyGateway = await this.prisma.companyGateWays.findFirst({
       where: { companyId, gateway: 'asaas', active: true },
     });
+    if (!companyGateway && requireToken) {
+      console.warn(
+        `[webhook] empresa ${companyId} sem gateway Asaas ativo — evento recusado.`,
+      );
+      return false;
+    }
+
     const expected: string | undefined =
       (companyGateway?.payload as any)?.webhookToken ||
       process.env.ASAAS_WEBHOOK_TOKEN;
     if (!expected) {
-      console.warn(
-        `[webhook] empresa ${companyId} sem webhookToken — aceito em modo de transição. ` +
+      if (!requireToken) {
+        console.warn(
+          `[webhook] empresa ${companyId} sem webhookToken — aceito porque WEBHOOK_REQUIRE_TOKEN=false. ` +
+            'Salve de novo a integração Asaas no sistema para gerar e registrar o token.',
+        );
+        return true;
+      }
+      console.error(
+        `[webhook] empresa ${companyId} sem webhookToken nem ASAAS_WEBHOOK_TOKEN — evento recusado. ` +
           'Salve de novo a integração Asaas no sistema para gerar e registrar o token.',
       );
-      return true;
+      return false;
     }
     if (!received) return false;
 
     const a = Buffer.from(received);
-    const b = Buffer.from(expected);
+    const b = Buffer.from(String(expected));
     return a.length === b.length && timingSafeEqual(a, b);
   }
 

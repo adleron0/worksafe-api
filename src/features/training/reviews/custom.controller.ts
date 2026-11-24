@@ -1,9 +1,8 @@
-import { Body, Controller, Post, Req, UseInterceptors } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { Body, Controller, Post, Req } from '@nestjs/common';
 import { Request } from 'express';
 import { Public } from 'src/auth/decorators/public.decorator';
 import { CacheEvictAll } from 'src/common/cache';
-import { getMulterOptions } from 'src/features/upload/upload.middleware';
+import { PublicFormFields } from '../public-form';
 import { ReviewsService } from './service';
 
 /** Aluno avalia a turma sem login (validado pela inscrição confirmada, no service). */
@@ -11,11 +10,21 @@ import { ReviewsService } from './service';
 export class ReviewsCustomController {
   constructor(private readonly reviews: ReviewsService) {}
 
-  @Public() @Post('create-review')
+  @Public()
+  @Post('create-review')
   @CacheEvictAll('training-classes:*', 'cache:*/classes*')
-  @UseInterceptors(FileInterceptor('image', getMulterOptions('reviews-image')))
+  // multipart do front, sem arquivo (a avaliação nunca usou upload)
+  @PublicFormFields()
   createReview(@Req() request: Request, @Body() dto: Record<string, any>) {
-    const search = { companyId: dto.companyId || request.user?.companyId, classId: dto.classId, traineeId: dto.traineeId };
-    return this.reviews.createReview(search, { model: 'courseReview', name: 'Avaliação' }, dto);
+    const search = {
+      companyId: dto.companyId || request.user?.companyId,
+      classId: dto.classId,
+      traineeId: dto.traineeId,
+    };
+    return this.reviews.createReview(
+      search,
+      { model: 'courseReview', name: 'Avaliação' },
+      dto,
+    );
   }
 }
