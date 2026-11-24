@@ -70,9 +70,14 @@ export const READ_TOOLS: ToolDefinition[] = [
       if (input.tipo) query.kind = String(input.tipo);
       if (positiveInt(input.clienteId)) query.customerId = String(input.clienteId);
       const out = await asRefusal(() => deps.proposals.list(proposalActor(ctx), query));
+      // resumo como lista com nome legível: modelos menores pulavam chaves do objeto (ex.: o rascunho)
+      const summary = Object.entries((out.summary ?? {}) as Record<string, { count: number; total: number }>)
+        .map(([situacao, v]) => ({ situacao, quantidade: v.count, valorTotal: money(v.total) }))
+        .sort((a, b) => PROPOSAL_STATUS.indexOf(a.situacao) - PROPOSAL_STATUS.indexOf(b.situacao));
       return {
         total: out.total,
-        resumoPorSituacao: out.summary,
+        resumoPorSituacao: summary,
+        observacao: input.situacao ? undefined : 'O resumo por situação inclui TODAS as situações, inclusive rascunhos: cite cada linha do resumo. A lista abaixo não traz as versões substituídas (peça situacao=substituida para vê-las).',
         propostas: out.rows.map((row: any) => ({
           id: row.id, numero: row.number, revisao: row.revision, tipo: row.kind, situacao: row.status, titulo: row.title, cliente: row.customer?.name ?? null,
           total: money(row.total), validade: row.validUntil, vencida: row.expired, vendedor: row.seller, enviadaEm: iso(row.sentAt),
@@ -85,12 +90,19 @@ export const READ_TOOLS: ToolDefinition[] = [
     name: 'ver_proposta',
     title: 'Abrindo a proposta',
     description: 'Detalhes de uma proposta: cliente, contato, situação, seções e itens com valores, parcelas, validade e totais (custos e margem só se a pessoa pode ver custos).',
-    inputSchema: obj({ propostaId: int('Id da proposta') }, ['propostaId']),
+    inputSchema: obj({ propostaId: int('Id da proposta (o número do link /comercial/propostas/ID)'), numero: str('Ou o código da proposta, ex.: PC-2026-0004 ou PC-2026-0002-R1') }),
     permissions: ['list_comercial'],
     risk: 'read',
     run: async (ctx, input, deps) => {
-      const id = positiveInt(input.propostaId);
-      if (!id) throw new ToolRefusal('Informe o id da proposta');
+      let id = positiveInt(input.propostaId);
+      const code = text(input.numero ?? (typeof input.propostaId === 'string' && /[a-z]/i.test(input.propostaId) ? input.propostaId : ''), 30).toUpperCase();
+      if (!id && code) {
+        const found = await deps.prisma.commercial_Proposal.findFirst({ where: { companyId: ctx.companyId, number: { equals: code, mode: 'insensitive' } }, select: { id: true } })
+          ?? await deps.prisma.commercial_Proposal.findFirst({ where: { companyId: ctx.companyId, number: { startsWith: code, mode: 'insensitive' } }, orderBy: { id: 'desc' }, select: { id: true } });
+        if (!found) throw new ToolRefusal(`Não há proposta com o código ${code}. Confira o código ou procure com listar_propostas (busca).`);
+        id = found.id;
+      }
+      if (!id) throw new ToolRefusal('Informe o id ou o código da proposta (ex.: PC-2026-0004)');
       const row: any = await asRefusal(() => deps.proposals.get(proposalActor(ctx), id));
       return {
         id: row.id, numero: row.number, revisao: row.revision, tipo: row.kind, situacao: row.status, titulo: row.title,
