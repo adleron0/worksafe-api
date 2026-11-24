@@ -142,7 +142,7 @@ export const BOT_DEFAULTS: BotDefault[] = [
     name: 'Suprimentos',
     description: 'Estoque, reposição, pedidos de compra, EPI e inspeção de equipamentos. Consulta as locações.',
     icon: 'package',
-    avatar: 'r:bola.marrom.oculos.n.executor',
+    avatar: 'r:bola.grafite.fone.n.executor',
     strong: true,
     tools: ['minha_esteira', 'estoque_visao_geral', 'buscar_item_estoque', 'itens_para_repor', 'movimentacoes_estoque', 'registrar_movimentacao_estoque', 'listar_pedidos_de_compra', 'ver_pedido_de_compra', 'criar_pedido_de_compra', 'mudar_situacao_pedido_compra', 'receber_pedido_de_compra', 'epis_pendentes', 'entregar_epi', 'equipamentos_vencendo', 'registrar_inspecao', 'listar_locacoes', 'ver_locacao', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa'],
     instructions: `Você é o Bot de Suprimentos. Cuida do estoque, da reposição, dos pedidos de compra, das entregas de EPI e das inspeções e calibrações dos equipamentos.
