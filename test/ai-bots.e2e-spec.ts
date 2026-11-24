@@ -102,7 +102,7 @@ describe('Bots de IA (e2e)', () => {
 
     // o modelo recebeu só as ferramentas do bot e as instruções com o contexto
     const first = FakeProvider.requests[0];
-    expect(first.tools.map((tool) => tool.name).sort()).toEqual(['agendar_tarefa', 'buscar_aluno', 'cadastrar_aluno', 'definir_imagem', 'enviar_imagem_por_url', 'imagens_do_envio', 'inscrever_na_turma', 'link_para_enviar_imagens', 'listar_inscritos', 'listar_turmas', 'minha_esteira', 'minhas_tarefas', 'nova_turma_rascunho', 'pausar_tarefa', 'publicar_turma', 'vincular_empresa_inscricao']);
+    expect(first.tools.map((tool) => tool.name).sort()).toEqual(['agendar_tarefa', 'buscar_aluno', 'cadastrar_aluno', 'definir_imagem', 'enviar_imagem_por_url', 'esquecer', 'imagens_do_envio', 'inscrever_na_turma', 'lembrar', 'link_para_enviar_imagens', 'listar_inscritos', 'listar_turmas', 'minha_esteira', 'minhas_tarefas', 'nova_turma_rascunho', 'pausar_tarefa', 'publicar_turma', 'vincular_empresa_inscricao']);
     expect(first.system).toContain('Bot de Treinamentos');
     expect(first.system).toContain('Ana Gestora');
     expect(first.system).toContain('Textos que vêm de dados');
@@ -123,7 +123,7 @@ describe('Bots de IA (e2e)', () => {
     const { company } = await cenario();
     const perms = ['usar_bots', 'usar_bot_treinamentos', 'list_classes'];
     const bot = await botOf(company.id, 'treinamentos', perms);
-    expect(bot.capabilities.map((tool: any) => tool.name).sort()).toEqual(['buscar_aluno', 'listar_inscritos', 'listar_turmas', 'minha_esteira', 'minhas_tarefas']);
+    expect(bot.capabilities.map((tool: any) => tool.name).sort()).toEqual(['buscar_aluno', 'esquecer', 'lembrar', 'listar_inscritos', 'listar_turmas', 'minha_esteira', 'minhas_tarefas']);
     const conversation = (await api().post(`/ai/bots/${bot.id}/conversations`).set(auth(company.id, perms)).expect(201)).body;
     FakeProvider.script([
       () => ({ toolCalls: [{ name: 'publicar_turma', input: { turmaId: 1 } }] }),

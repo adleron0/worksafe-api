@@ -29,6 +29,8 @@ export interface TeamPort {
 @Injectable()
 export class ToolDeps {
   team?: TeamPort;
+  /** Memória de longo prazo (preenchido pelo MemoryService ao iniciar). */
+  memory?: import('../memory/memory.service').MemoryPort;
 
   constructor(
     readonly prisma: PrismaService,

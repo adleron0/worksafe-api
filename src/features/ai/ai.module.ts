@@ -20,11 +20,12 @@ import { UploadModule } from 'src/features/upload/upload.module';
 import { ImageIntakeService } from './images/image-intake.service';
 import { InternalApiService } from './tools/internal-api.service';
 import { InstagramService } from './connectors/instagram.service';
+import { MemoryService } from './memory/memory.service';
 
 /** Bots de IA: catálogo de ferramentas, motor, fornecedores e gasto. */
 @Module({
   imports: [ScheduleModule.forRoot(), EmailModule, UploadModule, CommercialModule, OperationsModule, HrModule, FinancialModule, PrivateStorageModule],
-  providers: [ProviderKeyStore, ProviderRegistry, ToolDeps, ToolCatalogService, BotService, UsageService, AgentService, McpOAuthService, NotifyService, ReportService, ImageIntakeService, InternalApiService, InstagramService],
-  exports: [ProviderRegistry, ToolDeps, ToolCatalogService, BotService, UsageService, AgentService, McpOAuthService, NotifyService, ReportService, ImageIntakeService, InternalApiService, InstagramService],
+  providers: [ProviderKeyStore, ProviderRegistry, ToolDeps, ToolCatalogService, BotService, UsageService, AgentService, McpOAuthService, NotifyService, ReportService, ImageIntakeService, InternalApiService, InstagramService, MemoryService],
+  exports: [ProviderRegistry, ToolDeps, ToolCatalogService, BotService, UsageService, AgentService, McpOAuthService, NotifyService, ReportService, ImageIntakeService, InternalApiService, InstagramService, MemoryService],
 })
 export class BotsAiModule {}

@@ -11,6 +11,7 @@ import { AgentService, UploadedImage, botsEnabled } from './engine/agent.service
 import { UsageService } from './engine/usage.service';
 import { ProviderRegistry } from './providers/provider.registry';
 import { ToolCatalogService } from './tools/tool-catalog.service';
+import { MemoryService } from './memory/memory.service';
 
 export const actorOf = (req: Request): BotActor => {
   const user = (req as Request & { user?: { sub?: number; companyId?: number } }).user;
@@ -29,6 +30,7 @@ export class AiController {
     private readonly usage: UsageService,
     private readonly providers: ProviderRegistry,
     private readonly prisma: PrismaService,
+    private readonly memory: MemoryService,
   ) {}
 
   /** Para o menu e a tela: ligado?, fornecedores com chave e o gasto do mês (este só para quem audita). */
@@ -57,6 +59,22 @@ export class AiController {
   botActivity(@Req() req: Request, @Param('botId', ParseIntPipe) botId: number, @Query('dias') dias?: string) {
     return this.agent.botActivity(actorOf(req), botId, Number(dias) || 1);
   }
+
+  // ---------------------------------------------------------------- memória
+
+  /** Memória do bot: a sua e, com memoria_bots, a da empresa. */
+  @Permissions('usar_bots') @Get('bots/:id/memory')
+  memoryList(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.memory.list(actorOf(req), id); }
+
+  /** Limpar memória: { escopo: 'pessoa' | 'empresa' }. */
+  @Permissions('usar_bots') @Post('bots/:id/memory/clear') @HttpCode(200)
+  memoryClear(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.memory.clear(actorOf(req), id, body?.escopo); }
+
+  @Permissions('usar_bots') @Put('memory/:id')
+  memoryUpdate(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.memory.update(actorOf(req), id, body ?? {}); }
+
+  @Permissions('usar_bots') @Delete('memory/:id')
+  memoryRemove(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.memory.remove(actorOf(req), id); }
 
   @Permissions('update_bots') @Get('bots/config')
   config(@Req() req: Request) { return this.bots.listAll(actorOf(req)); }

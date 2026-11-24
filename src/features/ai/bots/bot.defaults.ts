@@ -184,6 +184,8 @@ ${ORGANIZE}`,
 
 /** Todos os bots conversam com os colegas (pedir_ao_colega e passar_para_colega). */
 for (const bot of BOT_DEFAULTS) bot.tools.push('pedir_ao_colega', 'passar_para_colega');
+/** Todos os bots têm memória (lembrar e esquecer). */
+for (const bot of BOT_DEFAULTS) bot.tools.push('lembrar', 'esquecer');
 
 export function defaultModelFor(bot: BotDefault) {
   return { provider: DEFAULT_MODELS.provider, model: bot.strong ? DEFAULT_MODELS.strong : DEFAULT_MODELS.fast };

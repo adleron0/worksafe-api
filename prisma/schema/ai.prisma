@@ -38,6 +38,7 @@ model Ai_Bot {
 
   versions      Ai_BotVersion[]
   conversations Ai_Conversation[]
+  memories      Ai_Memory[]
 
   @@unique([companyId, key])
 }
@@ -68,6 +69,10 @@ model Ai_Conversation {
   // bots | schedule (relatório gerado por agendamento)
   origin     String    @default("bots") @db.VarChar(20)
   lastMessageAt DateTime @default(now())
+  // resumo rolante: o modelo recebe o resumo + as mensagens depois de summaryUntilId
+  summary        String?   @db.Text
+  summaryUntilId Int?
+  summaryAt      DateTime?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
   archivedAt DateTime?
@@ -391,4 +396,27 @@ model Ai_SocialPost {
 
   @@index([status, scheduledAt])
   @@index([companyId, scheduledAt])
+}
+
+// Memória de longo prazo do bot: fatos curtos que a pessoa ensinou (nunca a
+// conversa crua). Escopo pessoa (só de userId) ou empresa (todos que usam o bot).
+model Ai_Memory {
+  id              Int      @id @default(autoincrement())
+  companyId       Int
+  botId           Int
+  bot             Ai_Bot   @relation(fields: [botId], references: [id], onDelete: Cascade)
+  // pessoa | empresa
+  scope           String   @db.VarChar(10)
+  // dono do fato quando scope = pessoa
+  userId          Int?
+  text            String   @db.VarChar(300)
+  createdByUserId Int
+  conversationId  Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
+  // entrou no prompt ou foi atualizado; sem uso há 6 meses, expira
+  lastUsedAt      DateTime @default(now())
+
+  @@index([companyId, botId, scope, userId])
+  @@index([lastUsedAt])
 }

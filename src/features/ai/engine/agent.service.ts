@@ -12,6 +12,8 @@ import { TeamPort, ToolDeps } from '../tools/tool.deps';
 import { ToolContext, ToolRefusal } from '../tools/tool.types';
 import { TEAM_TOOL_NAMES } from '../tools/team.tools';
 import { UsageService } from './usage.service';
+import { MemoryService } from '../memory/memory.service';
+import { MEMORY_TOOL_NAMES } from '../tools/memory.tools';
 
 export interface RunStep { at: string; kind: 'tool' | 'notice'; label: string; tool?: string; status: 'running' | 'ok' | 'refused' | 'denied' | 'error' | 'pending'; pendingActionId?: number }
 export interface Attachment { name: string; mediaType: string; size: number; key: string }
@@ -19,8 +21,15 @@ export interface UploadedImage { buffer: Buffer; originalname: string; mimetype:
 
 /** Quantas idas ao modelo numa resposta (cada ida pode chamar várias ferramentas). */
 const MAX_TURNS = 12;
-/** Quantas mensagens antigas entram no contexto. */
+/** Teto de segurança de mensagens no contexto (o resumo rolante mantém bem abaixo disso). */
 const HISTORY_LIMIT = 40;
+/** Resumo rolante: passou disto de mensagens não resumidas, resume as antigas... */
+export const SUMMARY_TRIGGER = 30;
+/** ...e deixa as últimas tantas inteiras para o modelo. */
+export const SUMMARY_KEEP = 20;
+const SUMMARY_MAX = 4000;
+/** Resultado de ferramenta de turnos antigos entra cortado (o completo só na última pergunta). */
+const OLD_TOOL_RESULT_MAX = 1500;
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 const IMAGE_MAX = 5 * 1024 * 1024;
 /** PDF (extrato, nota, boleto): o modelo lê direto. 10 MB cabem no limite de envio inline do Gemini. */
@@ -49,6 +58,7 @@ export class AgentService implements TeamPort {
     private readonly providers: ProviderRegistry,
     private readonly usage: UsageService,
     private readonly storage: PrivateStorageService,
+    private readonly memory: MemoryService,
     deps: ToolDeps,
   ) {
     deps.team = this;
@@ -344,8 +354,12 @@ export class AgentService implements TeamPort {
       const tools = this.catalog.visible((bot.tools as string[]) ?? [], ctx.permissions);
       const allowedNames = tools.map((tool) => tool.name);
       const definitions = this.catalog.definitions(tools);
-      const system = await this.systemPrompt(ctx, bot, tools.map((tool) => tool.title), allowedNames.some((name) => TEAM_TOOL_NAMES.includes(name)));
-      const history = await this.history(ctx.conversationId);
+      const conversation = await this.prisma.ai_Conversation.findUnique({ where: { id: ctx.conversationId }, select: { summary: true, summaryUntilId: true } });
+      const system = await this.systemPrompt(ctx, bot, tools.map((tool) => tool.title), allowedNames.some((name) => TEAM_TOOL_NAMES.includes(name)), {
+        summary: conversation?.summary ?? null,
+        canRemember: allowedNames.some((name) => MEMORY_TOOL_NAMES.includes(name)),
+      });
+      const history = await this.history(ctx.conversationId, conversation?.summaryUntilId ?? 0);
 
       for (let turn = 0; turn < maxTurns; turn++) {
         const current = await this.prisma.ai_Run.findUnique({ where: { id: ctx.runId }, select: { status: true } });
@@ -403,6 +417,78 @@ export class AgentService implements TeamPort {
     } finally {
       await this.prisma.ai_Conversation.update({ where: { id: ctx.conversationId }, data: { lastMessageAt: new Date() } }).catch(() => undefined);
     }
+    // depois da resposta (não atrasa a pessoa): resume a conversa se ela cresceu
+    await this.summarize(ctx, bot).catch((error) => console.error('[ai] resumo da conversa falhou', error));
+  }
+
+  // ---------------------------------------------------------------- resumo rolante
+
+  private summarizing = new Set<number>();
+
+  /**
+   * Conversa longa: quando passa de SUMMARY_TRIGGER mensagens não resumidas,
+   * resume as antigas (junto com o resumo anterior) e deixa as últimas
+   * SUMMARY_KEEP inteiras. Refeito em bloco, não a cada mensagem.
+   */
+  async summarize(ctx: { companyId: number; conversationId: number }, bot: Ai_Bot): Promise<boolean> {
+    if (this.summarizing.has(ctx.conversationId)) return false;
+    this.summarizing.add(ctx.conversationId);
+    try {
+      const conversation = await this.prisma.ai_Conversation.findUnique({ where: { id: ctx.conversationId }, select: { summary: true, summaryUntilId: true } });
+      if (!conversation) return false;
+      const rows = await this.prisma.ai_Message.findMany({
+        where: { conversationId: ctx.conversationId, role: { in: ['user', 'assistant', 'tool'] }, id: { gt: conversation.summaryUntilId ?? 0 } },
+        orderBy: { id: 'asc' }, select: { id: true, role: true, content: true },
+      });
+      if (rows.length <= SUMMARY_TRIGGER) return false;
+      // o corte cai numa mensagem da pessoa, para não separar chamada e resultado
+      let cut = rows.length - SUMMARY_KEEP;
+      while (cut < rows.length && rows[cut].role !== 'user') cut++;
+      if (cut >= rows.length) {
+        cut = rows.length - SUMMARY_KEEP;
+        while (cut > 0 && rows[cut].role !== 'user') cut--;
+      }
+      if (cut <= 0) return false;
+      const transcript = this.transcript(rows.slice(0, cut));
+      const prompt = [
+        conversation.summary ? `Resumo anterior da conversa:\n${conversation.summary}` : '',
+        `Mensagens a incluir no resumo:\n${transcript}`,
+      ].filter(Boolean).join('\n\n');
+      const { response, provider, model } = await this.callModel(bot, {
+        model: bot.model, tools: [],
+        system: 'Você resume conversas entre uma pessoa e um assistente interno de uma empresa, para o assistente continuar a conversa sem reler tudo. Escreva em português do Brasil, em tópicos curtos: o que a pessoa pediu, o que foi feito (com números, nomes, datas e códigos que importam), decisões, preferências que ela disse e o que ficou pendente. Junte o resumo anterior com as mensagens novas num resumo só. Não invente nada e não inclua cumprimentos. Máximo de 3000 caracteres.',
+        messages: [{ role: 'user', text: prompt }],
+      });
+      const callCost = this.providers.cost(provider, model, response.usage);
+      await this.usage.record(ctx.companyId, provider, model, response.usage, callCost);
+      const summary = String(response.text ?? '').trim().slice(0, SUMMARY_MAX);
+      if (!summary) return false;
+      await this.prisma.ai_Conversation.update({ where: { id: ctx.conversationId }, data: { summary, summaryUntilId: rows[cut - 1].id, summaryAt: new Date() } });
+      return true;
+    } finally {
+      this.summarizing.delete(ctx.conversationId);
+    }
+  }
+
+  /** As mensagens em texto corrido para o resumo (resultados de ferramenta bem cortados). */
+  private transcript(rows: { role: string; content: Prisma.JsonValue }[]): string {
+    const lines: string[] = [];
+    for (const row of rows) {
+      const content = (row.content ?? {}) as Record<string, any>;
+      if (row.role === 'user') {
+        const names = ((content.attachments ?? []) as Attachment[]).map((item) => item.name);
+        lines.push(`Pessoa: ${String(content.text ?? '').slice(0, 2000)}${names.length ? ` [anexos: ${names.join(', ')}]` : ''}`);
+      } else if (row.role === 'assistant') {
+        const tools = ((content.toolCalls ?? []) as { name: string; input?: unknown }[]).map((call) => `${call.name}(${JSON.stringify(call.input ?? {}).slice(0, 200)})`);
+        if (content.text) lines.push(`Assistente: ${String(content.text).slice(0, 2000)}`);
+        if (tools.length) lines.push(`Assistente usou: ${tools.join(', ')}`);
+      } else {
+        for (const result of (content.results ?? []) as { name: string; content?: string; isError?: boolean }[]) {
+          lines.push(`Resultado de ${result.name}${result.isError ? ' (erro)' : ''}: ${String(result.content ?? '').slice(0, 400)}`);
+        }
+      }
+    }
+    return lines.join('\n').slice(-40000);
   }
 
   /** Chama o modelo do bot; se ele falhar e houver reserva configurada, tenta a reserva. */
@@ -457,11 +543,12 @@ export class AgentService implements TeamPort {
     await this.prisma.ai_Message.create({ data: { conversationId: ctx.conversationId, runId: ctx.runId, role: 'notice', content: { text } } });
   }
 
-  private async systemPrompt(ctx: ToolContext, bot: Ai_Bot, capabilities: string[], withTeam = false): Promise<string> {
-    const [user, company, team] = await Promise.all([
+  private async systemPrompt(ctx: ToolContext, bot: Ai_Bot, capabilities: string[], withTeam = false, extra: { summary?: string | null; canRemember?: boolean } = {}): Promise<string> {
+    const [user, company, team, memories] = await Promise.all([
       this.prisma.user.findUnique({ where: { id: ctx.userId }, select: { name: true } }),
       this.prisma.company.findUnique({ where: { id: ctx.companyId }, select: { comercial_name: true } }),
       withTeam ? this.bots.listFor(ctx) : Promise.resolve([]),
+      this.memory.forPrompt(ctx, bot.id),
     ]);
     const colleagues = team.filter((item) => item.id !== bot.id);
     const now = nowBr();
@@ -474,12 +561,14 @@ export class AgentService implements TeamPort {
       ...(colleagues.length ? [`\n## Sua equipe\nColegas que esta pessoa pode usar (área: nome, cargo — o que faz):\n${colleagues.map((item) => `- ${item.key}: ${item.persona}, ${item.role} — ${item.description}`).join('\n')}\n- Precisa de um dado da área de um colega para responder? Use pedir_ao_colega (ele só consulta). A pessoa quer fazer algo que é da área de outro? Use passar_para_colega com um resumo completo. Não faça os dois para a mesma coisa e não peça ao colega o que você mesmo consegue consultar.`] : []),
       ctx.delegated ? `\n## Pedido de um colega\nQuem pede agora é outro assistente da equipe, ajudando a mesma pessoa. Responda só o que foi pedido, com números e nomes, sem cumprimentos. Você só consulta: não crie nem altere nada.` : '',
       `\n## Contexto\n- Empresa: ${company?.comercial_name ?? '—'}\n- Pessoa: ${user?.name ?? '—'}\n- Hoje: ${weekday}, ${now.toISOString().slice(0, 10)}, ${now.toISOString().slice(11, 16)} (horário de Brasília)`,
-    ].join('\n');
+      this.memory.promptSection(memories, user?.name ?? 'a pessoa', !!extra.canRemember && !ctx.delegated),
+      extra.summary ? `\n## Resumo do começo desta conversa\nAs mensagens mais antigas desta conversa foram resumidas abaixo; as recentes vêm a seguir, inteiras.\n${extra.summary}` : '',
+    ].filter(Boolean).join('\n');
   }
 
   /** A conversa no formato neutro, com as últimas mensagens (e imagens das mensagens recentes). */
-  private async history(conversationId: number): Promise<ChatMessage[]> {
-    const rows = (await this.prisma.ai_Message.findMany({ where: { conversationId, role: { in: ['user', 'assistant', 'tool'] } }, orderBy: { id: 'desc' }, take: HISTORY_LIMIT })).reverse();
+  private async history(conversationId: number, afterId = 0): Promise<ChatMessage[]> {
+    const rows = (await this.prisma.ai_Message.findMany({ where: { conversationId, role: { in: ['user', 'assistant', 'tool'] }, id: { gt: afterId } }, orderBy: { id: 'desc' }, take: HISTORY_LIMIT })).reverse();
     // não começa no meio de um par chamada → resultado
     while (rows.length && rows[0].role !== 'user') rows.shift();
     const lastUserIndex = rows.map((row) => row.role).lastIndexOf('user');
@@ -502,7 +591,13 @@ export class AgentService implements TeamPort {
       } else if (row.role === 'assistant') {
         out.push({ role: 'assistant', text: content.text || undefined, toolCalls: content.toolCalls?.length ? content.toolCalls : undefined, raw: content.raw });
       } else {
-        out.push({ role: 'tool', results: (content.results ?? []).map((result: any) => ({ toolCallId: result.toolCallId, name: result.name, content: result.content, isError: result.isError })) });
+        // resultado antigo (antes da última pergunta) entra cortado: o modelo já o leu
+        const old = index < lastUserIndex;
+        const cutResult = (text: unknown) => {
+          const value = String(text ?? '');
+          return old && value.length > OLD_TOOL_RESULT_MAX ? `${value.slice(0, OLD_TOOL_RESULT_MAX)}… [resultado antigo cortado; consulte de novo se precisar]` : value;
+        };
+        out.push({ role: 'tool', results: (content.results ?? []).map((result: any) => ({ toolCallId: result.toolCallId, name: result.name, content: cutResult(result.content), isError: result.isError })) });
       }
     }
     return out;
