@@ -49,6 +49,14 @@ export class AiController {
 
   // ---------------------------------------------------------------- bots
 
+  /**
+   * Rostinhos no topo das páginas: todos os bots ligados com as páginas deles.
+   * Quem não pode usar um bot o vê em cinza (allowed: false), sem clique. Só
+   * rosto, nome e cargo: nada de instruções ou ferramentas.
+   */
+  @Get('bots/pages')
+  pages(@Req() req: Request) { return this.bots.forPages(actorOf(req)); }
+
   @Permissions('usar_bots') @Get('bots')
   list(@Req() req: Request) { return this.bots.listFor(actorOf(req)); }
 
@@ -148,7 +156,7 @@ export class AiController {
   @Permissions('usar_bots') @Post('conversations/:id/messages')
   @UseInterceptors(FilesInterceptor('files', 3, UPLOAD))
   send(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json, @UploadedFiles() files?: UploadedImage[]) {
-    return this.agent.send(actorOf(req), id, body?.text, files ?? []);
+    return this.agent.send(actorOf(req), id, body?.text, files ?? [], body?.page);
   }
 
   @Permissions('usar_bots') @Get('runs/:id')

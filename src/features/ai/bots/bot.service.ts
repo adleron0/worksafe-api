@@ -6,6 +6,7 @@ import { PROVIDER_LABELS, ProviderRegistry, isTestProvider } from '../providers/
 import { ToolCatalogService } from '../tools/tool-catalog.service';
 import { BOT_DEFAULTS, defaultModelFor } from './bot.defaults';
 import { personalityCatalog } from './personality';
+import { cleanPages, defaultPagesFor } from './bot.pages';
 
 export interface BotActor { userId: number; companyId: number; permissions: string[] }
 
@@ -39,7 +40,7 @@ export class BotService {
       await this.prisma.ai_Bot.create({
         data: {
           companyId, key: bot.key, name: bot.name, persona: bot.persona, role: bot.role, avatar: bot.avatar ?? bot.key, description: bot.description, icon: bot.icon, instructions: bot.instructions,
-          tools: bot.tools, provider, model, permissionKey: `usar_bot_${bot.key}`, shortcuts: bot.shortcuts,
+          tools: bot.tools, provider, model, permissionKey: `usar_bot_${bot.key}`, shortcuts: bot.shortcuts, pages: defaultPagesFor(bot.key),
           versions: { create: { version: 1, instructions: bot.instructions, tools: bot.tools, provider, model } },
         },
       }).catch((error) => {
@@ -54,6 +55,22 @@ export class BotService {
     await this.ensureDefaults(actor.companyId);
     const bots = await this.prisma.ai_Bot.findMany({ where: { companyId: actor.companyId, inactiveAt: null, active: true }, orderBy: { id: 'asc' } });
     return bots.filter((bot) => actor.permissions.includes(bot.permissionKey)).map((bot) => this.present(bot, actor.permissions, false));
+  }
+
+  /** Rostinhos das páginas: todos os bots ligados, com as páginas e se a pessoa pode usar. */
+  async forPages(actor: BotActor) {
+    await this.ensureDefaults(actor.companyId);
+    const bots = await this.prisma.ai_Bot.findMany({ where: { companyId: actor.companyId, inactiveAt: null, active: true }, orderBy: { id: 'asc' } });
+    const canBots = actor.permissions.includes('usar_bots');
+    return bots
+      .map((bot) => ({
+        id: bot.id, key: bot.key, persona: bot.persona ?? bot.name, role: bot.role ?? bot.name, avatar: bot.avatar ?? bot.key,
+        pages: (bot.pages as string[] | null) ?? defaultPagesFor(bot.key),
+        allowed: canBots && actor.permissions.includes(bot.permissionKey),
+        // para o aviso de quem não pode: qual permissão pedir
+        permission: canBots ? bot.permissionKey : 'usar_bots',
+      }))
+      .filter((bot) => bot.pages.length > 0);
   }
 
   /** Todos, para a tela de configuração. */
@@ -84,6 +101,8 @@ export class BotService {
     const base = {
       id: bot.id, key: bot.key, name: bot.name, persona: bot.persona ?? bot.name, role: bot.role ?? bot.name, avatar: bot.avatar ?? bot.key, description: bot.description, icon: bot.icon, active: bot.active,
       shortcuts: (bot.shortcuts as { label: string; prompt: string }[] | null) ?? [],
+      // onde aparece no topo das páginas (sem nada gravado: os padrões da área)
+      pages: (bot.pages as string[] | null) ?? defaultPagesFor(bot.key),
       provider: bot.provider, providerLabel: PROVIDER_LABELS[bot.provider] ?? bot.provider, model: bot.model,
       providerReady: !!this.providers.get(bot.provider)?.available(),
       // o que esta pessoa pode fazer com o bot (as outras ferramentas ficam escondidas)
@@ -120,6 +139,11 @@ export class BotService {
     if ('shortcuts' in body) {
       if (!Array.isArray(body.shortcuts)) throw new BadRequestException('Atalhos inválidos');
       data.shortcuts = body.shortcuts.slice(0, 8).map((item: any) => ({ label: clean(item?.label, 40), prompt: clean(item?.prompt, 500) })).filter((item) => item.label && item.prompt);
+    }
+    if ('pages' in body) {
+      const pages = cleanPages(body.pages);
+      if (!pages) throw new BadRequestException('Páginas inválidas');
+      data.pages = pages;
     }
     let versioned = false;
     if ('instructions' in body) {
@@ -288,6 +312,6 @@ export class BotService {
     if (!bot) throw new NotFoundException('Bot não encontrado');
     const preset = BOT_DEFAULTS.find((item) => item.key === bot.key);
     if (!preset) throw new BadRequestException('Este bot não tem padrão');
-    return this.update(actor, botId, { instructions: preset.instructions, tools: preset.tools, shortcuts: preset.shortcuts, name: preset.name, description: preset.description });
+    return this.update(actor, botId, { instructions: preset.instructions, tools: preset.tools, shortcuts: preset.shortcuts, pages: defaultPagesFor(preset.key), name: preset.name, description: preset.description });
   }
 }

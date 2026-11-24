@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { PrivateStorageService } from 'src/common/storage/private-storage.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { BASE_RULES } from '../bots/bot.defaults';
+import { PageContext, cleanPageContext, pageLine } from '../bots/bot.pages';
 import { personalityPrompt } from '../bots/personality';
 import { BotActor, BotService } from '../bots/bot.service';
 import { ProviderRegistry } from '../providers/provider.registry';
@@ -264,6 +265,7 @@ export class AgentService implements TeamPort {
     return {
       id: message.id, role: message.role, text: content.text ?? '', attachments: (content.attachments ?? []).map((item: Attachment) => ({ name: item.name, mediaType: item.mediaType, size: item.size })),
       toolCalls: (content.toolCalls ?? []).map((call: any) => ({ name: call.name, title: this.catalog.get(call.name)?.title ?? call.name })),
+      page: content.page ? { label: content.page.label, path: content.page.path, title: content.page.title ?? null } : null,
       createdAt: message.createdAt,
     };
   }
@@ -296,7 +298,7 @@ export class AgentService implements TeamPort {
 
   // ---------------------------------------------------------------- envio
 
-  async send(actor: BotActor, conversationId: number, rawText: unknown, files: UploadedImage[] = []) {
+  async send(actor: BotActor, conversationId: number, rawText: unknown, files: UploadedImage[] = [], rawPage?: unknown) {
     if (!botsEnabled()) throw new ServiceUnavailableException('Os bots estão desligados no momento');
     const conversation = await this.own(actor, conversationId);
     if (conversation.archivedAt) throw new ConflictException('Conversa arquivada');
@@ -328,8 +330,10 @@ export class AgentService implements TeamPort {
       await this.storage.put(key, file.buffer, file.mimetype);
       attachments.push({ name: file.originalname.slice(0, 200), mediaType: file.mimetype, size: file.size, key });
     }
+    // de qual tela veio (janela rápida dos bots nas páginas): o bot entende "esta proposta"
+    const page = cleanPageContext(rawPage);
     const run = await this.prisma.ai_Run.create({ data: { conversationId, userId: actor.userId, status: 'running', steps: [] } });
-    await this.prisma.ai_Message.create({ data: { conversationId, runId: run.id, role: 'user', content: { text, attachments } as unknown as Prisma.InputJsonValue } });
+    await this.prisma.ai_Message.create({ data: { conversationId, runId: run.id, role: 'user', content: { text, attachments, ...(page ? { page } : {}) } as unknown as Prisma.InputJsonValue } });
     const first = (await this.prisma.ai_Message.count({ where: { conversationId, role: 'user' } })) === 1;
     await this.prisma.ai_Conversation.update({
       where: { id: conversationId },
@@ -668,7 +672,8 @@ export class AgentService implements TeamPort {
           }
         }
         const names = ((content.attachments ?? []) as Attachment[]).map((item) => item.name);
-        const text = [content.text ?? '', index !== lastUserIndex && names.length ? `[anexos: ${names.join(', ')}]` : ''].filter(Boolean).join('\n');
+        const page = content.page as PageContext | undefined;
+        const text = [page ? pageLine(page) : '', content.text ?? '', index !== lastUserIndex && names.length ? `[anexos: ${names.join(', ')}]` : ''].filter(Boolean).join('\n');
         out.push({ role: 'user', text, images: images.length ? images : undefined });
       } else if (row.role === 'assistant') {
         out.push({ role: 'assistant', text: content.text || undefined, toolCalls: content.toolCalls?.length ? content.toolCalls : undefined, raw: content.raw });
