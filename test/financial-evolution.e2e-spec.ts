@@ -147,7 +147,7 @@ describe('Financeiro — filtros, lote, recorrência, relatórios e conciliaçã
       expect(received.summary.received.total).toBe(1221);
     });
 
-    it('cartão de recebidas/pagas segue o filtro de data (não fica preso ao mês atual)', async () => {
+    it('cartão de recebidas/pagas segue o recorte da lista (sem filtro de data: todas)', async () => {
       const { company, customer, bank } = await cenario();
       const t = today();
       const prev = new Date(Date.UTC(Number(t.slice(0, 4)), Number(t.slice(5, 7)) - 2, 15)).toISOString().slice(0, 10);
@@ -157,10 +157,14 @@ describe('Financeiro — filtros, lote, recorrência, relatórios e conciliaçã
       const p = await payable(company.id, { value: 90, dueDate: prev });
       await api().patch(`/financial-payables/settle/${p.id}`).set(auth(company.id)).send({ paidAt: prev, bankAccountId: bank.id }).expect(200);
 
-      // sem filtro de data: mês atual (o recebido no mês passado não entra)
+      // sem filtro de data: o cartão mostra todas as recebidas da lista (inclusive as de meses passados)
       const plain = (await api().get('/financial/receivables').set(auth(company.id)).expect(200)).body;
-      expect(plain.summary.received).toEqual({ count: 0, total: 0 });
-      expect(plain.summary.paidPeriod).toBe(t.slice(0, 7));
+      expect(plain.summary.received).toEqual({ count: 1, total: 250 });
+      expect(plain.summary.paidPeriod).toBe('tudo');
+      expect(plain.summary.all.count).toBe(1);
+      const plainPay = (await api().get('/financial/payables').set(auth(company.id)).expect(200)).body;
+      expect(plainPay.summary.paid).toEqual({ count: 1, total: 90 });
+      expect(plainPay.summary.excluded.count).toBe(0);
       // vencimento no mês passado: o cartão mostra o que foi recebido nesse recorte
       const byDue = (await api().get('/financial/receivables').query({ dueFrom: from, dueTo: to }).set(auth(company.id)).expect(200)).body;
       expect(byDue.summary.received).toEqual({ count: 1, total: 250 });

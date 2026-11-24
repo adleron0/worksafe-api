@@ -134,7 +134,7 @@ export class LedgerService {
     return { today, view, rows, total, summary };
   }
 
-  /** Cartões: faixas do que está em aberto e o que foi pago (no período pedido ou, sem período, no mês). */
+  /** Cartões: faixas do que está em aberto, o que foi pago e os totais por situação — no mesmo recorte da lista. */
   private async payableSummary(base: Prisma.Financial_PayableWhereInput, query: Query, today: string) {
     const windows = dueWindows(today);
     const open = { status: 'aberta', inactiveAt: null };
@@ -142,20 +142,16 @@ export class LedgerService {
       const result = await this.prisma.financial_Payable.aggregate({ where: { AND: [base, where] }, _count: { _all: true }, _sum: { [field]: true } as never });
       return bucketOf(result._count._all, (result._sum as Record<string, unknown>)?.[field]);
     };
-    // com qualquer recorte de data (vencimento, pagamento ou competência), o cartão segue o filtro;
-    // sem nenhum, mostra o que foi pago/recebido no mês atual
+    // os cartões seguem sempre o mesmo recorte da lista (filtros, busca e datas): sem filtro de data,
+    // pagas/recebidas são todas as da lista, não só as do mês
     const hasPaidPeriod = hasDateFilter(query);
-    const currentMonth = today.slice(0, 7);
-    const paidWhere: Prisma.Financial_PayableWhereInput = {
-      status: 'paga', inactiveAt: null,
-      ...(hasPaidPeriod ? {} : { paidAt: range(`${currentMonth}-01`, monthEnd(currentMonth)) }),
-    };
-    const [overdue, dueToday, dueWeek, later, paid, openAll] = await Promise.all([
+    const paidWhere: Prisma.Financial_PayableWhereInput = { status: 'paga', inactiveAt: null };
+    const [overdue, dueToday, dueWeek, later, paid, openAll, all, excluded] = await Promise.all([
       sum({ ...open, dueDate: windows.overdue }), sum({ ...open, dueDate: windows.dueToday }),
       sum({ ...open, dueDate: windows.dueWeek }), sum({ ...open, dueDate: windows.later }),
-      sum(paidWhere, 'paidValue'), sum(open),
+      sum(paidWhere, 'paidValue'), sum(open), sum({ inactiveAt: null }), sum({ inactiveAt: { not: null } }),
     ]);
-    return { overdue, dueToday, dueWeek, later, paid, open: openAll, paidPeriod: hasPaidPeriod ? 'filtro' : currentMonth };
+    return { overdue, dueToday, dueWeek, later, paid, open: openAll, all, excluded, paidPeriod: hasPaidPeriod ? 'filtro' : 'tudo' };
   }
 
   async exportPayables(companyId: number, query: Query) {
@@ -324,24 +320,20 @@ export class LedgerService {
       const result = await this.prisma.financialRecords.aggregate({ where: { AND: [base, where] }, _count: { _all: true }, _sum: { value: true } });
       return bucketOf(result._count._all, result._sum.value);
     };
-    // com qualquer recorte de data (vencimento, pagamento ou competência), o cartão segue o filtro;
-    // sem nenhum, mostra o que foi pago/recebido no mês atual
+    // os cartões seguem sempre o mesmo recorte da lista (filtros, busca e datas): sem filtro de data,
+    // pagas/recebidas são todas as da lista, não só as do mês
     const hasPaidPeriod = hasDateFilter(query);
-    const currentMonth = today.slice(0, 7);
-    const receivedWhere: Prisma.FinancialRecordsWhereInput = {
-      status: 'received', inactiveAt: null,
-      ...(hasPaidPeriod ? {} : { paidAt: range(`${currentMonth}-01`, monthEnd(currentMonth)) }),
-    };
+    const receivedWhere: Prisma.FinancialRecordsWhereInput = { status: 'received', inactiveAt: null };
     const receivedSum = async () => {
       const rows = await this.prisma.financialRecords.findMany({ where: { AND: [base, receivedWhere] }, select: { value: true, netValue: true, receivedValue: true } });
       return bucketOf(rows.length, rows.reduce((acc, r) => acc + Number(r.receivedValue ?? r.netValue ?? r.value ?? 0), 0));
     };
-    const [overdue, dueToday, dueWeek, later, received, lost, openAll] = await Promise.all([
+    const [overdue, dueToday, dueWeek, later, received, lost, openAll, all, excluded] = await Promise.all([
       sum({ ...open, dueDate: windows.overdue }), sum({ ...open, dueDate: windows.dueToday }),
       sum({ ...open, dueDate: windows.dueWeek }), sum({ ...open, OR: [{ dueDate: windows.later }, { dueDate: null }] }),
-      receivedSum(), sum({ status: { in: LOST_RECEIVABLE }, inactiveAt: null }), sum(open),
+      receivedSum(), sum({ status: { in: LOST_RECEIVABLE }, inactiveAt: null }), sum(open), sum({ inactiveAt: null }), sum({ inactiveAt: { not: null } }),
     ]);
-    return { overdue, dueToday, dueWeek, later, received, lost, open: openAll, paidPeriod: hasPaidPeriod ? 'filtro' : currentMonth };
+    return { overdue, dueToday, dueWeek, later, received, lost, open: openAll, all, excluded, paidPeriod: hasPaidPeriod ? 'filtro' : 'tudo' };
   }
 
   async exportReceivables(companyId: number, query: Query) {
