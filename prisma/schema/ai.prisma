@@ -26,6 +26,11 @@ model Ai_Bot {
   model        String  @db.VarChar(80)
   fallbackProvider String? @db.VarChar(20)
   fallbackModel String? @db.VarChar(80)
+  // modo econômico: consultas e conversa no modelo econômico; o principal
+  // decide quando for gravar (ferramenta draft/sensitive). Desligado por padrão.
+  economyProvider String? @db.VarChar(20)
+  economyModel    String? @db.VarChar(80)
+  economyMode     Boolean @default(false)
   // permissão exigida para conversar com o bot (usar_bot_<key>)
   permissionKey String @db.VarChar(80)
   // atalhos mostrados na conversa: [{ label, prompt }]
@@ -116,6 +121,11 @@ model Ai_Run {
   steps          Json            @default("[]")
   error          String?         @db.VarChar(1000)
   costUsd        Decimal         @default(0) @db.Decimal(12, 6)
+  // idas ao modelo por tier (modo econômico) e quantas foram escaladas para o principal
+  primarySteps   Int             @default(0)
+  economySteps   Int             @default(0)
+  escalations    Int             @default(0)
+  economyCostUsd Decimal         @default(0) @db.Decimal(12, 6)
   startedAt      DateTime        @default(now())
   endedAt        DateTime?
 
@@ -263,6 +273,31 @@ model Ai_Usage {
   updatedAt    DateTime @default(now()) @updatedAt
 
   @@unique([companyId, month, provider, model])
+}
+
+// Teto de gasto com IA por empresa (tela Configurar bots). A variável
+// AI_MONTHLY_BUDGET_USD, se existir, continua como limite superior.
+model Ai_Settings {
+  id               Int      @id @default(autoincrement())
+  companyId        Int      @unique
+  // teto mensal em dólar; vazio usa a variável do servidor (ou US$ 50)
+  monthlyBudgetUsd Decimal? @db.Decimal(10, 2)
+  // avisa uma vez por mês quando o gasto passa desta porcentagem do teto
+  warnPercent      Int      @default(80)
+  // ao estourar: parar | economico (todos os bots no modelo econômico até virar o mês)
+  onExceed         String   @default("parar") @db.VarChar(12)
+  economyProvider  String?  @db.VarChar(20)
+  economyModel     String?  @db.VarChar(80)
+  // precisão máxima: todos os bots sempre no modelo principal (o econômico de
+  // cada bot fica guardado). O teto com "economico" ainda vale: é proteção.
+  maxPrecision     Boolean  @default(false)
+  // teto por bot: { "<botId>": dólares }
+  botBudgets       Json?
+  // mês ("2026-11") em que o aviso já foi dado
+  warnedMonth      String?  @db.VarChar(7)
+  updatedByUserId  Int?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now()) @updatedAt
 }
 
 // OAuth do MCP: cliente registrado (Claude, ChatGPT…), pedido de autorização,

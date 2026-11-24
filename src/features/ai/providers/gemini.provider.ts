@@ -97,7 +97,10 @@ export class GeminiProvider implements ChatProvider {
         }
         const parts: Part[] = [];
         if (message.text) parts.push({ text: message.text });
-        for (const call of message.toolCalls ?? []) parts.push({ functionCall: { id: call.id, name: call.name, args: call.input } });
+        // chamada feita por outro modelo (econômico, principal ou reserva): sem a assinatura
+        // de raciocínio original, o Gemini 3+ recusa o histórico. A documentação manda usar
+        // esta assinatura neutra na primeira chamada de ferramenta de cada passo.
+        (message.toolCalls ?? []).forEach((call, index) => parts.push({ functionCall: { id: call.id, name: call.name, args: call.input }, ...(index === 0 ? { thoughtSignature: 'skip_thought_signature_validator' } : {}) }));
         if (parts.length) contents.push({ role: 'model', parts });
       } else {
         contents.push({

@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { Ai_Bot, Prisma } from '@prisma/client';
 import { AuthCacheService } from 'src/common/cache/auth-cache.service';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { PROVIDER_LABELS, ProviderRegistry } from '../providers/provider.registry';
+import { PROVIDER_LABELS, ProviderRegistry, isTestProvider } from '../providers/provider.registry';
 import { ToolCatalogService } from '../tools/tool-catalog.service';
 import { BOT_DEFAULTS, defaultModelFor } from './bot.defaults';
 import { personalityCatalog } from './personality';
@@ -95,7 +95,11 @@ export class BotService {
       ...base, instructions: bot.instructions, tools: names, permissionKey: bot.permissionKey, version: bot.version,
       // criado na tela (os padrão não têm "Excluir"; os criados não têm "Voltar ao padrão")
       custom: !BOT_DEFAULTS.some((item) => item.key === bot.key),
-      fallbackProvider: bot.fallbackProvider, fallbackModel: bot.fallbackModel, updatedAt: bot.updatedAt,
+      fallbackProvider: bot.fallbackProvider, fallbackModel: bot.fallbackModel,
+      economyProvider: bot.economyProvider, economyModel: bot.economyModel, economyMode: bot.economyMode,
+      // econômico escolhido mas o fornecedor dele está sem chave: o motor usa o principal
+      economyReady: !bot.economyProvider || !!this.providers.get(bot.economyProvider)?.available(),
+      updatedAt: bot.updatedAt,
     };
   }
 
@@ -136,10 +140,24 @@ export class BotService {
       const provider = clean(body[providerField], 20);
       const model = clean(body[field], 80);
       if (field === 'fallbackModel' && !provider && !model) { data.fallbackProvider = null; data.fallbackModel = null; continue; }
-      if (!PROVIDER_LABELS[provider] && !(provider === 'fake' && process.env.NODE_ENV === 'test')) throw new BadRequestException('Fornecedor de IA inválido');
+      if (!PROVIDER_LABELS[provider] && !isTestProvider(provider)) throw new BadRequestException('Fornecedor de IA inválido');
       if (model.length < 3) throw new BadRequestException('Informe o modelo');
       if (field === 'model') { data.provider = provider; data.model = model; versioned = true; } else { data.fallbackProvider = provider; data.fallbackModel = model; }
     }
+    // modo econômico (não gera versão: é só custo)
+    if ('economyProvider' in body || 'economyModel' in body) {
+      const provider = clean(body.economyProvider, 20);
+      const model = clean(body.economyModel, 80);
+      if (!provider && !model) { data.economyProvider = null; data.economyModel = null; } else {
+        if (!PROVIDER_LABELS[provider] && !isTestProvider(provider)) throw new BadRequestException('Fornecedor de IA inválido');
+        if (model.length < 3) throw new BadRequestException('Informe o modelo econômico');
+        data.economyProvider = provider; data.economyModel = model;
+      }
+    }
+    if ('economyMode' in body) data.economyMode = body.economyMode === true || body.economyMode === 'true';
+    const economyMode = data.economyMode ?? bot.economyMode;
+    const economyModel = data.economyModel !== undefined ? data.economyModel : bot.economyModel;
+    if (economyMode && !economyModel) throw new BadRequestException('Escolha o modelo econômico antes de ligar o modo econômico');
     const updated = await this.prisma.$transaction(async (tx) => {
       const row = await tx.ai_Bot.update({ where: { id: bot.id }, data: { ...data, ...(versioned ? { version: { increment: 1 } } : {}) } });
       if (versioned) {
@@ -166,7 +184,7 @@ export class BotService {
     if (unknown.length) throw new BadRequestException(`Ferramentas desconhecidas: ${unknown.join(', ')}`);
     const provider = clean(body.provider, 20) || 'gemini';
     const model = clean(body.model, 80);
-    if (!PROVIDER_LABELS[provider] && !(provider === 'fake' && process.env.NODE_ENV === 'test')) throw new BadRequestException('Fornecedor de IA inválido');
+    if (!PROVIDER_LABELS[provider] && !isTestProvider(provider)) throw new BadRequestException('Fornecedor de IA inválido');
     if (model.length < 3) throw new BadRequestException('Informe o modelo');
     await this.ensureDefaults(actor.companyId);
 
@@ -231,6 +249,21 @@ export class BotService {
       changed += 1;
     }
     return { changed, total: bots.length };
+  }
+
+  /**
+   * Economia em vários bots de uma vez: modelo econômico e/ou a chave do modo
+   * econômico. { botIds: number[], economyProvider?, economyModel?, economyMode? }
+   */
+  async applyEconomy(actor: BotActor, body: Record<string, unknown>) {
+    const ids = Array.isArray(body.botIds) ? [...new Set(body.botIds.map(Number).filter((id) => Number.isInteger(id) && id > 0))] : [];
+    if (!ids.length) throw new BadRequestException('Escolha os bots');
+    const patch: Record<string, unknown> = {};
+    for (const field of ['economyProvider', 'economyModel', 'economyMode']) if (field in body) patch[field] = body[field];
+    if (!Object.keys(patch).length) throw new BadRequestException('Nada para aplicar');
+    const bots = await this.prisma.ai_Bot.findMany({ where: { companyId: actor.companyId, inactiveAt: null, id: { in: ids } }, orderBy: { id: 'asc' } });
+    for (const bot of bots) await this.update(actor, bot.id, patch);
+    return { changed: bots.length };
   }
 
   async versions(actor: BotActor, botId: number) {

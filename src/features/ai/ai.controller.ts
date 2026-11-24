@@ -82,6 +82,21 @@ export class AiController {
   @Permissions('update_bots') @Put('bots/model')
   applyModel(@Req() req: Request, @Body() body: Json) { return this.bots.applyModelToAll(actorOf(req), body ?? {}); }
 
+  @Permissions('update_bots') @Put('bots/economy')
+  applyEconomy(@Req() req: Request, @Body() body: Json) { return this.bots.applyEconomy(actorOf(req), body ?? {}); }
+
+  /** Teto de gasto da empresa (valor, aviso %, ao estourar, modelo econômico, teto por bot) e o gasto do mês. */
+  @Permissions('update_bots') @Get('budget')
+  async budget(@Req() req: Request) { return this.withEconomyReady(await this.usage.budgetView(actorOf(req).companyId)); }
+
+  @Permissions('update_bots') @Put('budget')
+  async saveBudget(@Req() req: Request, @Body() body: Json) { const actor = actorOf(req); return this.withEconomyReady(await this.usage.saveBudget(actor.companyId, actor.userId, body ?? {})); }
+
+  /** O modelo econômico da empresa tem chave? (sem chave, estourar o teto com "econômico" para os bots) */
+  private withEconomyReady<T extends { economyProvider: string | null }>(view: T) {
+    return { ...view, economyReady: !view.economyProvider || !!this.providers.get(view.economyProvider)?.available() };
+  }
+
   @Permissions('update_bots') @Post('bots')
   createBot(@Req() req: Request, @Body() body: Json) { return this.bots.create(actorOf(req), body); }
 
@@ -200,6 +215,12 @@ export class AiController {
         tool: row.tool, title: this.catalog.get(row.tool)?.title ?? row.tool, status: row.status, input: row.input, outputSummary: row.outputSummary, durationMs: row.durationMs,
       })),
     };
+  }
+
+  /** Gasto do mês por bot (agendamentos, MCP e resumos em linhas próprias) e por modelo. */
+  @Permissions('view_auditoria_bots') @Get('usage/bots')
+  usageByBot(@Req() req: Request, @Query('month') month?: string) {
+    return this.usage.byBot(actorOf(req).companyId, /^\d{4}-\d{2}$/.test(month ?? '') ? month : undefined);
   }
 
   @Permissions('view_auditoria_bots') @Get('usage')

@@ -11,8 +11,9 @@ import { ChatImage, ChatMessage, ChatResponse, ChatToolResult } from '../provide
 import { ToolCatalogService } from '../tools/tool-catalog.service';
 import { TeamPort, ToolDeps } from '../tools/tool.deps';
 import { ToolContext, ToolRefusal } from '../tools/tool.types';
+import { ToolOutcome } from '../tools/tool-catalog.service';
 import { TEAM_TOOL_NAMES } from '../tools/team.tools';
-import { UsageService } from './usage.service';
+import { ModelTarget, UsageService } from './usage.service';
 import { MemoryService } from '../memory/memory.service';
 import { MEMORY_TOOL_NAMES } from '../tools/memory.tools';
 
@@ -38,6 +39,13 @@ const PDF_TYPE = 'application/pdf';
 const PDF_MAX = 10 * 1024 * 1024;
 
 const nowBr = () => new Date(Date.now() - 3 * 3600 * 1000);
+
+/** JSON com as chaves em ordem (para reconhecer a mesma consulta com argumentos em outra ordem). */
+const stableJson = (value: unknown): string => {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') return `{${Object.keys(value as object).sort().map((key) => `${JSON.stringify(key)}:${stableJson((value as Record<string, unknown>)[key])}`).join(',')}}`;
+  return JSON.stringify(value ?? null);
+};
 
 export const botsEnabled = () => process.env.AI_BOTS_ENABLED !== 'false';
 
@@ -310,7 +318,7 @@ export class AgentService implements TeamPort {
       throw new BadRequestException(`${bot.persona ?? bot.name} usa um modelo que não lê PDF. Troque o fornecedor dele para Gemini ou Claude em Configurar bots, ou mande o extrato em OFX`);
     }
     if (!provider?.available()) throw new ServiceUnavailableException(`O bot ${bot.name} usa ${bot.provider}, que ainda não tem chave configurada. Peça ao administrador para configurar.`);
-    if (await this.usage.overBudget(actor.companyId)) throw new ForbiddenException('O teto mensal de gasto com IA foi atingido. Peça ao administrador para aumentar o teto.');
+    if (await this.usage.overBudget(actor.companyId, bot.id)) throw new ForbiddenException('O teto mensal de gasto com IA foi atingido. Peça ao administrador para aumentar o teto.');
     const running = await this.prisma.ai_Run.findFirst({ where: { conversationId, status: 'running' }, select: { id: true } });
     if (running) throw new ConflictException('O bot ainda está respondendo a mensagem anterior');
 
@@ -351,6 +359,9 @@ export class AgentService implements TeamPort {
     const steps: RunStep[] = [];
     const saveSteps = () => this.prisma.ai_Run.update({ where: { id: ctx.runId }, data: { steps: steps as unknown as Prisma.InputJsonValue } });
     let cost = 0;
+    // modo econômico: quantas idas em cada modelo, quanto custou o econômico e quantas escaladas
+    const tally = { primarySteps: 0, economySteps: 0, escalations: 0, economyCost: 0 };
+    const runTotals = () => ({ costUsd: cost, primarySteps: tally.primarySteps, economySteps: tally.economySteps, escalations: tally.escalations, economyCostUsd: tally.economyCost });
     try {
       const tools = this.catalog.visible((bot.tools as string[]) ?? [], ctx.permissions);
       const allowedNames = tools.map((tool) => tool.name);
@@ -361,19 +372,50 @@ export class AgentService implements TeamPort {
         canRemember: allowedNames.some((name) => MEMORY_TOOL_NAMES.includes(name)),
       });
       const history = await this.history(ctx.conversationId, conversation?.summaryUntilId ?? 0);
+      const primary: ModelTarget = { provider: bot.provider, model: bot.model };
+      // precisão máxima (empresa): ignora o econômico dos bots; o teto com "econômico" ainda vale
+      const maxPrecision = !!(await this.usage.settingsOf(ctx.companyId))?.maxPrecision;
+      // consulta repetida igual no mesmo pedido: devolve o resultado guardado (zera quando algo é gravado)
+      const memo = new Map<string, ToolOutcome>();
+      // recusa/erro/negado de ferramenta seguidos: a partir de 2, o resto do pedido vai no principal
+      let failStreak = 0;
+      let stayOnPrimary = false;
 
       for (let turn = 0; turn < maxTurns; turn++) {
         const current = await this.prisma.ai_Run.findUnique({ where: { id: ctx.runId }, select: { status: true } });
         if (current?.status !== 'running') return; // a pessoa parou
-        if (turn > 0 && (await this.usage.overBudget(ctx.companyId))) {
-          await this.notice(ctx, 'Parei aqui: o teto mensal de gasto com IA foi atingido.');
+        const budget = await this.usage.state(ctx.companyId, ctx.botId);
+        if (budget.mode === 'stop') {
+          await this.notice(ctx, `Parei aqui: ${(budget.reason ?? 'O teto mensal de gasto com IA foi atingido.').replace(/^O/, 'o')}`);
           break;
         }
+        // estourou o teto com "passar para o econômico": tudo no modelo econômico da empresa, sem escalar
+        const forced = budget.mode === 'economy' ? budget.economy : null;
+        if (forced && !this.providers.get(forced.provider)?.available()) {
+          // estourou e o econômico da empresa está sem chave: para (não gasta no principal)
+          await this.notice(ctx, 'Parei aqui: o teto mensal de gasto com IA foi atingido e o modelo econômico da empresa está sem chave.');
+          break;
+        }
+        const economy = forced ?? (stayOnPrimary || maxPrecision ? null : this.economyOf(bot));
+        const request = { system, messages: history, tools: definitions };
+        const charge = async (out: { response: ChatResponse; provider: string; model: string }, tier: 'primary' | 'economy') => {
+          const callCost = this.providers.cost(out.provider, out.model, out.response.usage);
+          cost += callCost;
+          if (tier === 'economy') { tally.economySteps += 1; tally.economyCost += callCost; } else tally.primarySteps += 1;
+          await this.usage.record(ctx.companyId, out.provider, out.model, out.response.usage, callCost);
+          return callCost;
+        };
 
-        const { response, provider, model } = await this.callModel(bot, { model: bot.model, system, messages: history, tools: definitions });
-        const callCost = this.providers.cost(provider, model, response.usage);
-        cost += callCost;
-        await this.usage.record(ctx.companyId, provider, model, response.usage, callCost);
+        let out = await this.callModel(bot, request, economy ?? primary);
+        let callCost = await charge(out, economy ? 'economy' : 'primary');
+        // escalada: o econômico quis gravar (draft) ou mexer em algo sensível. Descarta
+        // essa resposta e refaz o mesmo passo no principal, que decide e chama a ferramenta.
+        if (economy && !forced && out.response.toolCalls.some((call) => this.writes(call.name))) {
+          tally.escalations += 1;
+          out = await this.callModel(bot, request, primary);
+          callCost = await charge(out, 'primary');
+        }
+        const { response, provider, model } = out;
         const assistant: ChatMessage = { role: 'assistant', text: response.text || undefined, toolCalls: response.toolCalls.length ? response.toolCalls : undefined, raw: response.raw === undefined ? undefined : { provider, model, content: response.raw } };
         history.push(assistant);
         await this.prisma.ai_Message.create({
@@ -383,6 +425,8 @@ export class AgentService implements TeamPort {
             content: { text: response.text, toolCalls: response.toolCalls, raw: assistant.raw } as unknown as Prisma.InputJsonValue,
           },
         });
+        // custo parcial na execução (o teto por bot soma as execuções)
+        await this.prisma.ai_Run.update({ where: { id: ctx.runId }, data: runTotals() });
 
         if (!response.toolCalls.length) {
           if (response.stopReason === 'refusal' && !response.text) await this.notice(ctx, 'O modelo se recusou a responder este pedido.');
@@ -396,7 +440,14 @@ export class AgentService implements TeamPort {
           const step: RunStep = { at: new Date().toISOString(), kind: 'tool', label: (tool?.label ? tool.label(call.input ?? {}) : tool?.title) ?? call.name, tool: call.name, status: 'running' };
           steps.push(step);
           await saveSteps();
-          const outcome = await this.catalog.call(ctx, call.name, call.input, allowedNames);
+          const key = tool?.risk === 'read' && allowedNames.includes(call.name) ? `${call.name}:${stableJson(call.input ?? {})}` : null;
+          const cached = key ? memo.get(key) : undefined;
+          const outcome = cached ?? (await this.catalog.call(ctx, call.name, call.input, allowedNames));
+          if (key && !cached && outcome.status === 'ok') memo.set(key, outcome);
+          // gravou algo: as consultas guardadas podem ter mudado
+          if (!key && (outcome.status === 'ok' || outcome.status === 'pending')) memo.clear();
+          failStreak = ['refused', 'error', 'denied'].includes(outcome.status) ? failStreak + 1 : 0;
+          if (failStreak >= 2) stayOnPrimary = true;
           step.status = outcome.status;
           if (outcome.pendingActionId) step.pendingActionId = outcome.pendingActionId;
           await saveSteps();
@@ -406,7 +457,9 @@ export class AgentService implements TeamPort {
         await this.prisma.ai_Message.create({ data: { conversationId: ctx.conversationId, runId: ctx.runId, role: 'tool', content: { results } as unknown as Prisma.InputJsonValue } });
         if (turn === maxTurns - 1) await this.notice(ctx, 'Parei por segurança: foram passos demais nesta resposta. Peça em partes menores.');
       }
-      await this.prisma.ai_Run.updateMany({ where: { id: ctx.runId, status: 'running' }, data: { status: 'done', endedAt: new Date(), costUsd: cost, steps: steps as unknown as Prisma.InputJsonValue } });
+      await this.prisma.ai_Run.updateMany({ where: { id: ctx.runId, status: 'running' }, data: { status: 'done', endedAt: new Date(), ...runTotals(), steps: steps as unknown as Prisma.InputJsonValue } });
+      // parada pela pessoa no meio: guarda o custo mesmo assim
+      await this.prisma.ai_Run.updateMany({ where: { id: ctx.runId, status: { not: 'done' } }, data: runTotals() });
     } catch (error) {
       console.error('[ai] falha na execução', error);
       const done = steps.filter((step) => step.status === 'ok' || step.status === 'pending').length;
@@ -414,12 +467,31 @@ export class AgentService implements TeamPort {
         ? `Fiz os passos acima, mas não consegui escrever a resposta final: ${this.friendly(error).charAt(0).toLowerCase()}${this.friendly(error).slice(1)}`
         : this.friendly(error);
       await this.notice(ctx, message).catch(() => undefined);
-      await this.prisma.ai_Run.update({ where: { id: ctx.runId }, data: { status: 'error', error: message.slice(0, 1000), endedAt: new Date(), costUsd: cost, steps: steps as unknown as Prisma.InputJsonValue } });
+      await this.prisma.ai_Run.update({ where: { id: ctx.runId }, data: { status: 'error', error: message.slice(0, 1000), endedAt: new Date(), ...runTotals(), steps: steps as unknown as Prisma.InputJsonValue } });
     } finally {
       await this.prisma.ai_Conversation.update({ where: { id: ctx.conversationId }, data: { lastMessageAt: new Date() } }).catch(() => undefined);
     }
     // depois da resposta (não atrasa a pessoa): resume a conversa se ela cresceu
     await this.summarize(ctx, bot).catch((error) => console.error('[ai] resumo da conversa falhou', error));
+  }
+
+  /**
+   * O modelo econômico do bot, se o modo estiver ligado e o fornecedor tiver
+   * chave (sem chave, usa o principal; a tela avisa). Pode ser de outro
+   * fornecedor: a conversa é guardada no formato neutro e cada adaptador
+   * converte; o "raw" de um fornecedor só volta para ele mesmo (rawFor).
+   */
+  private economyOf(bot: Ai_Bot): ModelTarget | null {
+    if (!bot.economyMode || !bot.economyProvider || !bot.economyModel) return null;
+    if (bot.economyProvider === bot.provider && bot.economyModel === bot.model) return null;
+    if (!this.providers.get(bot.economyProvider)?.available()) return null;
+    return { provider: bot.economyProvider, model: bot.economyModel };
+  }
+
+  /** Ferramenta que grava (draft) ou é sensível: quem decide é o modelo principal. */
+  private writes(name: string): boolean {
+    const risk = this.catalog.get(name)?.risk;
+    return risk === 'draft' || risk === 'sensitive';
   }
 
   // ---------------------------------------------------------------- resumo rolante
@@ -455,11 +527,12 @@ export class AgentService implements TeamPort {
         conversation.summary ? `Resumo anterior da conversa:\n${conversation.summary}` : '',
         `Mensagens a incluir no resumo:\n${transcript}`,
       ].filter(Boolean).join('\n\n');
+      // resumo é leitura: vai no econômico quando o modo está ligado
       const { response, provider, model } = await this.callModel(bot, {
-        model: bot.model, tools: [],
+        tools: [],
         system: 'Você resume conversas entre uma pessoa e um assistente interno de uma empresa, para o assistente continuar a conversa sem reler tudo. Escreva em português do Brasil, em tópicos curtos: o que a pessoa pediu, o que foi feito (com números, nomes, datas e códigos que importam), decisões, preferências que ela disse e o que ficou pendente. Junte o resumo anterior com as mensagens novas num resumo só. Não invente nada e não inclua cumprimentos. Máximo de 3000 caracteres.',
         messages: [{ role: 'user', text: prompt }],
-      });
+      }, (await this.usage.settingsOf(ctx.companyId))?.maxPrecision ? undefined : this.economyOf(bot) ?? undefined);
       const callCost = this.providers.cost(provider, model, response.usage);
       await this.usage.record(ctx.companyId, provider, model, response.usage, callCost);
       const summary = String(response.text ?? '').trim().slice(0, SUMMARY_MAX);
@@ -492,16 +565,19 @@ export class AgentService implements TeamPort {
     return lines.join('\n').slice(-40000);
   }
 
-  /** Chama o modelo do bot; se ele falhar e houver reserva configurada, tenta a reserva. */
-  private async callModel(bot: Ai_Bot, request: { model: string; system: string; messages: ChatMessage[]; tools: ReturnType<ToolCatalogService['definitions']> }): Promise<{ response: ChatResponse; provider: string; model: string }> {
-    const primary = this.providers.get(bot.provider);
+  /**
+   * Chama o modelo (o principal do bot, ou o alvo pedido: o econômico); se ele
+   * falhar e houver reserva configurada, tenta a reserva.
+   */
+  private async callModel(bot: Ai_Bot, request: { system: string; messages: ChatMessage[]; tools: ReturnType<ToolCatalogService['definitions']> }, target: ModelTarget = { provider: bot.provider, model: bot.model }): Promise<{ response: ChatResponse; provider: string; model: string }> {
+    const chosen = this.providers.get(target.provider);
     try {
-      if (!primary?.available()) throw new Error(`Fornecedor ${bot.provider} sem chave`);
-      return { response: await this.withRetry(() => primary.chat({ ...request, model: bot.model })), provider: bot.provider, model: bot.model };
+      if (!chosen?.available()) throw new Error(`Fornecedor ${target.provider} sem chave`);
+      return { response: await this.withRetry(() => chosen.chat({ ...request, model: target.model })), provider: target.provider, model: target.model };
     } catch (error) {
       const fallback = bot.fallbackProvider ? this.providers.get(bot.fallbackProvider) : undefined;
       if (!fallback?.available() || !bot.fallbackModel) throw error;
-      console.warn(`[ai] ${bot.provider}/${bot.model} falhou; usando a reserva ${bot.fallbackProvider}/${bot.fallbackModel}`, (error as Error)?.message);
+      console.warn(`[ai] ${target.provider}/${target.model} falhou; usando a reserva ${bot.fallbackProvider}/${bot.fallbackModel}`, (error as Error)?.message);
       return { response: await fallback.chat({ ...request, model: bot.fallbackModel }), provider: bot.fallbackProvider!, model: bot.fallbackModel };
     }
   }
@@ -553,6 +629,7 @@ export class AgentService implements TeamPort {
     ]);
     const colleagues = team.filter((item) => item.id !== bot.id);
     const now = nowBr();
+    const hh = now.toISOString().slice(11, 13);
     const weekday = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'][now.getUTCDay()];
     return [
       BASE_RULES,
@@ -562,9 +639,12 @@ export class AgentService implements TeamPort {
       `\n## O que você consegue fazer para esta pessoa\n${capabilities.length ? capabilities.map((item) => `- ${item}`).join('\n') : '- Nenhuma ferramenta liberada para esta pessoa: só converse e oriente.'}`,
       ...(colleagues.length ? [`\n## Sua equipe\nColegas que esta pessoa pode usar (área: nome, cargo — o que faz):\n${colleagues.map((item) => `- ${item.key}: ${item.persona}, ${item.role} — ${item.description}`).join('\n')}\n- Precisa de um dado da área de um colega para responder? Use pedir_ao_colega (ele só consulta). A pessoa quer fazer algo que é da área de outro? Use passar_para_colega com um resumo completo. Não faça os dois para a mesma coisa e não peça ao colega o que você mesmo consegue consultar.`] : []),
       ctx.delegated ? `\n## Pedido de um colega\nQuem pede agora é outro assistente da equipe, ajudando a mesma pessoa. Responda só o que foi pedido, com números e nomes, sem cumprimentos. Você só consulta: não crie nem altere nada.` : '',
-      `\n## Contexto\n- Empresa: ${company?.comercial_name ?? '—'}\n- Pessoa: ${user?.name ?? '—'}\n- Hoje: ${weekday}, ${now.toISOString().slice(0, 10)}, ${now.toISOString().slice(11, 16)} (horário de Brasília)`,
+      `\n## Contexto\n- Empresa: ${company?.comercial_name ?? '—'}\n- Pessoa: ${user?.name ?? '—'}`,
       this.memory.promptSection(memories, user?.name ?? 'a pessoa', !!extra.canRemember && !ctx.delegated),
       extra.summary ? `\n## Resumo do começo desta conversa\nAs mensagens mais antigas desta conversa foram resumidas abaixo; as recentes vêm a seguir, inteiras.\n${extra.summary}` : '',
+      // por último e só com a hora cheia: o começo do prompt (regras, instruções e
+      // ferramentas) fica igual entre as chamadas e o Gemini aproveita o cache implícito
+      `\n## Agora\n- Hoje: ${weekday}, ${now.toISOString().slice(0, 10)}, entre ${hh}:00 e ${hh}:59 (horário de Brasília)`,
     ].filter(Boolean).join('\n');
   }
 

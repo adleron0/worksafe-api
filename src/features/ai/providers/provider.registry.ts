@@ -23,13 +23,15 @@ export interface CatalogModel {
 
 /**
  * Modelos oferecidos na tela, do recomendado para os demais. Preços em dólar
- * por milhão de tokens, conferidos nas páginas dos fornecedores em 19/11/2026.
+ * por milhão de tokens, conferidos nas páginas dos fornecedores em 19/11/2026 (Gemini revisto em
+ * 24/11/2026: 3.1 Flash-Lite e a mudança do 3.8 Flash em 1º/jan/2027).
  */
 export const MODEL_CATALOG: CatalogModel[] = [
   { id: 'gemini-4-hydrogen', provider: 'gemini', label: 'Gemini 4 Hydrogen', recommended: true, note: 'Melhor custo-benefício: bom com ferramentas e tarefas de várias etapas, rápido.', price: { input: 1.5, output: 7.5, cached: 0.075 } },
   { id: 'gemini-4-neon', provider: 'gemini', label: 'Gemini 4 Neon', note: 'Mais caprichado em tarefas longas e difíceis; custa o dobro do Hydrogen.', price: { input: 3, output: 15, cached: 0.15 } },
-  { id: 'gemini-3.8-flash', provider: 'gemini', label: 'Gemini 3.8 Flash', note: 'Geração anterior; erra mais com ferramentas. Dobra de preço em 1º/jan/2027.', price: { input: 0.75, output: 3.75, cached: 0.075 }, next: { from: '2027-01-01', price: { input: 1.5, output: 7.5, cached: 0.15 } } },
-  { id: 'gemini-3.5-flash-lite', provider: 'gemini', label: 'Gemini 3.5 Flash-Lite', note: 'O mais barato do Google; só para perguntas simples.', price: { input: 0.3, output: 2.5, cached: 0.03 } },
+  { id: 'gemini-3.8-flash', provider: 'gemini', label: 'Gemini 3.8 Flash', note: 'Geração anterior; erra mais com ferramentas. ATENÇÃO: dobra de preço em 1º/jan/2027 e passa a custar o mesmo que o Hydrogen (US$ 1,50 / 7,50) — aí não compensa mais.', price: { input: 0.75, output: 3.75, cached: 0.075 }, next: { from: '2027-01-01', price: { input: 1.5, output: 7.5, cached: 0.15 } } },
+  { id: 'gemini-3.1-flash-lite', provider: 'gemini', label: 'Gemini 3.1 Flash-Lite', note: 'Bom só para consulta, conversa e leitura (inclusive PDF); bom como modelo econômico. Para gravar no sistema, deixe o principal decidir.', price: { input: 0.25, output: 1.5, cached: 0.025 } },
+  { id: 'gemini-3.5-flash-lite', provider: 'gemini', label: 'Gemini 3.5 Flash-Lite', note: 'Flash-Lite mais novo, um pouco mais caro que o 3.1; só para consulta, conversa e leitura.', price: { input: 0.3, output: 2.5, cached: 0.03 } },
   { id: 'gemini-4-carbon', provider: 'gemini', label: 'Gemini 4 Carbon', note: 'Para problemas muito pesados; exagero para os bots. Dobra de preço em 1º/dez/2026.', price: { input: 2, output: 10, cached: 0.1 }, next: { from: '2026-12-01', price: { input: 4, output: 20, cached: 0.2 } } },
   { id: 'claude-haiku-5-5', provider: 'anthropic', label: 'Claude Haiku 5.5', note: 'Muito barato e rápido; precisa da chave da Anthropic.', price: { input: 0.1, output: 0.5, cached: 0.01 } },
   { id: 'claude-sonnet-5-5', provider: 'anthropic', label: 'Claude Sonnet 5.5', note: 'Forte e cuidadoso; precisa da chave da Anthropic.', price: { input: 2, output: 10, cached: 0.1 } },
@@ -80,7 +82,11 @@ const PROVIDER_DEFAULT_PRICE: Record<string, ModelPrice> = {
   groq: { input: 0.6, output: 0.8, cached: 0.6 },
   deepseek: { input: 0.6, output: 2, cached: 0.1 },
   fake: MODEL_PRICES.fake,
+  fake2: MODEL_PRICES.fake,
 };
+
+/** Fornecedores simulados, aceitos só na suíte de testes. */
+export const isTestProvider = (provider: string) => (provider === 'fake' || provider === 'fake2') && process.env.NODE_ENV === 'test';
 
 /** Modelos padrão: "rápido" para consultas, "forte" para ações com várias etapas. */
 export const DEFAULT_MODELS = {
@@ -115,6 +121,8 @@ export class ProviderRegistry {
       // DeepSeek só por um provedor fora da China (decisão de LGPD): a URL é obrigatória
       new OpenAICompatProvider({ id: 'deepseek', keyEnv: 'DEEPSEEK_API_KEY', baseURL: process.env.DEEPSEEK_BASE_URL || 'https://invalid.local' }, keyOf),
       new FakeProvider(),
+      // segundo fornecedor simulado: testa principal e econômico em fornecedores diferentes
+      new FakeProvider('fake2'),
     ];
     for (const provider of all) this.providers.set(provider.id, provider);
   }
