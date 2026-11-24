@@ -356,70 +356,58 @@ export class TraineeCertificateService {
    * @param certificateKey - Chave do certificado
    * @returns Mensagem de sucesso ou erro
    */
-  async sendCertificateByEmail(traineeId: number, certificateKey: string) {
+  async sendCertificateByEmail(
+    traineeId: number,
+    certificateKey: string,
+    companyId: number,
+  ) {
     console.log(
       `[CERTIFICATE EMAIL] Iniciando envio de certificado para trainee ID: ${traineeId}, Key: ${certificateKey}`,
     );
 
     try {
-      // Buscar dados do trainee
-      console.log(
-        `[CERTIFICATE EMAIL] Buscando dados do trainee ID: ${traineeId}`,
-      );
-      const trainee = await this.prisma.selectFirst('trainee', {
-        where: { id: traineeId },
-        include: {
-          subscription: {
-            include: {
-              class: {
-                include: {
-                  course: true,
-                },
-              },
-            },
+      // Parte do certificado: o aluno é multiempresa e pode ter vários cursos,
+      // então empresa (config de e-mail, nome, identidade) e curso vêm da
+      // turma deste certificado — nunca do aluno nem da primeira inscrição.
+      const certificate = await this.prisma.selectFirst(
+        'traineeCourseCertificate',
+        {
+          where: { key: certificateKey, traineeId, inactiveAt: null },
+          include: {
+            trainee: true,
+            course: true,
+            class: { include: { course: true, company: true } },
           },
         },
-      });
+      );
 
-      if (!trainee) {
-        console.error(
-          `[CERTIFICATE EMAIL] Erro: Trainee ${traineeId} não encontrado`,
+      if (!certificate) {
+        throw new HttpException(
+          'Certificado não encontrado (ou cancelado) para este aluno',
+          HttpStatus.NOT_FOUND,
         );
-        throw new HttpException('Aluno não encontrado', HttpStatus.NOT_FOUND);
       }
-      console.log(`[CERTIFICATE EMAIL] Trainee encontrado: ${trainee.name}`);
 
-      if (!trainee.email) {
-        console.error(
-          `[CERTIFICATE EMAIL] Erro: Trainee ${trainee.name} não possui email cadastrado`,
+      const company = certificate.class?.company;
+      if (!company) {
+        throw new HttpException('Empresa não encontrada', HttpStatus.NOT_FOUND);
+      }
+      if (!companyId || company.id !== Number(companyId)) {
+        throw new HttpException(
+          'Este certificado é de uma turma de outra empresa: não dá para reenviar por aqui',
+          HttpStatus.FORBIDDEN,
         );
+      }
+
+      const trainee = certificate.trainee;
+      if (!trainee?.email) {
         throw new HttpException(
           'Aluno não possui email cadastrado',
           HttpStatus.BAD_REQUEST,
         );
       }
-      console.log(`[CERTIFICATE EMAIL] Email do trainee: ${trainee.email}`);
-
-      // Buscar dados da empresa
       console.log(
-        `[CERTIFICATE EMAIL] Buscando dados da empresa ID: ${trainee.companyId}`,
-      );
-      const company = await this.prisma.selectFirst('company', {
-        where: { id: trainee.companyId },
-      });
-
-      if (!company) {
-        console.error(
-          `[CERTIFICATE EMAIL] Erro: Empresa ${trainee.companyId} não encontrada`,
-        );
-        throw new HttpException('Empresa não encontrada', HttpStatus.NOT_FOUND);
-      }
-      console.log(`[CERTIFICATE EMAIL] Empresa encontrada:`, company);
-      console.log(
-        `[CERTIFICATE EMAIL] Nome comercial: ${company.comercial_name || 'NÃO ENCONTRADO'}`,
-      );
-      console.log(
-        `[CERTIFICATE EMAIL] Razão social: ${company.corporate_name || 'NÃO ENCONTRADO'}`,
+        `[CERTIFICATE EMAIL] Certificado ${certificate.id} da turma ${certificate.classId} (empresa ${company.id}) para ${trainee.email}`,
       );
 
       // Verificar se a empresa tem configuração de email
@@ -508,7 +496,7 @@ export class TraineeCertificateService {
         `[CERTIFICATE EMAIL] Preparando dados para o template de email`,
       );
       const courseName =
-        trainee.subscription?.[0]?.class?.course?.name || 'Curso';
+        certificate.class?.course?.name || certificate.course?.name || 'Curso';
       const certificateDate = new Date().toLocaleDateString('pt-BR', {
         day: '2-digit',
         month: 'long',

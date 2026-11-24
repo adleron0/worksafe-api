@@ -207,10 +207,14 @@ export class TraineeCertificateCustomController {
       transform: true,
     }),
   )
-  async sendCertificateByEmail(@Body() dto: SendCertificateEmailDto) {
+  async sendCertificateByEmail(
+    @Body() dto: SendCertificateEmailDto,
+    @Req() request: Request,
+  ) {
     return this.Service.sendCertificateByEmail(
       dto.traineeId,
       dto.certificateKey,
+      Number(request.user?.companyId),
     );
   }
 }
