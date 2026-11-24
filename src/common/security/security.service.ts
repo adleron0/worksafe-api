@@ -1,3 +1,4 @@
+import { clientIpOf } from './client-ip';
 import { Injectable } from '@nestjs/common';
 import { Request } from 'express';
 import {
@@ -319,18 +320,7 @@ export class SecurityService {
    * Obtém o IP real do cliente
    */
   private getClientIp(request: Request): string {
-    // Tenta obter o IP real considerando proxies
-    const forwarded = request.headers['x-forwarded-for'];
-    if (forwarded) {
-      return (forwarded as string).split(',')[0].trim();
-    }
-
-    const realIp = request.headers['x-real-ip'];
-    if (realIp) {
-      return realIp as string;
-    }
-
-    return request.ip || request.socket.remoteAddress || 'unknown';
+    return clientIpOf(request);
   }
 
   /**

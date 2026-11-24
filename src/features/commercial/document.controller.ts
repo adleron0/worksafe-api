@@ -1,3 +1,4 @@
+import { clientIpOf } from 'src/common/security/client-ip';
 import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
@@ -10,9 +11,7 @@ type Json = Record<string, unknown>;
 
 /** De onde veio o pedido (atrás do proxy), para a trilha de evidências do aceite. */
 const metaOf = (req: Request) => {
-  const forwarded = req.headers['x-forwarded-for'];
-  const first = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  const ip = (first ? String(first).split(',')[0].trim() : (req.headers['x-real-ip'] as string) || req.ip || '') || null;
+  const ip = clientIpOf(req) || null;
   return { ip: ip ? ip.slice(0, 64) : null, userAgent: String(req.headers['user-agent'] ?? '').slice(0, 400) || null };
 };
 

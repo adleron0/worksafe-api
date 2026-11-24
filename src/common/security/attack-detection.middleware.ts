@@ -1,3 +1,4 @@
+import { clientIpOf } from './client-ip';
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { SecurityService } from './security.service';
@@ -13,7 +14,7 @@ export class AttackDetectionMiddleware implements NestMiddleware {
     if (!allowed) {
       // Log detalhado do bloqueio
       console.error(`🚫 REQUISIÇÃO BLOQUEADA:`, {
-        ip: req.ip,
+        ip: clientIpOf(req),
         url: req.url,
         method: req.method,
         reason,

@@ -1,3 +1,4 @@
+import { clientIpOf } from './client-ip';
 import {
   Injectable,
   ExecutionContext,
@@ -33,20 +34,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
    */
   protected async getTracker(req: Request): Promise<string> {
     // Pega o IP real considerando proxies (X-Forwarded-For, X-Real-IP, etc)
-    const forwardedFor = req.headers['x-forwarded-for'];
-    const realIp = req.headers['x-real-ip'];
-
-    let clientIp: string;
-
-    if (forwardedFor) {
-      // X-Forwarded-For pode conter múltiplos IPs, pega o primeiro
-      clientIp = (forwardedFor as string).split(',')[0].trim();
-    } else if (realIp) {
-      clientIp = realIp as string;
-    } else {
-      // Fallback para o IP direto da conexão
-      clientIp = req.ip || req.socket.remoteAddress || 'unknown';
-    }
+    const clientIp = clientIpOf(req);
 
     // Opcional: Combinar com user ID para rate limit por usuário + IP
     // const userId = req.user?.id;

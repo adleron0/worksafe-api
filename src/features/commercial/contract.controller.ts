@@ -1,3 +1,4 @@
+import { clientIpOf } from 'src/common/security/client-ip';
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { getDocumentMulterOptions } from 'src/features/upload/upload.middleware';
@@ -181,9 +182,7 @@ export class PublicMeasurementController {
 
   @Public() @Throttle({ default: { limit: 10, ttl: 60000 } }) @Post(':key/decision')
   decide(@Param('key') key: string, @Req() req: Request, @Body() body: Json) {
-    const forwarded = req.headers['x-forwarded-for'];
-    const first = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-    const ip = (first ? String(first).split(',')[0].trim() : (req.headers['x-real-ip'] as string) || req.ip || '') || null;
+    const ip = clientIpOf(req) || null;
     return this.works.decide(key, body ?? {}, { ip: ip ? ip.slice(0, 64) : null, userAgent: String(req.headers['user-agent'] ?? '').slice(0, 400) || null });
   }
 }

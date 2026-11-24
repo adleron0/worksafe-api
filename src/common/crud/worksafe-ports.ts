@@ -1,3 +1,4 @@
+import { clientIpOf } from 'src/common/security/client-ip';
 import {
   Actor,
   ActorProvider,
@@ -53,7 +54,7 @@ export const worksafeActor: ActorProvider<Request> = {
       id: String(request.user.sub),
       scopeId: request.user.companyId,
       permissions: extractUserPermissions(request.user),
-      ...(request.ip ? { ip: request.ip } : {}),
+      ...(request ? { ip: clientIpOf(request) } : {}),
     };
   },
 };
