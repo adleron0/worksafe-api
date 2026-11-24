@@ -146,6 +146,30 @@ describe('Financeiro — filtros, lote, recorrência, relatórios e conciliaçã
       expect(received.total).toBe(2);
       expect(received.summary.received.total).toBe(1221);
     });
+
+    it('cartão de recebidas/pagas segue o filtro de data (não fica preso ao mês atual)', async () => {
+      const { company, customer, bank } = await cenario();
+      const t = today();
+      const prev = new Date(Date.UTC(Number(t.slice(0, 4)), Number(t.slice(5, 7)) - 2, 15)).toISOString().slice(0, 10);
+      const [from, to] = [`${prev.slice(0, 7)}-01`, new Date(Date.UTC(Number(prev.slice(0, 4)), Number(prev.slice(5, 7)), 0)).toISOString().slice(0, 10)];
+      const r = await receivable(company.id, { customerId: customer.id, value: 250, dueDate: prev });
+      await api().patch(`/financial-records/settle/${r.id}`).set(auth(company.id)).send({ paidAt: prev, bankAccountId: bank.id }).expect(200);
+      const p = await payable(company.id, { value: 90, dueDate: prev });
+      await api().patch(`/financial-payables/settle/${p.id}`).set(auth(company.id)).send({ paidAt: prev, bankAccountId: bank.id }).expect(200);
+
+      // sem filtro de data: mês atual (o recebido no mês passado não entra)
+      const plain = (await api().get('/financial/receivables').set(auth(company.id)).expect(200)).body;
+      expect(plain.summary.received).toEqual({ count: 0, total: 0 });
+      expect(plain.summary.paidPeriod).toBe(t.slice(0, 7));
+      // vencimento no mês passado: o cartão mostra o que foi recebido nesse recorte
+      const byDue = (await api().get('/financial/receivables').query({ dueFrom: from, dueTo: to }).set(auth(company.id)).expect(200)).body;
+      expect(byDue.summary.received).toEqual({ count: 1, total: 250 });
+      expect(byDue.summary.paidPeriod).toBe('filtro');
+      const byAccrual = (await api().get('/financial/receivables').query({ accrualFrom: prev.slice(0, 7), accrualTo: prev.slice(0, 7) }).set(auth(company.id)).expect(200)).body;
+      expect(byAccrual.summary.received.total).toBe(250);
+      const payDue = (await api().get('/financial/payables').query({ dueFrom: from, dueTo: to }).set(auth(company.id)).expect(200)).body;
+      expect(payDue.summary.paid).toEqual({ count: 1, total: 90 });
+    });
   });
 
   it('altera esta e as próximas parcelas, sem mexer na paga', async () => {

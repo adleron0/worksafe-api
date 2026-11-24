@@ -22,6 +22,9 @@ const STATUS_LABEL: Record<string, string> = {
 };
 const n = (value: unknown) => (value === null || value === undefined ? null : Number(value));
 
+const hasDateFilter = (query: Query) =>
+  Boolean(query.paidFrom || query.paidTo || query.dueFrom || query.dueTo || query.accrualFrom || query.accrualTo);
+
 @Injectable()
 export class LedgerService {
   constructor(private readonly prisma: PrismaService, private readonly recurrences: RecurrenceService) {}
@@ -139,7 +142,9 @@ export class LedgerService {
       const result = await this.prisma.financial_Payable.aggregate({ where: { AND: [base, where] }, _count: { _all: true }, _sum: { [field]: true } as never });
       return bucketOf(result._count._all, (result._sum as Record<string, unknown>)?.[field]);
     };
-    const hasPaidPeriod = Boolean(query.paidFrom || query.paidTo);
+    // com qualquer recorte de data (vencimento, pagamento ou competência), o cartão segue o filtro;
+    // sem nenhum, mostra o que foi pago/recebido no mês atual
+    const hasPaidPeriod = hasDateFilter(query);
     const currentMonth = today.slice(0, 7);
     const paidWhere: Prisma.Financial_PayableWhereInput = {
       status: 'paga', inactiveAt: null,
@@ -319,7 +324,9 @@ export class LedgerService {
       const result = await this.prisma.financialRecords.aggregate({ where: { AND: [base, where] }, _count: { _all: true }, _sum: { value: true } });
       return bucketOf(result._count._all, result._sum.value);
     };
-    const hasPaidPeriod = Boolean(query.paidFrom || query.paidTo);
+    // com qualquer recorte de data (vencimento, pagamento ou competência), o cartão segue o filtro;
+    // sem nenhum, mostra o que foi pago/recebido no mês atual
+    const hasPaidPeriod = hasDateFilter(query);
     const currentMonth = today.slice(0, 7);
     const receivedWhere: Prisma.FinancialRecordsWhereInput = {
       status: 'received', inactiveAt: null,
