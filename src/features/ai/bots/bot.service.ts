@@ -5,6 +5,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { PROVIDER_LABELS, ProviderRegistry } from '../providers/provider.registry';
 import { ToolCatalogService } from '../tools/tool-catalog.service';
 import { BOT_DEFAULTS, defaultModelFor } from './bot.defaults';
+import { personalityCatalog } from './personality';
 
 export interface BotActor { userId: number; companyId: number; permissions: string[] }
 
@@ -65,6 +66,7 @@ export class BotService {
       models: this.providers.models(),
       tools: this.catalog.all().map((tool) => ({ name: tool.name, title: tool.title, description: tool.description, risk: tool.risk, permissions: [...tool.permissions, ...(tool.anyPermissions?.length ? [`uma de: ${tool.anyPermissions.join(', ')}`] : [])] })),
       enabled: process.env.AI_BOTS_ENABLED !== 'false',
+      personalities: personalityCatalog(),
     };
   }
 

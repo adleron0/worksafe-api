@@ -322,6 +322,28 @@ describe('Bots de IA (e2e)', () => {
     // rosto inválido cai no padrão; rosto montado pode ser trocado
     await api().put(`/ai/bots/${created.id}`).set(auth(company.id)).send({ avatar: 'r:<script>' }).expect(200);
     expect((await db.ai_Bot.findUniqueOrThrow({ where: { id: created.id } })).avatar).toBeNull();
+    // personalidade de trabalho (Big Five) guardada no rosto entra no prompt
+    await api().put(`/ai/bots/${created.id}`).set(auth(company.id)).send({ avatar: 'r:ovo.ciano.oculos.cb.analitico' }).expect(200);
+    const conversa = (await api().post(`/ai/bots/${created.id}/conversations`).set(auth(company.id, [...ALL, 'usar_bot_ana_julia'])).expect(201)).body;
+    FakeProvider.script([() => ({ text: 'Oi.' })]);
+    const { runId } = (await api().post(`/ai/conversations/${conversa.id}/messages`).set(auth(company.id, [...ALL, 'usar_bot_ana_julia'])).send({ text: 'Oi' }).expect(201)).body;
+    expect((await waitRun(company.id, runId, [...ALL, 'usar_bot_ana_julia'])).status).toBe('done');
+    expect(FakeProvider.requests[0].system).toContain('## Seu jeito de trabalhar (analítico)');
+    expect(FakeProvider.requests[0].system).toContain('confira números e somas');
+    expect(FakeProvider.requests[0].system).toContain('Tom sóbrio e conciso');
+    // traços sob medida: "t" + 5 níveis
+    await api().put(`/ai/bots/${created.id}`).set(auth(company.id)).send({ avatar: 'r:ovo.ciano.oculos.cb.t51511' }).expect(200);
+    const conversa2 = (await api().post(`/ai/bots/${created.id}/conversations`).set(auth(company.id, [...ALL, 'usar_bot_ana_julia'])).expect(201)).body;
+    FakeProvider.script([() => ({ text: 'Oi.' })]);
+    const run2 = (await api().post(`/ai/conversations/${conversa2.id}/messages`).set(auth(company.id, [...ALL, 'usar_bot_ana_julia'])).send({ text: 'Oi' }).expect(201)).body;
+    await waitRun(company.id, run2.runId, [...ALL, 'usar_bot_ana_julia']);
+    const system = FakeProvider.requests[0].system as string;
+    expect(system).toContain('## Seu jeito de trabalhar\n');
+    expect(system).toContain('proponha duas ou três alternativas');
+    expect(system).toContain('Tom caloroso e entusiasmado');
+    expect(system).toContain('destaque riscos');
+    const config2 = (await api().get('/ai/bots/config').set(auth(company.id)).expect(200)).body;
+    expect(config2.personalities.profiles.map((item: any) => item.id)).toContain('analitico');
     // quem tem a permissão conversa com ele
     const usable = (await api().get('/ai/bots').set(auth(company.id, ['usar_bots', 'usar_bot_ana_julia'])).expect(200)).body;
     expect(usable.map((bot: any) => bot.key)).toEqual(['ana_julia']);

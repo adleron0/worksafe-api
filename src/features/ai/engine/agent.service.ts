@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { PrivateStorageService } from 'src/common/storage/private-storage.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { BASE_RULES } from '../bots/bot.defaults';
+import { personalityPrompt } from '../bots/personality';
 import { BotActor, BotService } from '../bots/bot.service';
 import { ProviderRegistry } from '../providers/provider.registry';
 import { ChatImage, ChatMessage, ChatResponse, ChatToolResult } from '../providers/provider.types';
@@ -557,6 +558,7 @@ export class AgentService implements TeamPort {
       BASE_RULES,
       `\n## Quem você é\nVocê é ${bot.persona ?? bot.name}, ${bot.role ?? `assistente de ${bot.name}`} da equipe de assistentes da empresa. Na primeira resposta de uma conversa nova, pode se apresentar em uma frase curta; depois, vá direto ao ponto.`,
       `\n## Seu papel\n${bot.instructions}`,
+      personalityPrompt(bot.avatar),
       `\n## O que você consegue fazer para esta pessoa\n${capabilities.length ? capabilities.map((item) => `- ${item}`).join('\n') : '- Nenhuma ferramenta liberada para esta pessoa: só converse e oriente.'}`,
       ...(colleagues.length ? [`\n## Sua equipe\nColegas que esta pessoa pode usar (área: nome, cargo — o que faz):\n${colleagues.map((item) => `- ${item.key}: ${item.persona}, ${item.role} — ${item.description}`).join('\n')}\n- Precisa de um dado da área de um colega para responder? Use pedir_ao_colega (ele só consulta). A pessoa quer fazer algo que é da área de outro? Use passar_para_colega com um resumo completo. Não faça os dois para a mesma coisa e não peça ao colega o que você mesmo consegue consultar.`] : []),
       ctx.delegated ? `\n## Pedido de um colega\nQuem pede agora é outro assistente da equipe, ajudando a mesma pessoa. Responda só o que foi pedido, com números e nomes, sem cumprimentos. Você só consulta: não crie nem altere nada.` : '',
