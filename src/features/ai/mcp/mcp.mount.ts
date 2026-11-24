@@ -57,7 +57,9 @@ export function mountMcp(app: INestApplication): void {
       tools: tools.map((tool) => ({
         name: tool.name,
         title: tool.title,
-        description: tool.risk === 'sensitive' ? `${tool.description} [Só prepara: a pessoa confirma no sistema WorkSafe.]` : tool.description,
+        description: tool.risk !== 'sensitive' ? tool.description
+          : tool.autoMode ? `${tool.description} [Conforme a configuração da empresa, sai direto (modo automático) ou só prepara para a pessoa confirmar no sistema WorkSafe: o resultado diz qual.]`
+            : `${tool.description} [Só prepara: a pessoa confirma no sistema WorkSafe.]`,
         inputSchema: tool.inputSchema as { type: 'object'; properties?: Record<string, object> },
         annotations: { readOnlyHint: tool.risk === 'read', destructiveHint: false, openWorldHint: false },
       })),

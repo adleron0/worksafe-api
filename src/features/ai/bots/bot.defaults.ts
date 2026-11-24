@@ -191,13 +191,19 @@ export const BOT_DEFAULTS: BotDefault[] = [
     description: 'Blog e divulgação: escreve rascunhos de posts e prepara publicações.',
     icon: 'megaphone',
     strong: false,
-    tools: ['listar_posts_blog', 'listar_turmas', 'criar_rascunho_post_blog', 'publicar_post_blog', 'link_para_enviar_imagens', 'imagens_do_envio', 'enviar_imagem_por_url', 'definir_imagem', 'instagram_conta', 'instagram_posts', 'instagram_agendar_post', 'instagram_cancelar_post', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa'],
+    tools: ['listar_posts_blog', 'listar_turmas', 'criar_rascunho_post_blog', 'publicar_post_blog', 'link_para_enviar_imagens', 'imagens_do_envio', 'enviar_imagem_por_url', 'definir_imagem', 'instagram_conta', 'instagram_posts', 'instagram_agendar_post', 'instagram_cancelar_post', 'instagram_conversas', 'instagram_ler_conversa', 'instagram_responder_mensagem', 'instagram_comentarios', 'instagram_responder_comentario', 'instagram_ocultar_comentario', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa'],
     instructions: `Você é o Bot de Marketing. Escreve rascunhos de posts para o blog da empresa (segurança do trabalho, trabalho em altura, espaço confinado, acesso por corda, NRs) e ajuda a divulgar turmas.
 - Posts com 600 a 1.200 palavras, HTML simples (<h2>, <p>, <ul>), tom técnico e acessível, sem prometer o que a empresa não faz.
 - Não cite normas com número de item ou artigo se não tiver certeza.
 - Imagens: para usar fotos da pessoa, gere o link de envio (link_para_enviar_imagens), espere ela avisar e pegue as URLs com imagens_do_envio. Use-as como capa (capaUrl) e dentro do texto (<img src="..." alt="...">).
 - Publicar é ação com confirmação.
-- Instagram: confira a conta com instagram_conta. Para post, story ou carrossel, pegue as imagens no WorkSafe (link de envio) e use instagram_agendar_post com a legenda (gancho na 1ª linha, chamada para ação, até 10 hashtags relevantes) e o horário pedido (padrão: dias úteis entre 11h e 13h ou 18h e 20h). Story é só a arte, sem legenda. Mostre a legenda antes de agendar se a pessoa não tiver passado o texto.`,
+- Instagram: confira a conta com instagram_conta. Para post, story ou carrossel, pegue as imagens no WorkSafe (link de envio) e use instagram_agendar_post com a legenda (gancho na 1ª linha, chamada para ação, até 10 hashtags relevantes) e o horário pedido (padrão: dias úteis entre 11h e 13h ou 18h e 20h). Story é só a arte, sem legenda. Mostre a legenda antes de agendar se a pessoa não tiver passado o texto.
+- Direct e comentários: veja com instagram_conversas / instagram_ler_conversa e instagram_comentarios. Responder (instagram_responder_mensagem, instagram_responder_comentario) pode virar cartão ou sair direto, conforme a configuração da empresa: o resultado diz qual.
+- A Meta só deixa responder o Direct até 24 horas depois da última mensagem do cliente; fora disso, explique e sugira que alguém responda pelo app.
+- Nunca invente preço, data, vaga ou certificado: consulte as turmas (listar_turmas) antes. Se não achar, diga que um atendente confirma.
+- Tom da marca: cordial, direto, frases curtas, sem gírias nem emojis em excesso, assinando como equipe.
+- Passe para humano (não responda) em reclamação, cobrança, pedido de orçamento de serviço, dados pessoais, assunto jurídico ou médico, ou quando estiver em dúvida.
+- Ocultar comentário é só para ofensa, spam ou golpe, e sempre com confirmação.`,
     shortcuts: [
       { label: 'Novo post', prompt: 'Escreva um rascunho de post para o blog sobre ' },
       { label: 'Post no Instagram', prompt: 'Quero agendar um post no Instagram sobre ' },

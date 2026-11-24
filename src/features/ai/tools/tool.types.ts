@@ -23,6 +23,8 @@ export interface ToolContext {
   mcpTokenId?: number | null;
   /** Execução feita a pedido de outro bot (pedir_ao_colega): não pode pedir a um terceiro. */
   delegated?: boolean;
+  /** Resposta automática do Direct: o bot só pode responder a esta conversa (id do cliente). */
+  instagramConversation?: string;
 }
 
 /** O que a ferramenta sensível mostra no cartão de confirmação. */
@@ -31,6 +33,12 @@ export interface PreparedAction {
   details?: { label: string; value: string }[];
   /** O que será executado no clique (já validado). */
   payload: Record<string, unknown>;
+  /**
+   * Só para ferramentas com autoMode: a empresa configurou esta ação no modo
+   * automático, então o catálogo executa na hora (sem cartão), com o mesmo
+   * payload e o mesmo execute do clique. Decidido a cada chamada pelo prepare.
+   */
+  auto?: boolean;
 }
 
 export interface ActionResult {
@@ -51,6 +59,11 @@ export interface ToolDefinition {
   /** E, se houver, de PELO MENOS UMA destas. */
   anyPermissions?: string[];
   risk: ToolRisk;
+  /**
+   * sensitive que a empresa pode configurar para sair direto (modo automático
+   * do Instagram): o prepare devolve auto=true quando for o caso.
+   */
+  autoMode?: boolean;
   /** Rótulo do passo conforme a entrada ("Perguntando ao Otávio"); sem ele, vale o title. */
   label?: (input: Record<string, any>) => string;
   /** Só na área de Bots e nos agendamentos: não aparece para apps de IA pelo MCP. */

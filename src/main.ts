@@ -9,6 +9,7 @@ import { defaultSecurityConfig } from './common/security/security.config';
 import { isTrustedServerRequest } from './common/security/trusted-server';
 import { clientIpOf } from './common/security/client-ip';
 import { mountMcp } from './features/ai/mcp/mcp.mount';
+import { mountInstagramWebhookBody } from './features/ai/connectors/instagram-webhook.body';
 
 const PORT = process.env.PORT || 3000;
 const ORIGIN_CORS = process.env.ORIGIN_CORS || '*';
@@ -23,6 +24,9 @@ async function bootstrap() {
     // Define quantos proxies confiáveis existem antes do servidor
     // Use 1 se estiver atrás de um único proxy (nginx, cloudflare, etc)
     const trustProxyHops = process.env.TRUST_PROXY_HOPS || '1';
+
+    // Webhook do Instagram: corpo bruto para conferir a assinatura (antes do express.json)
+    mountInstagramWebhookBody(app);
 
     // Configurar limites do body parser
     app.use(express.json({ limit: '10mb' }));

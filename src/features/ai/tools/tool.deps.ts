@@ -15,6 +15,7 @@ import { ImageIntakeService } from '../images/image-intake.service';
 import { NotifyService } from '../reports/notify.service';
 import { InternalApiService } from './internal-api.service';
 import { InstagramService } from '../connectors/instagram.service';
+import { InstagramMessagesService } from '../connectors/instagram-messages.service';
 
 /**
  * Os serviços de domínio que as ferramentas usam. As ferramentas não
@@ -49,5 +50,6 @@ export class ToolDeps {
     readonly api: InternalApiService,
     readonly notify: NotifyService,
     readonly instagram: InstagramService,
+    readonly instagramMessages: InstagramMessagesService,
   ) {}
 }

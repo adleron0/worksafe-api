@@ -278,6 +278,7 @@ describe('Instagram (e2e)', () => {
     expect(list.data.posts[0]).toMatchObject({ id: post.id, tipo: 'carrossel', situacao: 'scheduled' });
 
     expect(catalog.visible(null, ['usar_bots']).map((tool) => tool.name)).not.toContain('instagram_agendar_post');
-    expect(catalog.visible(null, ['usar_mcp', 'instagram_bots']).map((tool) => tool.name)).not.toContain('instagram_agendar_post'); // só nos bots
+    // o dono usa pelo MCP também (permissões e cartão valem igual)
+    expect(catalog.visible(null, ['usar_mcp', 'instagram_bots']).map((tool) => tool.name)).toEqual(expect.arrayContaining(['instagram_conta', 'instagram_posts', 'instagram_agendar_post', 'instagram_cancelar_post']));
   });
 });

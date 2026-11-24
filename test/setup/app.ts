@@ -6,6 +6,7 @@ import { CacheService } from '../../src/common/cache/cache.service';
 import { legacyOrQuery } from '../../src/common/crud/legacy-query.middleware';
 import { closeDb } from './db';
 import { mountMcp } from '../../src/features/ai/mcp/mcp.mount';
+import { mountInstagramWebhookBody } from '../../src/features/ai/connectors/instagram-webhook.body';
 
 let app: INestApplication | null = null;
 
@@ -24,6 +25,7 @@ export async function bootTestApp(): Promise<INestApplication> {
   }).compile();
 
   app = moduleRef.createNestApplication();
+  mountInstagramWebhookBody(app); // como em main.ts (antes dos parsers de JSON)
   app.use(cookieParser());
   app.use(legacyOrQuery); // como em main.ts
   mountMcp(app); // como em main.ts

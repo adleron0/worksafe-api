@@ -8,6 +8,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { decryptPayload, encryptPayload } from 'src/utils/crypto';
 import { ImageIntakeService } from '../images/image-intake.service';
 import { apiUrl, frontUrl } from '../mcp/mcp-oauth.service';
+import { InstagramSettings, KIND_ACTION_OF, readInstagramSettings, spDayRange, validateInstagramSettings } from './instagram-settings';
 
 /**
  * Instagram pela API oficial da Meta (Instagram Login): a empresa conecta a
@@ -48,7 +49,7 @@ const appSecret = () => process.env.INSTAGRAM_APP_SECRET?.trim() || '';
 const configId = () => process.env.INSTAGRAM_CONFIG_ID?.trim() || '';
 export const instagramUnified = () => !!configId();
 const UNIFIED_VERSION = 'v27.0';
-const graph = (path: string) => {
+export const graph = (path: string) => {
   const version = process.env.INSTAGRAM_GRAPH_VERSION?.trim();
   if (instagramUnified()) return `https://graph.facebook.com/${version || UNIFIED_VERSION}${path}`;
   return `https://graph.instagram.com${version ? `/${version}` : ''}${path}`;
@@ -65,7 +66,7 @@ export function parseWhen(value: unknown): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function metaMessage(error: unknown): { message: string; tokenInvalid: boolean } {
+export function metaMessage(error: unknown): { message: string; tokenInvalid: boolean } {
   const data = (error as AxiosError<any>)?.response?.data;
   const meta = data?.error ?? data;
   const code = Number(meta?.code);
@@ -227,14 +228,14 @@ export class InstagramService {
     return { ok: true };
   }
 
-  private async connection(companyId: number) {
+  async connection(companyId: number) {
     const row = await this.prisma.ai_Connector.findUnique({ where: { companyId_provider: { companyId, provider: 'instagram' } } });
     if (!row) throw new InstagramError('O Instagram não está conectado. Conecte em Bots → Conectores.');
     if (row.status === 'expired' || (row.tokenExpiresAt && row.tokenExpiresAt < new Date())) throw new InstagramError('A conexão com o Instagram expirou. Conecte de novo em Bots → Conectores.', true);
     return { row, token: String(decryptPayload(row.tokenEncrypted)) };
   }
 
-  private async markExpired(companyId: number, message: string) {
+  async markExpired(companyId: number, message: string) {
     await this.prisma.ai_Connector.updateMany({ where: { companyId, provider: 'instagram' }, data: { status: 'expired', lastError: message } });
   }
 
@@ -280,7 +281,38 @@ export class InstagramService {
     if (when.getTime() > Date.now() + MAX_DAYS_AHEAD * 86400000) throw new BadRequestException(`Dá para agendar até ${MAX_DAYS_AHEAD} dias à frente`);
     const connected = await this.prisma.ai_Connector.findUnique({ where: { companyId_provider: { companyId, provider: 'instagram' } } });
     if (!connected) throw new BadRequestException('O Instagram não está conectado. Conecte em Bots → Conectores.');
+    await this.checkPublishLimit(companyId, readInstagramSettings(connected.settings), kind, when);
     return { kind, caption, media, scheduledAt: when };
+  }
+
+  /** Ação ligada e dentro do limite do dia (posts/carrosséis contam juntos; stories à parte). */
+  private async checkPublishLimit(companyId: number, settings: InstagramSettings, kind: PostKind, when: Date) {
+    const action = KIND_ACTION_OF[kind];
+    const rule = settings[action];
+    const what = action === 'story' ? 'stories' : 'posts no feed e carrosséis';
+    if (!rule.enabled) throw new BadRequestException(`Publicar ${what} está desligado nas configurações do Instagram (Bots → Conectores).`);
+    const { start, end } = spDayRange(when);
+    const used = await this.prisma.ai_SocialPost.count({
+      where: { companyId, kind: action === 'story' ? 'story' : { in: ['feed', 'carousel'] }, status: { in: ['scheduled', 'processing', 'published'] }, scheduledAt: { gte: start, lt: end } },
+    });
+    if (used >= rule.limitePorDia) {
+      throw new BadRequestException(`Limite do dia atingido: ${rule.limitePorDia} ${what} por dia (já há ${used} para ${start.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}). Escolha outro dia ou aumente o limite em Bots → Conectores.`);
+    }
+  }
+
+  // ---------------------------------------------------------------- configurações
+
+  async settings(companyId: number): Promise<InstagramSettings> {
+    const row = await this.prisma.ai_Connector.findUnique({ where: { companyId_provider: { companyId, provider: 'instagram' } }, select: { settings: true } });
+    return readInstagramSettings(row?.settings);
+  }
+
+  async saveSettings(companyId: number, input: unknown): Promise<InstagramSettings> {
+    const row = await this.prisma.ai_Connector.findUnique({ where: { companyId_provider: { companyId, provider: 'instagram' } } });
+    if (!row) throw new BadRequestException('Conecte o Instagram antes de configurar os limites.');
+    const next = validateInstagramSettings(readInstagramSettings(row.settings), input);
+    await this.prisma.ai_Connector.update({ where: { id: row.id }, data: { settings: next as unknown as object } });
+    return next;
   }
 
   async create(actor: InstagramActor, input: Record<string, unknown>, botId?: number | null) {

@@ -365,10 +365,47 @@ model Ai_Connector {
   status            String    @default("connected") @db.VarChar(20)
   lastError         String?   @db.Text
   connectedByUserId Int?
+  /// Limites e modos por ação (post, story, mensagens, comentários). Ver instagram-settings.ts
+  settings          Json?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @default(now()) @updatedAt
 
   @@unique([companyId, provider])
+}
+
+/// Mensagem do Direct ou comentário recebido/enviado numa rede social (hoje: Instagram).
+model Ai_SocialMessage {
+  id              Int       @id @default(autoincrement())
+  companyId       Int
+  provider        String    @default("instagram") @db.VarChar(30)
+  /// direct | comment
+  channel         String    @default("direct") @db.VarChar(20)
+  /// Direct: id do cliente (IGSID); comentário: id da mídia
+  conversationId  String    @db.VarChar(80)
+  /// id da mensagem/comentário na Meta (único: webhook e sincronização não duplicam)
+  externalId      String    @unique @db.VarChar(255)
+  /// in (cliente) | out (empresa)
+  direction       String    @db.VarChar(5)
+  fromId          String?   @db.VarChar(80)
+  fromUsername    String?   @db.VarChar(120)
+  text            String    @default("") @db.Text
+  attachments     Json?
+  /// comentário: id do comentário respondido
+  parentId        String?   @db.VarChar(80)
+  sentAt          DateTime
+  readAt          DateTime?
+  /// webhook | sync | system (enviada pelo WorkSafe)
+  origin          String    @default("webhook") @db.VarChar(20)
+  /// received | sent | auto_replied | auto_skipped | auto_error
+  status          String    @default("received") @db.VarChar(20)
+  /// o que a automação fez com a mensagem recebida
+  note            String?   @db.Text
+  repliedByBotId  Int?
+  repliedByUserId Int?
+  createdAt       DateTime  @default(now())
+
+  @@index([companyId, channel, conversationId, sentAt])
+  @@index([companyId, direction, origin, sentAt])
 }
 
 /// Post ou story agendado para uma rede social (hoje: Instagram).

@@ -95,7 +95,9 @@ export class ToolCatalogService {
   definitions(tools: ToolDefinition[]): ChatToolDef[] {
     return tools.map((tool) => ({
       name: tool.name,
-      description: tool.risk === 'sensitive' ? `${tool.description} [Ação com confirmação: a ferramenta só prepara; a pessoa confirma no cartão.]` : tool.description,
+      description: tool.risk !== 'sensitive' ? tool.description
+        : tool.autoMode ? `${tool.description} [Conforme a configuração da empresa, sai direto (modo automático) ou vira um cartão de confirmação: o resultado diz qual.]`
+          : `${tool.description} [Ação com confirmação: a ferramenta só prepara; a pessoa confirma no cartão.]`,
       inputSchema: tool.inputSchema,
     }));
   }
@@ -125,6 +127,13 @@ export class ToolCatalogService {
     try {
       if (tool.risk === 'sensitive') {
         const prepared = await tool.prepare!(ctx, safeInput, this.deps);
+        if (tool.autoMode && prepared.auto) {
+          // modo automático configurado pela empresa: executa já, sem cartão
+          const result = await tool.execute!(ctx, prepared.payload as Record<string, any>, this.deps);
+          const content = compact({ situacao: 'feito_automaticamente', resumo: prepared.summary, resultado: result.message, link: result.link ?? null, dados: result.data ?? null });
+          const row = await audit('ok', `[automático] ${prepared.summary} → ${result.message}`);
+          return { status: 'ok', content, isError: false, toolCallId: row.id };
+        }
         const row = await audit('pending', prepared.summary);
         const pending = await this.prisma.ai_PendingAction.create({
           data: {
