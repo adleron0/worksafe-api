@@ -17,6 +17,8 @@ import { RDO_TOOLS } from './rdo.tools';
 import { TRAINING_TOOLS } from './training.tools';
 import { HR_TOOLS } from './hr.tools';
 import { STOCK_TOOLS } from './stock.tools';
+import { TRAINING_EXTRA_TOOLS } from './training-extra.tools';
+import { WORKS_TOOLS } from './works.tools';
 
 /** Resultado de uma chamada, como volta para o modelo. */
 export interface ToolOutcome {
