@@ -1,0 +1,146 @@
+/// Conversas: números de WhatsApp (e, depois, contas do Instagram) ligados ao
+/// sistema. Cada canal tem setor, bot padrão, equipe, limites e termo próprios.
+model Chat_Channel {
+  id                    Int       @id @default(autoincrement())
+  companyId             Int
+  /// whatsapp | instagram
+  type                  String    @default("whatsapp") @db.VarChar(20)
+  /// evolution | meta | cloud
+  provider              String    @default("evolution") @db.VarChar(20)
+  name                  String    @db.VarChar(120)
+  /// cor do selo do canal na caixa (hex)
+  color                 String?   @db.VarChar(20)
+  /// setor para onde caem as conversas novas (comercial, servicos, treinamentos…)
+  sector                String?   @db.VarChar(40)
+  defaultBotId          Int?
+  /// desligado | sugere | triagem | atende
+  botMode               String    @default("sugere") @db.VarChar(20)
+  /// nome da instância no Evolution (único no servidor)
+  instanceName          String?   @unique @db.VarChar(80)
+  phone                 String?   @db.VarChar(30)
+  profileName           String?   @db.VarChar(160)
+  /// desconectado | aguardando | conectado | caiu | banido
+  status                String    @default("desconectado") @db.VarChar(20)
+  statusReason          String?   @db.Text
+  statusAt              DateTime?
+  connectedAt           DateTime?
+  /// sha256 do token que o Evolution manda no endereço do webhook
+  webhookTokenHash      String?   @db.VarChar(64)
+  /// limites, intervalo e horário (ver chat.settings.ts)
+  settings              Json?
+  /// próximo envio liberado (ritmo humano entre mensagens; trava entre réplicas)
+  nextSendAt            DateTime?
+  termsVersion          String?   @db.VarChar(20)
+  termsAcceptedAt       DateTime?
+  termsAcceptedByUserId Int?
+  termsAcceptedIp       String?   @db.VarChar(64)
+  historyDays           Int       @default(30)
+  active                Boolean   @default(true)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  members       Chat_ChannelMember[]
+  contacts      Chat_Contact[]
+  conversations Chat_Conversation[]
+
+  @@index([companyId, active])
+}
+
+/// Quem da equipe vê e responde as conversas de um canal.
+model Chat_ChannelMember {
+  id        Int          @id @default(autoincrement())
+  channelId Int
+  userId    Int
+  channel   Chat_Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, userId])
+  @@index([userId])
+}
+
+/// Quem fala com a empresa por um canal (no WhatsApp, o número).
+model Chat_Contact {
+  id             Int          @id @default(autoincrement())
+  companyId      Int
+  channelId      Int
+  /// WhatsApp: jid (5511…@s.whatsapp.net ou …@lid); Instagram: IGSID
+  externalId     String       @db.VarChar(120)
+  phone          String?      @db.VarChar(30)
+  name           String?      @db.VarChar(160)
+  pushName       String?      @db.VarChar(160)
+  avatarUrl      String?      @db.Text
+  customerId     Int?
+  optOut         Boolean      @default(false)
+  optOutAt       DateTime?
+  firstInboundAt DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  channel        Chat_Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  conversations Chat_Conversation[]
+
+  @@unique([channelId, externalId])
+  @@index([companyId, phone])
+  @@index([customerId])
+}
+
+/// Uma conversa por contato e canal; resolvida reabre quando o cliente escreve.
+model Chat_Conversation {
+  id                 Int          @id @default(autoincrement())
+  companyId          Int
+  channelId          Int
+  contactId          Int
+  /// aberta | aguardando | resolvida
+  status             String       @default("aberta") @db.VarChar(20)
+  sector             String?      @db.VarChar(40)
+  assignedUserId     Int?
+  /// bot no controle da conversa (fase dos bots)
+  botId              Int?
+  lastMessageAt      DateTime?
+  lastMessagePreview String?      @db.VarChar(200)
+  lastDirection      String?      @db.VarChar(5)
+  unread             Int          @default(0)
+  resolvedAt         DateTime?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  channel            Chat_Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  contact            Chat_Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  messages Chat_Message[]
+
+  @@unique([channelId, contactId])
+  @@index([companyId, status, lastMessageAt])
+  @@index([assignedUserId])
+}
+
+model Chat_Message {
+  id             Int               @id @default(autoincrement())
+  companyId      Int
+  channelId      Int
+  conversationId Int
+  /// in (cliente) | out (empresa) | note (nota interna, não sai)
+  direction      String            @db.VarChar(5)
+  /// text | image | audio | video | document | sticker | location | contact | other
+  type           String            @default("text") @db.VarChar(20)
+  text           String            @default("") @db.Text
+  media          Json?
+  /// id da mensagem no provedor (webhook e envio não duplicam)
+  externalId     String?           @unique @db.VarChar(255)
+  /// queued | sending | sent | delivered | read | failed | received
+  status         String            @default("received") @db.VarChar(20)
+  error          String?           @db.Text
+  /// webhook | phone (enviada pelo celular) | system (pelo sistema) | history | bot
+  origin         String            @default("webhook") @db.VarChar(20)
+  sentByUserId   Int?
+  sentByBotId    Int?
+  /// sha256 do texto normalizado (trava de mensagens repetidas em série)
+  textHash       String?           @db.VarChar(64)
+  scheduledAt    DateTime?
+  sentAt         DateTime          @default(now())
+  createdAt      DateTime          @default(now())
+  conversation   Chat_Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, sentAt])
+  @@index([channelId, direction, status, sentAt])
+  @@index([status, scheduledAt])
+  @@index([channelId, textHash, sentAt])
+}
