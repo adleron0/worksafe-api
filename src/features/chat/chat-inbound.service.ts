@@ -59,6 +59,8 @@ export class ChatInboundService {
         return { stored: await this.upsertMessages(channel, Array.isArray(data) ? data : data?.messages ?? [data]) };
       case 'send.message':
         return { stored: await this.upsertMessages(channel, [data]) };
+      case 'messages.set':
+        return { imported: await this.importHistory(channel, Array.isArray(data) ? data : data?.messages ?? []) };
       case 'messages.update':
         return { updated: await this.updateStatus(channel, Array.isArray(data) ? data : [data]) };
       case 'connection.update':
@@ -204,6 +206,66 @@ export class ChatInboundService {
       }
     }
     return stored;
+  }
+
+  /**
+   * Histórico que o WhatsApp manda logo que o número conecta. Entra quieto:
+   * só os últimos `historyDays` dias, sem grupos nem contatos ocultos, sem
+   * "não lidas", sem resposta automática; conversa que só tem histórico
+   * entra resolvida. Mídia fica para baixar quando alguém tocar nela.
+   */
+  async importHistory(channel: Chat_Channel, items: Json[]) {
+    if (!channel.historyDays || !Array.isArray(items) || !items.length) return 0;
+    const cutoff = Date.now() - channel.historyDays * 86400000;
+    const groups = new Map<string, { who: { jid: string; phone: string | null }; pushName: string | null; items: Json[] }>();
+    for (const item of items) {
+      if (!item?.key?.id) continue;
+      const who = this.jidOf(item.key);
+      if (!who) continue;
+      const ts = Number(item.messageTimestamp ?? 0);
+      const at = ts ? ts * (ts < 1e12 ? 1000 : 1) : 0;
+      if (!at || at < cutoff) continue;
+      const group = groups.get(who.jid) ?? { who, pushName: null, items: [] };
+      if (!item.key.fromMe && item.pushName) group.pushName = item.pushName;
+      group.items.push(item);
+      groups.set(who.jid, group);
+    }
+    let imported = 0;
+    for (const { who, pushName, items: list } of groups.values()) {
+      if (await this.hidden(channel.id, who)) continue;
+      const { contact, conversation } = await this.contactAndConversation(channel, { ...who, pushName });
+      const rows = list.map((item) => {
+        const { type, text, media } = readMessage(item.message);
+        if (type === 'other' && !text) return null;
+        const ts = Number(item.messageTimestamp);
+        const fromMe = item.key.fromMe === true;
+        const hasFile = MEDIA_TYPES.includes(type);
+        return {
+          companyId: channel.companyId, channelId: channel.id, conversationId: conversation.id, direction: fromMe ? 'out' : 'in', type, text,
+          media: hasFile ? { ...(media ?? {}), state: 'history', raw: slimRaw(item) } : (media ?? undefined),
+          externalId: String(item.key.id), status: fromMe ? 'sent' : 'received', origin: 'history', sentAt: new Date(ts * (ts < 1e12 ? 1000 : 1)),
+        };
+      }).filter((row): row is NonNullable<typeof row> => !!row);
+      if (!rows.length) continue;
+      const done = await this.prisma.chat_Message.createMany({ data: rows as any, skipDuplicates: true });
+      imported += done.count;
+      const last = rows.reduce((a, b) => (a.sentAt > b.sentAt ? a : b));
+      const firstIn = rows.filter((r) => r.direction === 'in').reduce<Date | null>((a, r) => (!a || r.sentAt < a ? r.sentAt : a), null);
+      const live = await this.prisma.chat_Message.count({ where: { conversationId: conversation.id, origin: { not: 'history' } } });
+      const newer = !conversation.lastMessageAt || last.sentAt > conversation.lastMessageAt;
+      await this.prisma.chat_Conversation.update({
+        where: { id: conversation.id },
+        data: {
+          ...(newer ? { lastMessageAt: last.sentAt, lastMessagePreview: previewOf(last.type, last.text), lastDirection: last.direction } : {}),
+          ...(live ? {} : { status: 'resolvida', resolvedAt: new Date(), unread: 0 }),
+        },
+      });
+      if (firstIn && (!contact.firstInboundAt || firstIn < contact.firstInboundAt)) {
+        await this.prisma.chat_Contact.update({ where: { id: contact.id }, data: { firstInboundAt: firstIn } });
+      }
+    }
+    if (imported) this.events.emit({ companyId: channel.companyId, kind: 'conversation', channelId: channel.id });
+    return imported;
   }
 
   /** Fora do horário: manda a mensagem configurada, no máximo uma vez a cada 12 h por conversa. */

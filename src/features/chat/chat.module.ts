@@ -7,6 +7,7 @@ import { ChatConversationsService } from './chat-conversations.service';
 import { ChatEventsService } from './chat-events.service';
 import { ChatInboundService } from './chat-inbound.service';
 import { ChatInstagramService } from './chat-instagram.service';
+import { ChatCustomerService } from './chat-customer.service';
 import { ChatMediaService } from './chat-media.service';
 import { ChatSendService } from './chat-send.service';
 import { EvolutionProvider } from './providers/evolution.provider';
@@ -15,7 +16,7 @@ import { EvolutionProvider } from './providers/evolution.provider';
 @Module({
   imports: [PrivateStorageModule, BotsAiModule],
   controllers: [ChatController],
-  providers: [EvolutionProvider, ChatEventsService, ChatMediaService, ChatInstagramService, ChatChannelsService, ChatInboundService, ChatSendService, ChatConversationsService],
+  providers: [EvolutionProvider, ChatEventsService, ChatCustomerService, ChatMediaService, ChatInstagramService, ChatChannelsService, ChatInboundService, ChatSendService, ChatConversationsService],
   exports: [ChatChannelsService, ChatConversationsService, ChatSendService, ChatEventsService],
 })
 export class ChatModule {}
