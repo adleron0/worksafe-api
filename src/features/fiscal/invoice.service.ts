@@ -7,7 +7,7 @@ import { RetentionTax, writeRetentions } from 'src/features/financial/retention.
 import { PrismaService } from 'src/prisma/prisma.service';
 import { renderDanfse } from './danfse';
 import { buildCancelEvent, buildDps, DpsInput } from './dps.builder';
-import { clean, digits, ibgeOf, isCnpj, isCpf, round2, todayBr, toNumber } from './fiscal.utils';
+import { cityOfIbge, clean, digits, ibgeOf, isCnpj, isCpf, round2, todayBr, toNumber } from './fiscal.utils';
 import { brl, calcInvoice, CalcResult, FEDERAL_TAXES, FederalTax, fillTemplate, RetentionField } from './invoice.calc';
 import { parseEventXml, parseNfseXml } from './nfse-xml';
 import { SefinClient, SefinMessage, SefinResult, SefinTransportError } from './sefin.client';
@@ -178,7 +178,8 @@ export class FiscalInvoiceService {
     const issRate = typedRate !== undefined ? typedRate : service.issRate;
     const calc = calcInvoice({ gross: toNumber(body.grossValue), discount: toNumber(body.discountValue), issRate, issWithheld, retentions });
     const competence = dateOnly(body.competence) ?? todayBr();
-    const placeOfService = digits(body.placeOfService) || emitter.ibge || '';
+    // local da prestação: código IBGE, ou cidade e UF digitadas; sem nada, a sede da empresa
+    const placeOfService = digits(body.placeOfService) || (body.placeCity ? ibgeOf(body.placeCity, body.placeUf) : null) || (body.placeCity ? '' : emitter.ibge) || '';
     const vars = {
       cliente: taker.snapshot.name,
       competencia: competence.slice(0, 7).split('-').reverse().join('/'),
@@ -203,7 +204,7 @@ export class FiscalInvoiceService {
     if (t.address && !t.address.ibge && t.address.street) errors.push('Não achei o código IBGE da cidade do tomador. Confira a cidade no cadastro.');
     if (digits(t.document) === emitter.cnpj) errors.push('O tomador não pode ser a própria empresa.');
     if (!description) errors.push('Escreva a discriminação do serviço.');
-    if (!placeOfService) errors.push('Informe o município onde o serviço foi prestado.');
+    if (!placeOfService) errors.push(body.placeCity ? 'Não achei o código IBGE da cidade da prestação. Confira o nome e a UF.' : 'Informe o município onde o serviço foi prestado.');
     if (competence > todayBr()) errors.push('A competência não pode ser depois de hoje.');
     if (!emitter.ibge) errors.push('A cidade da empresa não está cadastrada (o código IBGE sai dela).');
     // ME/EPP com ISS pelo Simples: a alíquota só vai na nota quando o cliente retém (E0625 × E0621)
@@ -238,7 +239,8 @@ export class FiscalInvoiceService {
   async preview(companyId: number, body: Record<string, unknown>) {
     const built = await this.build(companyId, body);
     const { extra, ...rest } = built;
-    return { ...rest, reference: extra.reference, order: extra.order, canEmit: built.errors.length === 0 };
+    const place = built.placeOfService ? cityOfIbge(built.placeOfService) : null;
+    return { ...rest, placeLabel: place ? `${place.name}/${place.uf}` : null, reference: extra.reference, order: extra.order, canEmit: built.errors.length === 0 };
   }
 
   private dataOf(built: Awaited<ReturnType<FiscalInvoiceService['build']>>) {
