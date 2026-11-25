@@ -47,6 +47,7 @@ import { BlogAuthModule } from './features/blog/auth/auth.module';
 // AI
 import { AIModule } from './common/ai';
 import { ChatModule } from './features/chat/chat.module';
+import { FiscalModule } from './features/fiscal/module';
 
 @Module({
   imports: [
@@ -90,6 +91,7 @@ import { ChatModule } from './features/chat/chat.module';
     AIModule,
     // Conversas (WhatsApp)
     ChatModule,
+    FiscalModule,
   ],
   controllers: [],
   providers: [

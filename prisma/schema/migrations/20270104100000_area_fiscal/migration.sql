@@ -191,16 +191,6 @@ ALTER TABLE "Fiscal_InvoiceLink" ADD CONSTRAINT "Fiscal_InvoiceLink_invoiceId_fk
 
 -- AddForeignKey
 ALTER TABLE "Fiscal_InvoiceEvent" ADD CONSTRAINT "Fiscal_InvoiceEvent_invoiceId_fkey" FOREIGN KEY ("invoiceId") REFERENCES "Fiscal_Invoice"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-┌─────────────────────────────────────────────────────────┐
-│  Update available 6.19.3 -> 8.0.0-rc.35                 │
-│                                                         │
-│  This is a major update - please follow the guide at    │
-│  https://pris.ly/d/major-version-upgrade                │
-│                                                         │
-│  Run the following to update                            │
-│    npm i --save-dev prisma@latest                       │
-│    npm i @prisma/client@latest                          │
-└─────────────────────────────────────────────────────────┘
 
 
 -- Permissões da área fiscal

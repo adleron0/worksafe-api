@@ -101,7 +101,7 @@ export class SefinClient {
   constructor(environment: SefinEnvironment, certificate: Pick<LoadedCertificate, 'privateKeyPem' | 'certificatePem'>, timeoutMs = 60_000) {
     // chave e certificado em PEM (e não o .pfx direto): pfx antigo com cifra legada
     // não abre no OpenSSL 3 do Node
-    const httpsAgent = new Agent({ key: certificate.privateKeyPem, cert: certificate.certificatePem, keepAlive: true });
+    const httpsAgent = new Agent({ key: certificate.privateKeyPem, cert: certificate.certificatePem, keepAlive: false });
     this.http = axios.create({
       baseURL: sefinBaseUrl(environment),
       httpsAgent,
