@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, financialRecordsStatus, paymentMethods } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { assertNoAuthorizedInvoice } from 'src/features/fiscal/fiscal.guards';
 import { classificationDefaults } from 'src/features/financial/classification';
 import { PendingLine, applyMeasurement, nextOpenPeriod, pendingLines, revertMeasurement, syncRentalReminders } from 'src/features/stock/rental.service';
 import { SellerWalletService } from './wallet.service';
@@ -173,6 +174,7 @@ export class MeasurementService {
     if (!row) throw new NotFoundException('Medição não encontrada');
     const record = row.financialRecordId ? await this.prisma.financialRecords.findUnique({ where: { id: row.financialRecordId }, select: { id: true, status: true } }) : null;
     if (record && PAID.includes(record.status)) throw new ConflictException('Esta medição já foi paga: estorne a baixa em Contas a Receber antes de desfazer');
+    await assertNoAuthorizedInvoice(this.prisma, record?.id);
     if (row.rentalId) {
       const later = await this.prisma.commercial_Measurement.count({ where: { rentalId: row.rentalId, status: 'faturada', number: { gt: row.number } } });
       if (later) throw new ConflictException('Desfaça antes as medições mais novas desta ordem de locação');

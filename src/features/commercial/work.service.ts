@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, GoneException, Injectable, NotF
 import { Prisma } from '@prisma/client';
 import { randomBytes } from 'crypto';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { assertNoAuthorizedInvoice } from 'src/features/fiscal/fiscal.guards';
 import { classificationDefaults } from 'src/features/financial/classification';
 import { CrewMember, Occurrence, StepProgress } from 'src/features/operations/daily-report.service';
 import { DocumentService } from './document.service';
@@ -314,6 +315,7 @@ export class WorkMeasurementService {
     if (later) throw new ConflictException('Desfaça ou exclua antes os boletins mais novos deste contrato');
     const record = row.financialRecordId ? await this.prisma.financialRecords.findUnique({ where: { id: row.financialRecordId }, select: { id: true, status: true } }) : null;
     if (record?.status === 'received') throw new ConflictException('Este boletim já foi pago: estorne a baixa em Contas a Receber antes de desfazer');
+    await assertNoAuthorizedInvoice(this.prisma, record?.id);
     const deposit = Number(row.depositValue ?? 0);
     const depositRecord = deposit > 0 && contract.depositRecordId ? await this.prisma.financialRecords.findUnique({ where: { id: contract.depositRecordId } }) : null;
     if (depositRecord && depositRecord.status === 'received') throw new ConflictException('A caução deste contrato já foi recebida: estorne a baixa dela antes');

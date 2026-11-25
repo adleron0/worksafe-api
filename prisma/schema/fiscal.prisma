@@ -142,6 +142,11 @@ model Fiscal_Invoice {
 
   // gerar conta a receber ao autorizar: { dueDate, installments? } (nulo = não gerar)
   receivable  Json?
+  // de onde a nota nasceu (parcela, medição de obra, OL): ao autorizar, o sistema
+  // fatura essa origem com o número da nota. { kind, contractId, installmentIds?, measurementId?, rentalId?, dueDate?, paymentMethod? }
+  origin      Json?
+  // faturamento da origem já feito (para não faturar duas vezes)
+  originBilledAt DateTime?
 
   replacesId  Int?
   replacedById Int?

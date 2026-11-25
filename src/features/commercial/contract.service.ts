@@ -6,6 +6,7 @@ import { netWith, parseRates, parseRetentions, ratesOf, writeRetentions } from '
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CommercialContractStatus, Prisma, financialRecordsStatus, paymentMethods } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { assertNoAuthorizedInvoice } from 'src/features/fiscal/fiscal.guards';
 import { CacheService } from 'src/common/cache/cache.service';
 import { classificationDefaults } from 'src/features/financial/classification';
 import { installmentValues } from './installments';
@@ -574,6 +575,7 @@ export class ContractService {
     if (!installment.financialRecordId) throw new ConflictException('Esta parcela ainda não foi faturada');
     const record = await this.prisma.financialRecords.findUnique({ where: { id: installment.financialRecordId }, select: { id: true, status: true } });
     if (record && PAID.includes(record.status)) throw new ConflictException('Esta parcela já foi paga: estorne a baixa em Contas a Receber antes de desfazer o faturamento');
+    await assertNoAuthorizedInvoice(this.prisma, record?.id);
     const deposit = Number(installment.depositValue ?? 0);
     if (deposit > 0) await assertDepositOpen(this.prisma, id);
     const depositRecordId = await this.prisma.$transaction(async (tx) => {

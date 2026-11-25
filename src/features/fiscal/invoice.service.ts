@@ -13,6 +13,7 @@ import { parseEventXml, parseNfseXml } from './nfse-xml';
 import { SefinClient, SefinMessage, SefinResult, SefinTransportError } from './sefin.client';
 import { FiscalActor, FiscalSettingsService } from './settings.service';
 import { signXml } from './xml-signer';
+import { InvoiceOriginService, originOf, ResolvedOrigin } from './invoice.origin';
 
 type Tx = Prisma.TransactionClient;
 type InvoiceRow = Prisma.Fiscal_InvoiceGetPayload<{ include: { links: true; events: true } }>;
@@ -78,6 +79,7 @@ export class FiscalInvoiceService {
     private readonly settings: FiscalSettingsService,
     private readonly storage: PrivateStorageService,
     private readonly email: EmailService,
+    private readonly origins: InvoiceOriginService,
   ) {}
 
   // ------------------------------------------------------------------ tomador e serviço
@@ -168,7 +170,7 @@ export class FiscalInvoiceService {
   // ------------------------------------------------------------------ prévia e validação
 
   /** Monta a nota a partir do que veio da tela, sem gravar: valores, retenções, discriminação, erros e avisos. */
-  async build(companyId: number, body: Record<string, unknown>) {
+  async build(companyId: number, body: Record<string, unknown>, invoiceId?: number) {
     const [settings, emitter] = await Promise.all([this.settings.settingsRow(companyId), this.settings.emitter(companyId)]);
     const taker = await this.takerFrom(companyId, body);
     const service = await this.serviceFrom(companyId, body);
@@ -214,7 +216,15 @@ export class FiscalInvoiceService {
     if (calc.federal.csll.value === 0 && (calc.federal.pis.value > 0 || calc.federal.cofins.value > 0)) warnings.push('PIS/COFINS retidos sem CSLL: confira com o contador se o cliente também retém a CSLL.');
 
     const receivableIn = body.receivable as { create?: boolean; dueDate?: string; description?: string; paymentMethod?: string } | undefined;
-    const receivable = receivableIn?.create ? { dueDate: dateOnly(receivableIn.dueDate) ?? competence, description: clean(receivableIn.description, 255) || null, paymentMethod: receivableIn.paymentMethod ?? 'boleto' } : null;
+    // nota de uma parcela, boletim ou OL: ao autorizar, o faturamento da origem gera a conta a receber
+    let origin: ResolvedOrigin | null = null;
+    const originIn = originOf(body.origin);
+    if (originIn) {
+      origin = await this.origins.resolve(companyId, { ...originIn, dueDate: dateOnly(receivableIn?.dueDate) ?? originIn.dueDate ?? null, paymentMethod: receivableIn?.paymentMethod ?? originIn.paymentMethod ?? null }, invoiceId);
+      if (taker.customerId !== origin.customerId) errors.push('A nota de uma parcela ou medição vai para o cliente do contrato.');
+      if (Math.abs(calc.gross - origin.amount) > 0.009) errors.push(`O valor da nota precisa ser o da origem (${brl(origin.amount)}). Para outro valor, emita uma nota avulsa.`);
+    }
+    const receivable = !origin && receivableIn?.create ? { dueDate: dateOnly(receivableIn.dueDate) ?? competence, description: clean(receivableIn.description, 255) || null, paymentMethod: receivableIn.paymentMethod ?? 'boleto' } : null;
     if (receivable && receivable.dueDate < competence) warnings.push('O vencimento da conta a receber é antes da competência da nota.');
 
     return {
@@ -230,6 +240,7 @@ export class FiscalInvoiceService {
       issRateForXml: settings.simplesNacional === 3 && !issWithheld ? null : calc.issRate,
       extra: { retentions, reference: clean(body.reference, 255) || null, order: clean(body.order, 60) || null, notes, calc: { base: calc.base, federal: calc.federal, retainedTotal: calc.retainedTotal, lines: calc.lines } } as ExtraData,
       receivable,
+      origin,
       environment: settings.environment,
       errors,
       warnings,
@@ -238,9 +249,12 @@ export class FiscalInvoiceService {
 
   async preview(companyId: number, body: Record<string, unknown>) {
     const built = await this.build(companyId, body);
-    const { extra, ...rest } = built;
+    const { extra, origin, ...rest } = built;
     const place = built.placeOfService ? cityOfIbge(built.placeOfService) : null;
-    return { ...rest, placeLabel: place ? `${place.name}/${place.uf}` : null, reference: extra.reference, order: extra.order, canEmit: built.errors.length === 0 };
+    return {
+      ...rest, placeLabel: place ? `${place.name}/${place.uf}` : null, reference: extra.reference, order: extra.order, canEmit: built.errors.length === 0,
+      origin: origin ? { ...origin.origin, amount: origin.amount, label: `${origin.contract.number} · ${origin.label}` } : null,
+    };
   }
 
   private dataOf(built: Awaited<ReturnType<FiscalInvoiceService['build']>>) {
@@ -262,6 +276,7 @@ export class FiscalInvoiceService {
       federalRetentions: Object.fromEntries(FEDERAL_TAXES.map((t) => [t, built.calc.federal[t].value])) as Prisma.InputJsonValue,
       netValue: built.calc.net,
       receivable: (built.receivable ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+      origin: (built.origin ? { ...built.origin.origin, label: `${built.origin.contract.number} · ${built.origin.label}` } : Prisma.JsonNull) as Prisma.InputJsonValue,
       environment: built.environment,
     };
   }
@@ -276,7 +291,10 @@ export class FiscalInvoiceService {
       if (!replaces) throw new BadRequestException('Só uma nota autorizada pode ser substituída');
     }
     const created = await this.prisma.fiscal_Invoice.create({
-      data: { ...this.dataOf(built), companyId: actor.companyId, status: 'rascunho', createdByUserId: actor.userId, replacesId: replaces?.id ?? null },
+      data: {
+        ...this.dataOf(built), companyId: actor.companyId, status: 'rascunho', createdByUserId: actor.userId, replacesId: replaces?.id ?? null,
+        ...(built.origin ? { links: { create: built.origin.links } } : {}),
+      },
     });
     if (body.emit) return this.emit(actor, created.id);
     return this.get(actor.companyId, created.id);
@@ -285,11 +303,16 @@ export class FiscalInvoiceService {
   async update(actor: FiscalActor, id: number, body: Record<string, unknown>) {
     const found = await this.row(actor.companyId, id);
     if (!['rascunho', 'rejeitada'].includes(found.status)) throw new BadRequestException('Só dá para alterar rascunho ou nota rejeitada');
-    const built = await this.build(actor.companyId, body);
+    const built = await this.build(actor.companyId, body, id);
     // a numeração reservada fica: reenviar com o mesmo número é seguro (Id igual)
     const data = this.dataOf(built);
     if (found.dpsNumber && found.environment !== built.environment) Object.assign(data, { dpsNumber: null, dpsSeries: null, dpsId: null });
-    await this.prisma.fiscal_Invoice.update({ where: { id }, data: { ...data, status: 'rascunho', messages: Prisma.JsonNull } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.fiscal_Invoice.update({ where: { id }, data: { ...data, status: 'rascunho', messages: Prisma.JsonNull } });
+      // vínculos da origem acompanham o que está na nota (os de conta a receber ficam)
+      await tx.fiscal_InvoiceLink.deleteMany({ where: { invoiceId: id, financialRecordId: null } });
+      if (built.origin) await tx.fiscal_InvoiceLink.createMany({ data: built.origin.links.map((l) => ({ ...l, invoiceId: id })) });
+    });
     if (body.emit) return this.emit(actor, id);
     return this.get(actor.companyId, id);
   }
@@ -400,7 +423,7 @@ export class FiscalInvoiceService {
     const [settingsInfo, settings, emitter] = await Promise.all([this.settings.get(actor.companyId), this.settings.settingsRow(actor.companyId), this.settings.emitter(actor.companyId)]);
     if (!settingsInfo.ready) throw new BadRequestException(`Antes de emitir: ${settingsInfo.pending.join(' ')}`);
     // revalida com o cadastro de agora (tomador e serviço podem ter mudado)
-    const rebuilt = await this.build(actor.companyId, this.bodyOf(row));
+    const rebuilt = await this.build(actor.companyId, this.bodyOf(row), id);
     if (rebuilt.errors.length) throw new BadRequestException(rebuilt.errors.join(' '));
     const { cert, client } = await this.client(actor.companyId, settings.environment);
 
@@ -493,11 +516,44 @@ export class FiscalInvoiceService {
       if (row.replacesId) await this.applyReplacement(tx, actor, row.replacesId, id);
       await this.createReceivable(tx, actor, id);
     });
+    if (row.origin && !row.originBilledAt && !row.replacesId) await this.billOrigin(actor, id);
     const settings = await this.settings.settingsRow(actor.companyId);
     if (settings.autoSendEmail) {
       await this.send(actor, id, {}).catch((error) => this.logger.warn(`E-mail da NFS-e ${id} não enviado: ${error instanceof Error ? error.message : error}`));
     }
     return this.get(actor.companyId, id);
+  }
+
+  /**
+   * Fatura a origem (parcela, boletim, OL) com o número da nota autorizada e liga
+   * as contas a receber criadas à nota. Se o faturamento falhar, a nota continua
+   * autorizada e a ficha avisa o que fazer.
+   */
+  private async billOrigin(actor: FiscalActor, id: number) {
+    const row = await this.row(actor.companyId, id);
+    const extra = ((row.service as unknown as { extra?: ExtraData }).extra ?? {}) as ExtraData;
+    try {
+      const billed = await this.origins.bill(actor, row, extra.calc?.lines ?? []);
+      await this.prisma.$transaction(async (tx) => {
+        if (billed.recordIds.length) {
+          await tx.financialRecords.updateMany({ where: { id: { in: billed.recordIds }, companyId: actor.companyId }, data: { fiscalInvoiceId: id, invoiceIssuedAt: row.issuedAt } });
+          await tx.financial_Retention.updateMany({ where: { financialRecordId: { in: billed.recordIds } }, data: { fiscalInvoiceId: id } });
+          const records = await tx.financialRecords.findMany({ where: { id: { in: billed.recordIds } }, select: { id: true, contractInstallmentId: true, measurementId: true } });
+          for (const record of records) {
+            if (record.contractInstallmentId) await tx.fiscal_InvoiceLink.updateMany({ where: { invoiceId: id, installmentId: record.contractInstallmentId }, data: { financialRecordId: record.id } });
+            else await tx.fiscal_InvoiceLink.updateMany({ where: { invoiceId: id, installmentId: null }, data: { financialRecordId: record.id, measurementId: record.measurementId ?? billed.measurementId ?? null } });
+          }
+        } else if (billed.measurementId) {
+          await tx.fiscal_InvoiceLink.updateMany({ where: { invoiceId: id, installmentId: null }, data: { measurementId: billed.measurementId } });
+        }
+        await tx.fiscal_Invoice.update({ where: { id }, data: { originBilledAt: new Date() } });
+      });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'erro desconhecido';
+      const messages = [...((row.messages as Array<{ code: string; message: string }> | null) ?? []), { code: 'faturamento', message: `A nota foi autorizada, mas o faturamento não foi feito: ${reason} Fature pela origem escolhendo "nota emitida fora", com o número ${row.number}.` }];
+      await this.prisma.fiscal_Invoice.update({ where: { id }, data: { messages: messages as unknown as Prisma.InputJsonValue } });
+      this.logger.warn(`Faturamento da origem da NFS-e ${id} falhou: ${reason}`);
+    }
   }
 
   /** A nota nova assume os vínculos e as contas da antiga, que vira "substituída". */
@@ -578,13 +634,23 @@ export class FiscalInvoiceService {
     }
 
     const cancelReceivables = body.cancelReceivables !== false;
+    const originLinks = row.links.filter((l) => l.installmentId || l.measurementId);
     await this.prisma.$transaction(async (tx) => {
       await tx.fiscal_Invoice.update({ where: { id }, data: { status: 'cancelada', cancelReason: reason, cancelledAt: new Date(), cancelledByUserId: actor.userId } });
       await tx.fiscal_InvoiceEvent.create({ data: { invoiceId: id, kind: 'cancelada', detail: { motivo: reason, codigo: reasonCode, ...eventInfo } as Prisma.InputJsonValue, xmlKey: eventKey, userId: actor.userId } });
-      if (cancelReceivables && records.length) {
+      if (cancelReceivables && records.length && !originLinks.length) {
         await tx.financialRecords.updateMany({ where: { id: { in: records.map((r) => r.id) } }, data: { status: 'cancelled', inactiveAt: new Date() } });
       }
     });
+    // nota de parcela ou boletim: desfaz o faturamento (volta para "a faturar")
+    if (cancelReceivables && originLinks.length && records.length) {
+      try {
+        await this.origins.unbill(actor, originLinks);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'erro desconhecido';
+        await this.prisma.fiscal_Invoice.update({ where: { id }, data: { messages: [{ code: 'faturamento', message: `Nota cancelada, mas o faturamento não foi desfeito: ${reason}` }] } });
+      }
+    }
     return this.get(actor.companyId, id);
   }
 
@@ -594,7 +660,7 @@ export class FiscalInvoiceService {
     if (row.status !== 'autorizada' || row.provider !== 'sefin') throw new BadRequestException('Só nota autorizada emitida pelo sistema pode ser substituída');
     const pending = await this.prisma.fiscal_Invoice.findFirst({ where: { companyId: actor.companyId, replacesId: id, status: { in: ['rascunho', 'rejeitada', 'emitindo'] } } });
     if (pending) return this.get(actor.companyId, pending.id);
-    return this.create(actor, { ...this.bodyOf(row), replacesId: id, receivable: undefined });
+    return this.create(actor, { ...this.bodyOf(row), replacesId: id, receivable: undefined, origin: undefined });
   }
 
   // ------------------------------------------------------------------ consulta
@@ -617,7 +683,10 @@ export class FiscalInvoiceService {
       description: row.description, placeOfService: row.placeOfService, competence: row.competence.toISOString().slice(0, 10),
       grossValue: Number(row.grossValue), discountValue: Number(row.discountValue), issRate: row.issRate === null ? null : Number(row.issRate), issWithheld: row.issWithheld,
       retentions: extra.retentions ?? {}, reference: extra.reference ?? null, order: extra.order ?? null, notes: extra.notes ?? '',
-      receivable: row.receivable ? { create: true, ...(row.receivable as object) } : undefined,
+      receivable: row.origin
+        ? { dueDate: (row.origin as { dueDate?: string }).dueDate, paymentMethod: (row.origin as { paymentMethod?: string }).paymentMethod }
+        : row.receivable ? { create: true, ...(row.receivable as object) } : undefined,
+      origin: row.origin && !row.originBilledAt ? row.origin : undefined,
     } as Record<string, unknown>;
   }
 
@@ -661,6 +730,8 @@ export class FiscalInvoiceService {
       externalUrl: row.externalUrl,
       messages: (row.messages as Array<{ code: string; message: string }> | null) ?? [],
       receivable: row.receivable,
+      origin: row.origin as Record<string, unknown> | null,
+      originBilledAt: iso(row.originBilledAt),
       replacesId: row.replacesId,
       replacedById: row.replacedById,
       cancelReason: row.cancelReason,

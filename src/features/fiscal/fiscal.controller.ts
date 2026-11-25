@@ -3,6 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Request, Response } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { FiscalInvoiceService } from './invoice.service';
+import { InvoiceOriginService } from './invoice.origin';
 import { FiscalActor, FiscalSettingsService } from './settings.service';
 
 type Json = Record<string, unknown>;
@@ -21,7 +22,7 @@ const sendFile = (res: Response, body: Buffer, fileName: string, type: string, d
 /** Área fiscal: configuração (certificado, série, serviços fiscais) e notas fiscais de serviço. */
 @Controller('fiscal')
 export class FiscalController {
-  constructor(private readonly settings: FiscalSettingsService, private readonly invoices: FiscalInvoiceService) {}
+  constructor(private readonly settings: FiscalSettingsService, private readonly invoices: FiscalInvoiceService, private readonly origins: InvoiceOriginService) {}
 
   // configuração
   @Permissions('view_nfse') @Get('settings')
@@ -65,6 +66,9 @@ export class FiscalController {
 
   @Permissions('view_nfse') @Post('invoices/preview') @HttpCode(200)
   preview(@Req() req: Request, @Body() body: Json) { return this.invoices.preview(actorOf(req).companyId, body ?? {}); }
+
+  @Permissions('emitir_nfse') @Get('invoices/from-origin')
+  fromOrigin(@Req() req: Request, @Query() query: Json) { return this.origins.suggest(actorOf(req).companyId, query ?? {}); }
 
   @Permissions('emitir_nfse') @Post('invoices/external')
   external(@Req() req: Request, @Body() body: Json) { return this.invoices.registerExternal(actorOf(req), body ?? {}); }
