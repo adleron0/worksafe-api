@@ -105,7 +105,7 @@ describe('Conversas: WhatsApp pelo Evolution (e2e)', () => {
 
     const list = await api().get('/chat/conversations').set(auth(company.id)).expect(200);
     expect(list.body.items).toHaveLength(1);
-    expect(list.body.items[0]).toMatchObject({ sector: 'servicos', unread: 1, lastMessagePreview: 'Bom dia, queria um orçamento', customer: { id: customer.id, name: 'Construtora Alfa' }, contact: { phone: '5511988887777', name: 'Construtora Alfa' } });
+    expect(list.body.items[0]).toMatchObject({ sector: 'servicos', unread: 1, lastMessagePreview: 'Bom dia, queria um orçamento', customer: { id: customer.id, name: 'Construtora Alfa' }, contact: { phone: '5511988887777', name: 'Carlos Cliente' } });
     expect(list.body.counts).toMatchObject({ abertas: 1, sem_dono: 1, nao_lidas: 1 });
     expect(await db.chat_Message.count()).toBe(1);
   });

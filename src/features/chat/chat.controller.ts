@@ -10,6 +10,7 @@ import { ChatActor, ChatChannelsService } from './chat-channels.service';
 import { ChatConversationsService } from './chat-conversations.service';
 import { ChatInboundService } from './chat-inbound.service';
 import { ChatEventsService } from './chat-events.service';
+import { ChatCustomerService } from './chat-customer.service';
 import { MAX_OUT } from './chat-media.service';
 
 type Json = Record<string, any>;
@@ -27,6 +28,7 @@ export class ChatController {
     private readonly conversations: ChatConversationsService,
     private readonly inbound: ChatInboundService,
     private readonly events: ChatEventsService,
+    private readonly customerSearch: ChatCustomerService,
   ) {}
 
   private seeing(req: Request) {
@@ -129,6 +131,15 @@ export class ChatController {
   retryMedia(@Param('id', ParseIntPipe) id: number, @Param('messageId', ParseIntPipe) messageId: number, @Req() req: Request) {
     return this.conversations.retryMedia(this.seeing(req), id, messageId);
   }
+
+  @Patch('conversations/:id/contact')
+  contact(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.conversations.updateContact(this.seeing(req), id, body ?? {}); }
+
+  @Get('conversations/:id/customer')
+  customer(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.conversations.customerSummary(this.seeing(req), id); }
+
+  @Get('customers')
+  customers(@Req() req: Request, @Query('search') search?: string) { return this.customerSearch.search(this.seeing(req), search ?? ''); }
 
   @Post('conversations/:id/hide') @HttpCode(200)
   hide(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.conversations.hide(this.seeing(req), id); }

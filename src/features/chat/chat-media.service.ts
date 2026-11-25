@@ -30,7 +30,7 @@ export interface ChatMedia {
   size?: number | null;
   seconds?: number | null;
   ptt?: boolean;
-  /** pending (baixando) | ok | failed | too_big */
+  /** pending (baixando) | ok | failed | too_big | history (do histórico: baixa quando alguém tocar) */
   /** só do WhatsApp: a mensagem original (com a chave da mídia) até baixar */
   raw?: { key: Record<string, unknown>; message?: Record<string, unknown> } | null;
   state?: string;

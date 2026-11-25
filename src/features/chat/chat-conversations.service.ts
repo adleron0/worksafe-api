@@ -11,6 +11,7 @@ import { ChatChannelsService } from './chat-channels.service';
 import { ChatInstagramService } from './chat-instagram.service';
 import { ChatMedia, ChatMediaService } from './chat-media.service';
 import { signerOf } from './chat-signature';
+import { ChatCustomerService } from './chat-customer.service';
 
 const PAGE = 60;
 
@@ -26,6 +27,7 @@ export class ChatConversationsService {
     private readonly instagram: ChatInstagramService,
     private readonly media: ChatMediaService,
     private readonly channels: ChatChannelsService,
+    private readonly customerCards: ChatCustomerService,
   ) {}
 
   private changed(conversation: { companyId: number; channelId: number; id: number; assignedUserId?: number | null }, kind: 'message' | 'conversation' = 'conversation') {
@@ -110,7 +112,7 @@ export class ChatConversationsService {
     return {
       id: r.id, status: r.status, sector: r.sector, unread: r.unread, lastMessageAt: r.lastMessageAt, lastMessagePreview: r.lastMessagePreview, lastDirection: r.lastDirection,
       channel: r.channel,
-      contact: { id: r.contact.id, name: r.contact.name || customer?.name || r.contact.pushName || null, pushName: r.contact.pushName, phone: r.contact.phone, avatarUrl: r.contact.avatarUrl, optOut: r.contact.optOut, isNew: !r.contact.firstInboundAt },
+      contact: { id: r.contact.id, name: r.contact.name || r.contact.pushName || customer?.name || null, pushName: r.contact.pushName, phone: r.contact.phone, avatarUrl: r.contact.avatarUrl, optOut: r.contact.optOut, isNew: !r.contact.firstInboundAt },
       customer,
       assignedUser: r.assignedUserId ? users.get(r.assignedUserId) ?? { id: r.assignedUserId, name: 'Usuário', imageUrl: null } : null,
     };
@@ -288,6 +290,50 @@ export class ChatConversationsService {
       await this.prisma.chat_Message.create({ data: { companyId: actor.companyId, channelId: conversation.channelId, conversationId: id, direction: 'note', type: 'event', text, status: 'sent', origin: 'system', sentByUserId: actor.userId } });
     }
     return this.get(actor, id);
+  }
+
+  /** Ficha do contato: vincular/desvincular cliente, nome e "não quer receber". */
+  async updateContact(actor: ChatActor, id: number, body: { customerId?: unknown; name?: unknown; optOut?: unknown }) {
+    if (!['responder_conversas', 'canais_conversas'].some((p) => actor.permissions.includes(p))) throw new ForbiddenException('Você não tem permissão para alterar o contato.');
+    const conversation = await this.load(actor, id);
+    const contact = conversation.contact;
+    const data: Prisma.Chat_ContactUpdateInput = {};
+    const notes: string[] = [];
+    if (body.customerId !== undefined) {
+      if (body.customerId) {
+        const customer = await this.customerCards.assertCustomer(actor.companyId, Number(body.customerId));
+        if (customer.id !== contact.customerId) notes.push(`Vinculado ao cliente ${customer.name}`);
+        data.customerId = customer.id;
+      } else if (contact.customerId) {
+        notes.push('Cliente desvinculado');
+        data.customerId = null;
+      }
+    }
+    if (body.name !== undefined) {
+      const name = String(body.name ?? '').trim().slice(0, 160);
+      data.name = name || null;
+    }
+    if (body.optOut !== undefined) {
+      const optOut = body.optOut === true;
+      if (optOut !== contact.optOut) {
+        data.optOut = optOut;
+        data.optOutAt = optOut ? new Date() : null;
+        notes.push(optOut ? 'Marcado como "não quer receber mensagens": os envios foram travados' : 'Voltou a receber mensagens');
+      }
+    }
+    await this.prisma.chat_Contact.update({ where: { id: contact.id }, data });
+    for (const text of notes) {
+      await this.prisma.chat_Message.create({ data: { companyId: actor.companyId, channelId: conversation.channelId, conversationId: id, direction: 'note', type: 'event', text, status: 'sent', origin: 'system', sentByUserId: actor.userId } });
+    }
+    this.changed(conversation);
+    return this.get(actor, id);
+  }
+
+  /** Resumo do cliente vinculado à conversa. */
+  async customerSummary(actor: ChatActor, id: number) {
+    const conversation = await this.load(actor, id);
+    if (!conversation.contact.customerId) return { customer: null };
+    return this.customerCards.summary(actor, conversation.contact.customerId);
   }
 
   /** Ocultar do sistema: apaga a conversa e deixa de gravar esse contato. */
