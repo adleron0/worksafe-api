@@ -19,6 +19,16 @@ const round = (value: number) => Math.round(value * 10000) / 10000;
 
 export interface ModelTarget { provider: string; model: string }
 
+/** Cotação usada para mostrar o gasto em reais. */
+export interface FxInfo { rate: number; source: 'manual' | 'bcb' | 'aproximada'; date: string | null }
+/** Sem tela nem Banco Central (fora do ar e nada guardado), usa esta. */
+const FALLBACK_RATE = 5.5;
+const FX_TTL = 6 * 3600 * 1000;
+let fxCache: { rate: number; date: string; at: number } | null = null;
+/** Para os testes. */
+export const resetFxCache = () => { fxCache = null; };
+const brl = (value: number) => `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 /**
  * Situação do teto para uma execução:
  * - ok: segue normal;
@@ -63,6 +73,42 @@ export class UsageService {
     const own = settings?.monthlyBudgetUsd != null ? Number(settings.monthlyBudgetUsd) : null;
     if (own == null) return env ?? DEFAULT_BUDGET;
     return env == null ? own : Math.min(own, env);
+  }
+
+  /**
+   * PTAX de venda do dólar (Banco Central), do dia ou do último dia útil
+   * (até 7 dias para trás). Guardada por 6 horas; se o Banco Central falhar,
+   * usa a última que deu certo.
+   */
+  async bcbRate(): Promise<{ rate: number; date: string } | null> {
+    if (fxCache && Date.now() - fxCache.at < FX_TTL) return { rate: fxCache.rate, date: fxCache.date };
+    // AI_FX_URL=off desliga a consulta (testes); outro valor troca o endereço
+    const base = process.env.AI_FX_URL || 'https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata';
+    if (base === 'off') return null;
+    try {
+      const end = new Date(Date.now() - 3 * 3600 * 1000);
+      const start = new Date(end.getTime() - 7 * 86400 * 1000);
+      const us = (d: Date) => `${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}-${d.getUTCFullYear()}`;
+      const url = `${base}/CotacaoDolarPeriodo(dataInicial=@dataInicial,dataFinalCotacao=@dataFinalCotacao)?@dataInicial='${us(start)}'&@dataFinalCotacao='${us(end)}'&$format=json&$select=cotacaoVenda,dataHoraCotacao`;
+      const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      if (!response.ok) throw new Error(`BCB ${response.status}`);
+      const body = (await response.json()) as { value?: Array<{ cotacaoVenda: number; dataHoraCotacao: string }> };
+      const last = (body.value ?? []).filter((row) => Number(row.cotacaoVenda) > 0).pop();
+      if (!last) throw new Error('BCB sem cotação');
+      fxCache = { rate: Number(last.cotacaoVenda), date: String(last.dataHoraCotacao).slice(0, 10), at: Date.now() };
+    } catch (error) {
+      console.error('[ai] cotação do dólar falhou', (error as Error).message);
+      if (fxCache) fxCache.at = Date.now() - FX_TTL + 15 * 60 * 1000; // tenta de novo em 15 min
+    }
+    return fxCache ? { rate: fxCache.rate, date: fxCache.date } : null;
+  }
+
+  /** Cotação do dólar da empresa: a da tela, senão a PTAX do dia, senão uma aproximada. */
+  async fx(settings: Ai_Settings | null): Promise<FxInfo> {
+    const manual = settings?.usdBrlRate != null ? Number(settings.usdBrlRate) : null;
+    if (manual && manual > 0) return { rate: manual, source: 'manual', date: null };
+    const bcb = await this.bcbRate();
+    return bcb ? { rate: bcb.rate, source: 'bcb', date: bcb.date } : { rate: FALLBACK_RATE, source: 'aproximada', date: null };
   }
 
   async record(companyId: number, provider: string, model: string, usage: ChatUsage, cost: number): Promise<void> {
@@ -140,11 +186,12 @@ export class UsageService {
       }
     }
     const used = Math.round((spent / budget) * 100);
+    const { rate } = await this.fx(settings);
     const exceed = settings?.onExceed === 'economico' ? 'passar todos os bots para o modelo econômico' : 'parar os bots';
     await this.prisma.ai_Report.create({
       data: {
         companyId, title: `Gasto com IA chegou a ${used}% do teto do mês`,
-        body: `O gasto com IA em ${month} está em **US$ ${spent.toFixed(2)}**, ${used}% do teto de **US$ ${budget.toFixed(2)}**.\n\nAo atingir o teto, o sistema vai ${exceed}. Ajuste em Bots → Configurar bots → Economia.`,
+        body: `O gasto com IA em ${month} está em **${brl(spent * rate)}**, ${used}% do teto de **${brl(budget * rate)}** (dólar a ${brl(rate)}).\n\nAo atingir o teto, o sistema vai ${exceed}. Ajuste em Bots → Configurar bots → Economia.`,
       },
     });
   }
@@ -156,6 +203,7 @@ export class UsageService {
     const budget = this.effectiveBudget(settings);
     const warnPercent = settings?.warnPercent ?? 80;
     return {
+      fx: await this.fx(settings),
       month, budget, spent: Number(spent.toFixed(4)), percent: budget > 0 ? Math.round((spent / budget) * 100) : null,
       warning: budget > 0 && spent >= (budget * warnPercent) / 100,
       rows: rows.map((row) => ({ provider: row.provider, model: row.model, calls: row.calls, inputTokens: row.inputTokens, outputTokens: row.outputTokens, costUsd: Number(Number(row.costUsd).toFixed(4)) })),
@@ -178,6 +226,8 @@ export class UsageService {
       economyModel: settings?.economyModel ?? null,
       maxPrecision: !!settings?.maxPrecision,
       botBudgets: (settings?.botBudgets ?? {}) as Record<string, number>,
+      usdBrlRate: settings?.usdBrlRate != null ? Number(settings.usdBrlRate) : null,
+      fx: await this.fx(settings),
       envCap: this.envCap(),
       budget, spent: round(spent),
       percent: budget > 0 ? Math.round((spent / budget) * 100) : null,
@@ -213,6 +263,15 @@ export class UsageService {
         if (!PROVIDER_LABELS[provider] && !isTestProvider(provider)) throw new BadRequestException('Fornecedor de IA inválido');
         if (model.length < 3) throw new BadRequestException('Informe o modelo econômico');
         data.economyProvider = provider; data.economyModel = model;
+      }
+    }
+    if ('usdBrlRate' in body) {
+      const raw = body.usdBrlRate;
+      if (raw === null || raw === '') data.usdBrlRate = null;
+      else {
+        const value = Number(raw);
+        if (!Number.isFinite(value) || value < 1 || value > 20) throw new BadRequestException('Cotação do dólar inválida (de R$ 1 a R$ 20)');
+        data.usdBrlRate = Math.round(value * 10000) / 10000;
       }
     }
     if ('maxPrecision' in body) data.maxPrecision = body.maxPrecision === true || body.maxPrecision === 'true';
@@ -278,7 +337,7 @@ export class UsageService {
     if (other > 0.00005) list.push({ ...empty('other', null, 'Resumos de conversa e outros'), costUsd: other });
     if (mcpCalls) list.push({ ...empty('mcp', null, 'MCP (app de IA da pessoa; o modelo não é cobrado aqui)'), runs: mcpCalls });
     return {
-      month, total: usage.spent, budget: usage.budget,
+      fx: usage.fx, month, total: usage.spent, budget: usage.budget,
       rows: list.map((row) => ({ ...row, costUsd: round(row.costUsd), economyCostUsd: round(row.economyCostUsd) })),
       byModel: usage.rows,
     };

@@ -4,7 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as request from 'supertest';
 import { encryptPayload } from 'src/utils/crypto';
 import { FakeProvider } from 'src/features/ai/providers/fake.provider';
-import { monthOf } from 'src/features/ai/engine/usage.service';
+import { monthOf, resetFxCache } from 'src/features/ai/engine/usage.service';
 import { bootTestApp, httpServer, shutdownTestApp, flushCache } from './setup/app';
 import { resetDb, testDb } from './setup/db';
 import { makeCompany, makeCourse, makeCourseClass, makeSeller } from './setup/factories';
@@ -188,6 +188,46 @@ describe('Bots de IA: economia (e2e)', () => {
     expect(out.rows.find((row: any) => row.kind === 'schedule')).toMatchObject({ label: 'Agendamentos', runs: 1, costUsd: 0.5 });
     expect(out.rows.find((row: any) => row.kind === 'mcp')).toMatchObject({ runs: 1, costUsd: 0 });
     expect(out.byModel.map((row: any) => row.model)).toEqual(['fake-eco']);
+  });
+
+  it('cotação do dólar: PTAX do Banco Central (último dia útil), manual da tela e aproximada se falhar', async () => {
+    const { company } = await cenario();
+    resetFxCache();
+    // sem consulta (AI_FX_URL=off): aproximada
+    expect((await api().get('/ai/budget').set(auth(company.id)).expect(200)).body.fx).toEqual({ rate: 5.5, source: 'aproximada', date: null });
+
+    process.env.AI_FX_URL = 'https://bcb.teste/odata';
+    const realFetch = global.fetch;
+    const calls: string[] = [];
+    global.fetch = (async (url: string) => {
+      calls.push(String(url));
+      return new Response(JSON.stringify({ value: [{ cotacaoVenda: 5.7851, dataHoraCotacao: '2026-11-20 13:07:26.01' }, { cotacaoVenda: 5.8573, dataHoraCotacao: '2026-11-23 13:07:40.48' }] }), { status: 200 });
+    }) as typeof fetch;
+    try {
+      resetFxCache();
+      const budget = (await api().get('/ai/budget').set(auth(company.id)).expect(200)).body;
+      expect(budget.fx).toEqual({ rate: 5.8573, source: 'bcb', date: '2026-11-23' });
+      expect(calls[0]).toContain('https://bcb.teste/odata/CotacaoDolarPeriodo');
+      // guardada: a auditoria não consulta de novo
+      const usage = (await api().get('/ai/usage/bots').set(auth(company.id)).expect(200)).body;
+      expect(usage.fx).toMatchObject({ rate: 5.8573, source: 'bcb' });
+      expect(calls).toHaveLength(1);
+
+      // cotação manual vence a do Banco Central; vazia volta para ela
+      await api().put('/ai/budget').set(auth(company.id)).send({ usdBrlRate: 0.5 }).expect(400);
+      const manual = (await api().put('/ai/budget').set(auth(company.id)).send({ usdBrlRate: '6.1' }).expect(200)).body;
+      expect(manual).toMatchObject({ usdBrlRate: 6.1, fx: { rate: 6.1, source: 'manual' } });
+      expect((await api().get('/ai/usage').set(auth(company.id)).expect(200)).body.fx).toMatchObject({ rate: 6.1, source: 'manual' });
+      expect((await api().put('/ai/budget').set(auth(company.id)).send({ usdBrlRate: null }).expect(200)).body).toMatchObject({ usdBrlRate: null, fx: { source: 'bcb' } });
+
+      // Banco Central fora do ar: fica a última que deu certo
+      global.fetch = (async () => new Response('erro', { status: 500 })) as typeof fetch;
+      expect(await (await import('src/features/ai/engine/usage.service')).UsageService.prototype.bcbRate.call({})).toEqual({ rate: 5.8573, date: '2026-11-23' });
+    } finally {
+      global.fetch = realFetch;
+      process.env.AI_FX_URL = 'off';
+      resetFxCache();
+    }
   });
 
   it('aplica o econômico a vários bots; ligar sem modelo é recusado', async () => {

@@ -296,6 +296,8 @@ model Ai_Settings {
   maxPrecision     Boolean  @default(false)
   // teto por bot: { "<botId>": dólares }
   botBudgets       Json?
+  // cotação do dólar em reais para mostrar o gasto; vazia usa a PTAX do Banco Central do dia
+  usdBrlRate       Decimal? @db.Decimal(8, 4)
   // mês ("2026-11") em que o aviso já foi dado
   warnedMonth      String?  @db.VarChar(7)
   updatedByUserId  Int?
