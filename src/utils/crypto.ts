@@ -1,5 +1,15 @@
 import * as CryptoJS from 'crypto-js'; // Importação correta para CommonJS
 
+// Sem a variável, a chave cairia no valor de exemplo abaixo (pública no código):
+// fora de desenvolvimento/teste a API não sobe.
+if (
+  !process.env.PAYLOAD_ACCESS_SECRET &&
+  !['development', 'test'].includes(String(process.env.BASE_SETUP)) &&
+  process.env.NODE_ENV !== 'test'
+) {
+  throw new Error('PAYLOAD_ACCESS_SECRET não configurada');
+}
+
 // Chave secreta (precisa ter 32 bytes para AES-256)
 const SECRET_KEY = CryptoJS.enc.Utf8.parse(
   process.env.PAYLOAD_ACCESS_SECRET || '12345678901234567890123456789012',
