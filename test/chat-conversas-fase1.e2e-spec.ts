@@ -202,7 +202,7 @@ describe('Conversas fase 1: tempo real, mídia e Instagram (e2e)', () => {
     nock(EVO).post(/\/message\/sendMedia\/.*/, (body) => { sentMedia = body; return true; }).reply(201, { key: { id: 'OUTIMG' } });
     const sent = (await api().post(`/chat/conversations/${conv.id}/media`).set(auth(company.id)).field('caption', 'Segue a foto').attach('file', file, { filename: 'obra.jpg', contentType: 'image/jpeg' }).expect(200)).body;
     expect(sent).toMatchObject({ type: 'image', text: 'Segue a foto', status: 'sent', externalId: 'OUTIMG' });
-    expect(sentMedia).toMatchObject({ number: '5511988887777', mediatype: 'image', mimetype: 'image/jpeg', media: file.toString('base64'), caption: '*Vendedor:*\nSegue a foto' });
+    expect(sentMedia).toMatchObject({ number: '5511988887777', mediatype: 'image', mimetype: 'image/jpeg', media: file.toString('base64'), caption: '_Vendedor:_\nSegue a foto' });
 
     let sentAudio: any = null;
     nock(EVO).post(/\/message\/sendWhatsAppAudio\/.*/, (body) => { sentAudio = body; return true; }).reply(201, { key: { id: 'OUTAUD' } });
@@ -232,13 +232,13 @@ describe('Conversas fase 1: tempo real, mídia e Instagram (e2e)', () => {
     expect((await api().get(`/chat/conversations/${conv.id}`).set(auth(company.id)).expect(200)).body.signature).toBe('Vendedor');
     const sent = (await api().post(`/chat/conversations/${conv.id}/messages`).set(auth(company.id)).send({ text: 'Bom dia!' }).expect(200)).body;
     expect(sent.text).toBe('Bom dia!');
-    expect(texts[0]).toBe('*Vendedor:*\nBom dia!');
+    expect(texts[0]).toBe('_Vendedor:_\nBom dia!');
 
     const settings = (await api().get(`/chat/channels/${id}`).set(auth(company.id)).expect(200)).body.settings;
     expect(settings.assinatura).toEqual({ enabled: true, formato: 'primeiro' });
     await api().put(`/chat/channels/${id}`).set(auth(company.id)).send({ settings: { ...settings, assinatura: { enabled: true, formato: 'completo' } } }).expect(200);
     await api().post(`/chat/conversations/${conv.id}/messages`).set(auth(company.id)).send({ text: 'Segue o valor.' }).expect(200);
-    expect(texts[1]).toBe('*Vendedor Teste:*\nSegue o valor.');
+    expect(texts[1]).toBe('_Vendedor Teste:_\nSegue o valor.');
 
     await api().put(`/chat/channels/${id}`).set(auth(company.id)).send({ settings: { ...settings, assinatura: { enabled: false, formato: 'completo' } } }).expect(200);
     expect((await api().get(`/chat/conversations/${conv.id}`).set(auth(company.id)).expect(200)).body.signature).toBeNull();
@@ -250,7 +250,7 @@ describe('Conversas fase 1: tempo real, mídia e Instagram (e2e)', () => {
     const bot = await db.ai_Bot.create({ data: { companyId: company.id, key: 'bruno', name: 'Bot Operação', persona: 'Bruno', permissionKey: 'usar_bots', description: 'Operação', instructions: 'x', tools: [], provider: 'fake', model: 'fake' } as any });
     await db.chat_Message.create({ data: { companyId: company.id, channelId: id, conversationId: conv.id, direction: 'out', type: 'text', text: 'Olá! Sou o assistente.', status: 'queued', origin: 'bot', sentByBotId: bot.id, scheduledAt: new Date() } });
     await sendQueue();
-    expect(texts[3]).toBe('*Bruno:*\nOlá! Sou o assistente.');
+    expect(texts[3]).toBe('_Bruno:_\nOlá! Sou o assistente.');
   });
 
   // ---------------------------------------------------------------- Instagram

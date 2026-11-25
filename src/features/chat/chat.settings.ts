@@ -76,10 +76,10 @@ export function signatureName(name: string | null | undefined, formato: ChatSign
   return (formato === 'completo' ? clean : clean.split(' ')[0]).slice(0, 60);
 }
 
-/** "*Júlio:*" + quebra de linha no WhatsApp (negrito); "Júlio:" no Instagram (não tem negrito). */
+/** "_Júlio:_" + quebra de linha no WhatsApp (itálico); "Júlio:" no Instagram (não tem negrito). */
 export function signText(text: string, name: string | null, type: string): string {
   if (!name || !text) return text;
-  return type === 'instagram' ? `${name}:\n${text}` : `*${name}:*\n${text}`;
+  return type === 'instagram' ? `${name}:\n${text}` : `_${name}:_\n${text}`;
 }
 
 /** Início do dia em São Paulo (para os limites "por dia"). */

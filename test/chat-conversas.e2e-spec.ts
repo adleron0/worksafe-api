@@ -116,7 +116,7 @@ describe('Conversas: WhatsApp pelo Evolution (e2e)', () => {
     await hook(id, secret, inbound('IN1', '5511988887777', 'Oi')).expect(200);
     const conv = (await api().get('/chat/conversations').set(auth(company.id))).body.items[0];
 
-    nock(EVO).post(/\/message\/sendText\/.*/, (body) => body.number === '5511988887777' && body.text === '*Vendedor:*\nOlá Carlos, tudo bem?' && body.linkPreview === false).reply(201, { key: { id: 'OUT1' } });
+    nock(EVO).post(/\/message\/sendText\/.*/, (body) => body.number === '5511988887777' && body.text === '_Vendedor:_\nOlá Carlos, tudo bem?' && body.linkPreview === false).reply(201, { key: { id: 'OUT1' } });
     const sent = await api().post(`/chat/conversations/${conv.id}/messages`).set(auth(company.id)).send({ text: 'Olá Carlos, tudo bem?' }).expect(200);
     expect(sent.body).toMatchObject({ status: 'sent', externalId: 'OUT1', sentByUserId: userId });
 
