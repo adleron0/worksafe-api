@@ -72,15 +72,16 @@ export function stepsOn(schedule: Schedule | null | undefined, start: string | n
 }
 
 /**
- * Projeção de término pelo ritmo: % ganho por dia corrido entre o início e o
- * último RDO. Sem avanço ainda, sem projeção.
+ * Projeção de término pelo ritmo: % ganho por dia corrido entre o início e
+ * `asOf` (hoje, ou o fim real). Dias parados depois do último RDO contam: o
+ * ritmo cai e a projeção anda. Sem avanço ainda, sem projeção.
  */
-export function projectEnd(start: string | null, done: number | null, lastDate: string | null, plannedEnd: string | null) {
-  if (!start || done === null || !lastDate || done <= 0) return { date: null, delayDays: null, ratePerDay: null };
-  const days = Math.max(1, daysBetween(start, lastDate) + 1);
+export function projectEnd(start: string | null, done: number | null, asOf: string | null, plannedEnd: string | null) {
+  if (!start || done === null || !asOf || done <= 0) return { date: null, delayDays: null, ratePerDay: null };
+  const days = Math.max(1, daysBetween(start, asOf) + 1);
   const rate = done / days;
-  if (done >= 100) return { date: lastDate, delayDays: plannedEnd ? Math.max(0, daysBetween(plannedEnd, lastDate)) : null, ratePerDay: round2(rate) };
-  const date = addDays(lastDate, Math.ceil((100 - done) / rate));
+  if (done >= 100) return { date: asOf, delayDays: plannedEnd ? Math.max(0, daysBetween(plannedEnd, asOf)) : null, ratePerDay: round2(rate) };
+  const date = addDays(asOf, Math.ceil((100 - done) / rate));
   return { date, delayDays: plannedEnd ? daysBetween(plannedEnd, date) : null, ratePerDay: round2(rate) };
 }
 

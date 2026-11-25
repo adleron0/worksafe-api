@@ -88,6 +88,14 @@ describe('OS como documento (e2e)', () => {
 
   it('replanejar guarda a linha de base e não tira etapa com avanço', async () => {
     const { h, id } = await obra();
+    // salvar com o mesmo cronograma, na ordem de chaves da tela, não conta como replanejar
+    const same = (await api().get(`/service-orders/${id}`).set(h).expect(200)).body.schedule;
+    const echoed = (await api().put(`/service-orders/${id}`).set(h).send({ schedule: { steps: same.steps.map((s: any) => ({ duration: s.duration, details: '', start: s.start, title: s.title })), unit: same.unit } }).expect(200)).body;
+    expect(echoed.baseline).toBeNull();
+    // escrever o que fazer numa etapa também não
+    const detailed = (await api().put(`/service-orders/${id}`).set(h).send({ schedule: { unit: same.unit, steps: same.steps.map((s: any, i: number) => ({ ...s, details: i === 0 ? 'Isolar a área' : '' })) } }).expect(200)).body;
+    expect(detailed.schedule.steps[0].details).toBe('Isolar a área');
+    expect(detailed.baseline).toBeNull();
     await iniciar(h, id, day(-3));
     await api().post(`/service-orders/${id}/reports`).set(h).send({ date: day(-1), progress: [{ step: 0, percent: 100 }, { step: 1, percent: 30 }] }).expect(201);
     const novo = { unit: 'dia', steps: [{ title: 'Mobilização', start: 1, duration: 2 }, { title: 'Ancoragens', start: 3, duration: 6, details: 'Chuva atrasou' }, { title: 'Cabos', start: 9, duration: 4 }] };

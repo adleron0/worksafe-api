@@ -206,7 +206,7 @@ export class OrderDocumentService {
     const timeline = this.timelineOf(row, reports);
     return {
       ...sheet, options,
-      timeline: { days: timeline.days, curve: timeline.curve, projection: timeline.projection, end: timeline.end },
+      timeline: { start: timeline.start, today: timeline.today, days: timeline.days, curve: timeline.curve, projection: timeline.projection, end: timeline.end, done: timeline.done },
       reports: options.reports ? [...reports].reverse().slice(0, 120).map((report) => ({
         date: iso(report.date), shift: report.shift, weather: report.weather, weatherEnd: report.weatherEnd,
         activities: report.activities, people: ((report.crew as unknown[]) ?? []).length,
@@ -263,8 +263,7 @@ export class OrderDocumentService {
         curve.push({ date, planned: plannedPercent(schedule, started, date), done: reached ? done : null });
       }
     }
-    const lastReport = reports.length ? iso(reports[reports.length - 1].date) : null;
-    return { start, end, today: now, days, curve, projection: projectEnd(started, done, lastReport, end), done };
+    return { start, end, today: now, days, curve, projection: projectEnd(started, done, until, end), done };
   }
 
   async timeline(actor: OrderActor, id: number) {

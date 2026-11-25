@@ -486,11 +486,17 @@ export class ServiceOrderService {
       const title = scheduleSteps(row.schedule as Schedule | null)[used]?.title ?? `etapa ${used + 1}`;
       throw new BadRequestException(`A etapa "${title}" já tem avanço lançado no RDO e não pode sair do cronograma`);
     }
-    const changed = JSON.stringify(schedule) !== JSON.stringify(row.schedule ?? null);
+    // compara os dois já normalizados: a ordem das chaves no JSON da proposta não pode contar como mudança
+    let before: Schedule | null = null;
+    try { before = row.schedule ? parseSchedule(row.schedule) : null; } catch { before = null; }
+    const changed = JSON.stringify(schedule) !== JSON.stringify(before);
     if (!changed) return {};
+    // replanejar é mudar etapas, início ou duração; só escrever o que fazer em cada etapa não é
+    const dates = (value: Schedule | null) => JSON.stringify({ unit: value?.unit ?? 'dia', steps: (value?.steps ?? []).map((step) => [step.title, step.start, step.duration]) });
+    const replanned = dates(schedule) !== dates(before);
     return {
       schedule: schedule as unknown as Prisma.InputJsonValue,
-      ...(row.baseline || !row.schedule ? {} : { baseline: row.schedule as Prisma.InputJsonValue }),
+      ...(row.baseline || !row.schedule || !replanned ? {} : { baseline: row.schedule as Prisma.InputJsonValue }),
     };
   }
 
