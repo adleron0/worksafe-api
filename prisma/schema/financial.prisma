@@ -358,6 +358,8 @@ model Financial_Retention {
   // competência da nota (AAAA-MM): o mês da guia em que o retido é descontado
   accrualDate       String           @db.VarChar(7)
   invoiceNumber     String?          @db.VarChar(60)
+  // nota da área fiscal de onde veio a retenção
+  fiscalInvoiceId   Int?
   // informado na guia (DAS/ISS) como retido: não pagar de novo
   declaredAt        DateTime?
   declaredByUserId  Int?

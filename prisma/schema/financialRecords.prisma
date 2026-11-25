@@ -47,6 +47,8 @@ model FinancialRecords {
   invoiceNumber   String?   @db.VarChar(60)
   invoiceIssuedAt DateTime?
   invoiceUrl      String?   @db.Text
+  // nota fiscal da área fiscal que cobre este recebível (os campos acima viram espelho dela)
+  fiscalInvoiceId Int?
 
   // Parcela (ex.: 2/3) quando o recebível vem de um parcelamento combinado
   installmentNumber Int?
@@ -105,6 +107,7 @@ model FinancialRecords {
   @@index([createdAt]) // Ordenação temporal
   @@index([customerId]) // Recebíveis por cliente
   @@index([companyId, invoiceNumber]) // Busca por NF
+  @@index([fiscalInvoiceId])
   @@index([chartAccountId])
   @@index([costCenterId])
   @@index([bankAccountId])

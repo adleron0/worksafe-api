@@ -1,0 +1,205 @@
+// ------------------------------------------------------------------ área fiscal
+//
+// Emissão de NFS-e pelo padrão nacional (Sefin Nacional). A nota é separada da
+// cobrança: uma nota pode cobrir várias parcelas, um contrato inteiro ou nada do
+// sistema (avulsa). Plano em worksafe/nfse-planejamento/.
+
+enum FiscalEnvironment {
+  restrita // produção restrita (testes, sem valor fiscal)
+  producao
+}
+
+enum FiscalInvoiceStatus {
+  rascunho
+  emitindo // enviada, sem resposta ainda (queda de conexão): conferir antes de reenviar
+  autorizada
+  rejeitada
+  cancelada
+  substituida
+}
+
+// Quem a nota tem como tomador
+enum FiscalTakerKind {
+  cliente
+  aluno
+  avulso
+}
+
+// Por onde a nota foi emitida
+enum FiscalProviderKind {
+  sefin // API do Emissor Público Nacional
+  externa // emitida fora do sistema: só o registro (número e arquivo)
+}
+
+// Configuração fiscal da empresa emissora (uma por empresa)
+model Fiscal_Settings {
+  id                  Int               @id @default(autoincrement())
+  companyId           Int               @unique
+  environment         FiscalEnvironment @default(restrita)
+  municipalRegistration String?         @db.VarChar(15)
+  // 1 não optante, 2 MEI, 3 ME/EPP (TSOpSimpNac)
+  simplesNacional     Int               @default(3)
+  // regime de apuração do Simples (1, 2 ou 3; TSRegimeApuracaoSimpNac); nulo = não informar
+  simplesRegime       Int?
+  // regime especial de tributação (TSRegEspTrib; 0 = nenhum)
+  specialRegime       Int               @default(0)
+  // % aproximado dos tributos no Simples (pTotTribSN, obrigatório para ME/EPP)
+  simplesTotalRate    Decimal?          @db.Decimal(5, 2)
+  // CST do PIS/COFINS quando o cliente retém (pergunta para o contador)
+  pisCofinsCst        String            @default("49") @db.VarChar(2)
+  // série da DPS: aplicativo próprio usa 1 a 49999 (E0010); diferente da do outro emissor
+  dpsSeries           String            @default("900") @db.VarChar(5)
+  nextDpsNumber       Int               @default(1)
+  // séries separadas por ambiente: a restrita não gasta a numeração da produção
+  nextDpsNumberTest   Int               @default(1)
+  // certificado A1 (.pfx) cifrado com FISCAL_SECRET; nunca volta para o front
+  certificateEncrypted String?          @db.Text
+  certificateSubject  String?           @db.VarChar(255)
+  certificateDocument String?           @db.VarChar(14)
+  certificateValidFrom DateTime?
+  certificateValidTo  DateTime?
+  certificateUpdatedAt DateTime?
+  // envia o PDF e o XML ao contato fiscal do cliente quando a nota é autorizada
+  autoSendEmail       Boolean           @default(true)
+  // modelo padrão da discriminação (variáveis entre chaves)
+  defaultNotes        String?           @db.Text
+  updatedByUserId     Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+// Serviço fiscal: o que vai no grupo "serviço" da nota
+model Fiscal_ServiceCode {
+  id          Int     @id @default(autoincrement())
+  companyId   Int
+  name        String  @db.VarChar(120) // como a equipe chama ("Treinamento NR-35")
+  // código de tributação nacional (6 dígitos, Anexo B)
+  nationalCode String @db.VarChar(6)
+  // código de tributação municipal (opcional)
+  municipalCode String? @db.VarChar(20)
+  nbsCode     String? @db.VarChar(9)
+  // alíquota do ISS em % (nula = a do município)
+  issRate     Decimal? @db.Decimal(5, 2)
+  // 1 tributável, 2 imunidade, 3 exportação, 4 não incidência
+  issTaxation Int     @default(1)
+  // descrição padrão do serviço (variáveis entre chaves)
+  description String  @db.Text
+  isDefault   Boolean @default(false)
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  @@index([companyId])
+}
+
+model Fiscal_Invoice {
+  id          Int                 @id @default(autoincrement())
+  companyId   Int
+  status      FiscalInvoiceStatus @default(rascunho)
+  provider    FiscalProviderKind  @default(sefin)
+  environment FiscalEnvironment   @default(restrita)
+
+  // tomador: ligado a um cliente, a um aluno ou digitado
+  takerKind   FiscalTakerKind @default(cliente)
+  customerId  Int?
+  traineeId   Int?
+  // retrato do tomador no momento da emissão (documento, nome, endereço, IBGE, e-mail)
+  taker       Json
+
+  // serviço
+  serviceCodeId Int?
+  service       Json // retrato: código nacional, municipal, NBS, tributação, descrição do código
+  description   String  @db.Text // discriminação que vai na nota
+  // município onde o serviço foi prestado (IBGE)
+  placeOfService String @db.VarChar(7)
+  competence     DateTime @db.Date
+
+  // valores
+  grossValue       Decimal @db.Decimal(15, 2)
+  discountValue    Decimal @default(0) @db.Decimal(15, 2) // desconto incondicionado
+  issRate          Decimal? @db.Decimal(5, 2)
+  issValue         Decimal @default(0) @db.Decimal(15, 2)
+  issWithheld      Boolean @default(false) // retido pelo tomador
+  // retenções federais: { inss, ir, csll, pis, cofins } em R$
+  federalRetentions Json?
+  netValue         Decimal @db.Decimal(15, 2)
+
+  // documento
+  dpsSeries   String?   @db.VarChar(5)
+  dpsNumber   Int?
+  dpsId       String?   @db.VarChar(45)
+  accessKey   String?   @db.VarChar(50)
+  number      String?   @db.VarChar(20) // número da NFS-e devolvido pelo ambiente nacional
+  issuedAt    DateTime?
+  sentAt      DateTime? // quando a DPS foi enviada
+  xmlKey      String?   @db.VarChar(255) // XML autorizado no armazenamento privado
+  pdfKey      String?   @db.VarChar(255)
+  externalUrl String?   @db.Text // nota emitida fora: arquivo enviado
+  // rejeições e alertas do ambiente nacional, já com a mensagem traduzida
+  messages    Json?
+
+  // gerar conta a receber ao autorizar: { dueDate, installments? } (nulo = não gerar)
+  receivable  Json?
+
+  replacesId  Int?
+  replacedById Int?
+
+  cancelReason   String?   @db.VarChar(255)
+  cancelledAt    DateTime?
+  cancelledByUserId Int?
+  emailSentAt    DateTime?
+  emailSentTo    String?   @db.VarChar(500)
+
+  createdByUserId Int?
+  issuedByUserId  Int?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  links  Fiscal_InvoiceLink[]
+  events Fiscal_InvoiceEvent[]
+
+  @@unique([companyId, environment, dpsSeries, dpsNumber])
+  @@index([companyId, status])
+  @@index([companyId, competence])
+  @@index([customerId])
+  @@index([accessKey])
+}
+
+// O que a nota cobre: a base do "saldo a notar" de cada contrato
+model Fiscal_InvoiceLink {
+  id                Int            @id @default(autoincrement())
+  invoiceId         Int
+  invoice           Fiscal_Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount            Decimal        @db.Decimal(15, 2)
+  contractId        Int?
+  installmentId     Int?
+  measurementId     Int?
+  rentalChargeId    Int?
+  subscriptionId    Int?
+  financialRecordId Int?
+
+  createdAt DateTime @default(now())
+
+  @@index([invoiceId])
+  @@index([contractId])
+  @@index([installmentId])
+  @@index([measurementId])
+  @@index([financialRecordId])
+}
+
+// Cancelamento, substituição e reenvio, com o protocolo do ambiente nacional
+model Fiscal_InvoiceEvent {
+  id        Int            @id @default(autoincrement())
+  invoiceId Int
+  invoice   Fiscal_Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  // emitida | rejeitada | cancelada | substituida | email | conferida
+  kind      String         @db.VarChar(20)
+  detail    Json?
+  xmlKey    String?        @db.VarChar(255)
+  userId    Int?
+  createdAt DateTime       @default(now())
+
+  @@index([invoiceId])
+}
