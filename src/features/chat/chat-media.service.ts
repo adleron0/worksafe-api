@@ -31,6 +31,8 @@ export interface ChatMedia {
   seconds?: number | null;
   ptt?: boolean;
   /** pending (baixando) | ok | failed | too_big */
+  /** só do WhatsApp: a mensagem original (com a chave da mídia) até baixar */
+  raw?: { key: Record<string, unknown>; message?: Record<string, unknown> } | null;
   state?: string;
   /** só do Instagram: link original (expira) até baixar */
   sourceUrl?: string | null;
@@ -119,7 +121,8 @@ export class ChatMediaService {
   fetchWhatsApp(messageId: number) {
     this.track(this.run(messageId, async (message, channel) => {
       if (!channel.instanceName || !message.externalId) throw new Error('sem conexão');
-      const got = await this.provider.mediaBase64(channel.instanceName, message.externalId);
+      const raw = (message.media as ChatMedia | null)?.raw;
+      const got = await this.provider.mediaBase64(channel.instanceName, raw?.key ? raw : { key: { id: message.externalId } });
       if (!got) throw new Error('o WhatsApp não entregou a mídia');
       return { body: Buffer.from(got.base64, 'base64'), mimetype: got.mimetype, fileName: got.fileName };
     }));
@@ -148,7 +151,7 @@ export class ChatMediaService {
         const mimetype = (got.mimetype || media.mimetype || 'application/octet-stream').split(';')[0].trim();
         const fileName = media.fileName || got.fileName || null;
         const key = await this.save(message.companyId, message.conversationId, got.body, mimetype, fileName);
-        next = { ...media, key, mimetype, fileName, size: got.body.length, state: 'ok', sourceUrl: null };
+        next = { ...media, key, mimetype, fileName, size: got.body.length, state: 'ok', sourceUrl: null, raw: null };
       }
     } catch (error) {
       this.logger.warn(`Mídia da mensagem ${messageId} não baixou: ${(error as Error).message}`);
@@ -156,6 +159,15 @@ export class ChatMediaService {
     }
     await this.prisma.chat_Message.update({ where: { id: messageId }, data: { media: next as any } });
     this.events.emit({ companyId: message.companyId, kind: 'message', channelId: message.channelId, conversationId: message.conversationId, assignedUserId: message.conversation.assignedUserId });
+  }
+
+  /** "Tentar de novo" na tela, para mídia que não baixou. */
+  async retry(message: { id: number; media: unknown; channelId: number }, channelType: string) {
+    const media = (message.media as ChatMedia | null) ?? {};
+    if (media.key) return;
+    await this.prisma.chat_Message.update({ where: { id: message.id }, data: { media: { ...media, state: 'pending' } as any } });
+    if (channelType === 'instagram') this.fetchUrl(message.id);
+    else this.fetchWhatsApp(message.id);
   }
 
   // ---------------------------------------------------------------- enviadas

@@ -170,8 +170,8 @@ describe('Conversas fase 1: tempo real, mídia e Instagram (e2e)', () => {
     const { company, db } = await cenario();
     const { id, secret } = await conectado(company.id);
     const png = Buffer.from('imagem-de-teste');
-    nock(EVO).post(/\/chat\/getBase64FromMediaMessage\/.*/, (body) => body.message.key.id === 'WAIMG').reply(200, { base64: png.toString('base64'), mimetype: 'image/jpeg' });
-    await hook(id, secret, upsert('WAIMG', '5511988887777', { imageMessage: { caption: 'Foto do local', mimetype: 'image/jpeg' } })).expect(200);
+    nock(EVO).post(/\/chat\/getBase64FromMediaMessage\/.*/, (body) => body.message.key.id === 'WAIMG' && body.message.message?.imageMessage?.mimetype === 'image/jpeg' && !JSON.stringify(body).includes('jpegThumbnail')).reply(200, { base64: png.toString('base64'), mimetype: 'image/jpeg' });
+    await hook(id, secret, upsert('WAIMG', '5511988887777', { imageMessage: { caption: 'Foto do local', mimetype: 'image/jpeg', mediaKey: 'chave', directPath: '/v/t62', jpegThumbnail: 'AAAA' } })).expect(200);
     await media.idle();
 
     const message = await db.chat_Message.findFirstOrThrow({ where: { externalId: 'WAIMG' } });
@@ -189,6 +189,14 @@ describe('Conversas fase 1: tempo real, mídia e Instagram (e2e)', () => {
     await hook(id, secret, upsert('WAAUD', '5511988887777', { audioMessage: { mimetype: 'audio/ogg; codecs=opus', seconds: 7, ptt: true } })).expect(200);
     await media.idle();
     expect((await db.chat_Message.findFirstOrThrow({ where: { externalId: 'WAAUD' } })).media).toMatchObject({ state: 'failed', seconds: 7, ptt: true });
+    expect((await db.chat_Message.findFirstOrThrow({ where: { externalId: 'WAIMG' } })).media).not.toHaveProperty('raw.key');
+
+    // tentar de novo pela tela
+    const audio = await db.chat_Message.findFirstOrThrow({ where: { externalId: 'WAAUD' } });
+    nock(EVO).post(/\/chat\/getBase64FromMediaMessage\/.*/, (body) => body.message.message?.audioMessage?.ptt === true).reply(200, { base64: Buffer.from('ogg').toString('base64'), mimetype: 'audio/ogg; codecs=opus' });
+    await api().post(`/chat/conversations/${audio.conversationId}/messages/${audio.id}/media`).set(auth(company.id)).expect(200);
+    await media.idle();
+    expect((await db.chat_Message.findUniqueOrThrow({ where: { id: audio.id } })).media).toMatchObject({ state: 'ok', mimetype: 'audio/ogg', seconds: 7 });
   });
 
   it('mídia enviada: foto com legenda pela fila e áudio gravado como voz', async () => {

@@ -147,10 +147,14 @@ export class EvolutionProvider {
     }
   }
 
-  /** Baixa a mídia de uma mensagem recebida (o WhatsApp guarda criptografada; o Evolution decifra). */
-  async mediaBase64(name: string, messageId: string): Promise<{ base64: string; mimetype: string | null; fileName: string | null } | null> {
+  /**
+   * Baixa a mídia de uma mensagem (o WhatsApp guarda criptografada; o Evolution decifra).
+   * Mandamos a mensagem inteira (com a chave da mídia): sem ela o Evolution
+   * procura no banco dele, que não guarda as mensagens, e responde "Message not found".
+   */
+  async mediaBase64(name: string, message: { key: Record<string, unknown>; message?: Record<string, unknown> }): Promise<{ base64: string; mimetype: string | null; fileName: string | null } | null> {
     try {
-      const { data } = await this.client().post(`/chat/getBase64FromMediaMessage/${encodeURIComponent(name)}`, { message: { key: { id: messageId } }, convertToMp4: false }, { timeout: 60000, maxContentLength: 40 * 1024 * 1024 });
+      const { data } = await this.client().post(`/chat/getBase64FromMediaMessage/${encodeURIComponent(name)}`, { message, convertToMp4: false }, { timeout: 60000, maxContentLength: 40 * 1024 * 1024 });
       if (!data?.base64) return null;
       return { base64: String(data.base64).replace(/^data:[^;]+;base64,/, ''), mimetype: data.mimetype ?? null, fileName: data.fileName ?? null };
     } catch (error) {

@@ -30,6 +30,11 @@ export function readMessage(message: Json | undefined): { type: string; text: st
 
 export { previewOf };
 
+/** Mensagem original sem as miniaturas (só o que o Evolution precisa para baixar a mídia). */
+export function slimRaw(item: Json) {
+  return JSON.parse(JSON.stringify({ key: item.key, message: item.message }, (name, value) => (/thumbnail/i.test(name) ? undefined : value)));
+}
+
 const STATUS_RANK: Record<string, number> = { queued: 0, sending: 1, sent: 2, delivered: 3, read: 4 };
 const ACK: Record<string, string> = { SERVER_ACK: 'sent', DELIVERY_ACK: 'delivered', READ: 'read', PLAYED: 'read', '2': 'sent', '3': 'delivered', '4': 'read', '5': 'read' };
 
@@ -161,7 +166,7 @@ export class ChatInboundService {
         created = await this.prisma.chat_Message.create({
           data: {
             companyId: channel.companyId, channelId: channel.id, conversationId: conversation.id,
-            direction: fromMe ? 'out' : 'in', type, text, media: hasFile ? { ...(media ?? {}), state: 'pending' } : media ?? undefined, externalId: item.key.id,
+            direction: fromMe ? 'out' : 'in', type, text, media: hasFile ? { ...(media ?? {}), state: 'pending', raw: slimRaw(item) } : media ?? undefined, externalId: item.key.id,
             status: fromMe ? 'sent' : 'received', origin: fromMe ? 'phone' : 'webhook', sentAt,
           },
         });

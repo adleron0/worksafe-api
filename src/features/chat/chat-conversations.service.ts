@@ -146,7 +146,7 @@ export class ChatConversationsService {
       /** como as mensagens desta pessoa saem assinadas neste número (null = sem assinatura) */
       signature: await signerOf(this.prisma, conversation.channel, { userId: actor.userId }),
       messages: messages.map((m, i) => {
-        const { key, sourceUrl, ...media } = (m.media as ChatMedia | null) ?? {};
+        const { key, sourceUrl, raw, ...media } = (m.media as ChatMedia | null) ?? {};
         return {
           id: m.id, direction: m.direction, type: m.type, text: m.text, media: m.media ? { ...media, url: links[i] } : null, status: m.status, error: m.error, origin: m.origin, sentAt: m.sentAt,
           sentBy: m.sentByUserId ? users.get(m.sentByUserId)?.name ?? null : m.sentByBotId ? 'Bot' : m.origin === 'phone' ? (instagram ? 'Pelo app do Instagram' : 'Pelo celular') : null,
@@ -222,6 +222,15 @@ export class ChatConversationsService {
     const message = await this.prisma.chat_Message.findFirst({ where: { id: messageId, conversationId: id } });
     if (!message) throw new NotFoundException('Mensagem não encontrada');
     return this.send.retry(message);
+  }
+
+  /** Baixar de novo a mídia que falhou. */
+  async retryMedia(actor: ChatActor, id: number, messageId: number) {
+    const conversation = await this.load(actor, id);
+    const message = await this.prisma.chat_Message.findFirst({ where: { id: messageId, conversationId: id } });
+    if (!message) throw new NotFoundException('Mensagem não encontrada');
+    await this.media.retry(message, conversation.channel.type);
+    return { ok: true };
   }
 
   async read(actor: ChatActor, id: number) {

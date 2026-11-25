@@ -125,6 +125,11 @@ export class ChatController {
     return this.conversations.retry(this.seeing(req), id, messageId);
   }
 
+  @Post('conversations/:id/messages/:messageId/media') @HttpCode(200)
+  retryMedia(@Param('id', ParseIntPipe) id: number, @Param('messageId', ParseIntPipe) messageId: number, @Req() req: Request) {
+    return this.conversations.retryMedia(this.seeing(req), id, messageId);
+  }
+
   @Post('conversations/:id/hide') @HttpCode(200)
   hide(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.conversations.hide(this.seeing(req), id); }
 
