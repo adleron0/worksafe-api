@@ -6,7 +6,8 @@ import { ChatEventsService } from './chat-events.service';
 import { ChatMedia, ChatMediaService } from './chat-media.service';
 import { ChatChannelsService } from './chat-channels.service';
 import { previewOf } from './chat.settings';
-import { hasLink, hasShortener, normalizeSettings, spDayStart, textHash } from './chat.settings';
+import { hasLink, hasShortener, normalizeSettings, signText, spDayStart, textHash } from './chat.settings';
+import { signerOf } from './chat-signature';
 
 const MAX_TEXT = 4000;
 const REPEAT_LIMIT = 5;
@@ -179,7 +180,8 @@ export class ChatSendService implements OnModuleInit, OnModuleDestroy {
     }
     try {
       const to = contact.externalId.endsWith('@s.whatsapp.net') ? contact.externalId.split('@')[0] : contact.externalId;
-      const { externalId } = await this.deliver(channel.instanceName, to, next, typing);
+      const signer = ['system', 'bot'].includes(next.origin) ? await signerOf(this.prisma, channel, { userId: next.sentByUserId, botId: next.sentByBotId }) : null;
+      const { externalId } = await this.deliver(channel.instanceName, to, { ...next, text: signText(next.text, signer, 'whatsapp') }, typing);
       const known = externalId ? await this.prisma.chat_Message.findUnique({ where: { externalId } }) : null;
       if (known && known.id !== next.id) {
         // o eco do webhook chegou antes da resposta: junta as duas

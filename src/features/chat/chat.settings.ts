@@ -9,11 +9,14 @@ import { createHash } from 'crypto';
 export interface ChatLimits { novosPorDia: number; porMinuto: number; porHora: number; porDia: number }
 export interface ChatInterval { min: number; max: number }
 export interface ChatHours { enabled: boolean; dias: number[]; inicio: string; fim: string; mensagemFora: string }
-export interface ChatSettings { limites: ChatLimits; intervalo: ChatInterval; horario: ChatHours }
+/** Nome de quem respondeu na frente de cada mensagem enviada pelo sistema. */
+export interface ChatSignature { enabled: boolean; formato: 'primeiro' | 'completo' }
+export interface ChatSettings { limites: ChatLimits; intervalo: ChatInterval; horario: ChatHours; assinatura: ChatSignature }
 
 export const DEFAULT_LIMITS: ChatLimits = { novosPorDia: 10, porMinuto: 12, porHora: 200, porDia: 1000 };
 export const MAX_LIMITS: ChatLimits = { novosPorDia: 30, porMinuto: 20, porHora: 300, porDia: 1500 };
 export const DEFAULT_INTERVAL: ChatInterval = { min: 3, max: 8 };
+export const DEFAULT_SIGNATURE: ChatSignature = { enabled: true, formato: 'primeiro' };
 export const DEFAULT_HOURS: ChatHours = { enabled: false, dias: [1, 2, 3, 4, 5], inicio: '08:00', fim: '18:00', mensagemFora: '' };
 
 export const SECTORS = [
@@ -44,6 +47,7 @@ export function normalizeSettings(raw: unknown): ChatSettings {
   const l = src.limites ?? {};
   const i = src.intervalo ?? {};
   const h = src.horario ?? {};
+  const a = src.assinatura ?? {};
   const min = int(i.min, DEFAULT_INTERVAL.min, 2, 30);
   const dias = Array.isArray(h.dias) ? [...new Set(h.dias.map(Number).filter((d: number) => d >= 0 && d <= 6))].sort() as number[] : DEFAULT_HOURS.dias;
   return {
@@ -61,7 +65,21 @@ export function normalizeSettings(raw: unknown): ChatSettings {
       fim: hhmm(h.fim, DEFAULT_HOURS.fim),
       mensagemFora: String(h.mensagemFora ?? '').slice(0, 1000),
     },
+    assinatura: { enabled: a.enabled !== false, formato: a.formato === 'completo' ? 'completo' : 'primeiro' },
   };
+}
+
+/** Nome que vai na assinatura: primeiro nome ou nome completo. */
+export function signatureName(name: string | null | undefined, formato: ChatSignature['formato']): string | null {
+  const clean = String(name ?? '').replace(/\s+/g, ' ').trim();
+  if (!clean) return null;
+  return (formato === 'completo' ? clean : clean.split(' ')[0]).slice(0, 60);
+}
+
+/** "*Júlio:*" + quebra de linha no WhatsApp (negrito); "Júlio:" no Instagram (não tem negrito). */
+export function signText(text: string, name: string | null, type: string): string {
+  if (!name || !text) return text;
+  return type === 'instagram' ? `${name}:\n${text}` : `*${name}:*\n${text}`;
 }
 
 /** Início do dia em São Paulo (para os limites "por dia"). */

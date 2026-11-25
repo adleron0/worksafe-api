@@ -6,6 +6,8 @@ import { ChatEventsService } from './chat-events.service';
 import { previewOf } from './chat.settings';
 import { ChatMedia, ChatMediaService } from './chat-media.service';
 import { chatHooks } from './chat.hooks';
+import { signText } from './chat.settings';
+import { signerOf } from './chat-signature';
 
 /**
  * Instagram Direct na caixa única.
@@ -185,9 +187,14 @@ export class ChatInstagramService implements OnModuleInit, OnModuleDestroy {
     return last ? new Date(last.sentAt.getTime() + IG_WINDOW_MS) : null;
   }
 
-  async sendText(actor: { companyId: number; userId: number }, igsid: string, text: string) {
-    const sent = await this.instagram.reply({ companyId: actor.companyId, userId: actor.userId }, igsid, text);
-    return this.mirrored(sent.id);
+  async sendText(actor: { companyId: number; userId: number }, igsid: string, text: string, channel?: { settings: unknown } | null) {
+    const clean = String(text ?? '').trim();
+    const signer = channel ? await signerOf(this.prisma, channel, { userId: actor.userId }) : null;
+    const sent = await this.instagram.reply({ companyId: actor.companyId, userId: actor.userId }, igsid, signText(clean, signer, 'instagram'));
+    const message = await this.mirrored(sent.id);
+    // na caixa a mensagem fica sem a assinatura (quem enviou já aparece no balão)
+    if (message && signer && message.text !== clean) return this.prisma.chat_Message.update({ where: { id: message.id }, data: { text: clean } });
+    return message;
   }
 
   async sendMedia(actor: { companyId: number; userId: number }, igsid: string, type: string, media: ChatMedia) {

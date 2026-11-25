@@ -9,6 +9,7 @@ import { SECTORS, phoneDigits } from './chat.settings';
 import { ChatEventsService } from './chat-events.service';
 import { ChatInstagramService } from './chat-instagram.service';
 import { ChatMedia, ChatMediaService } from './chat-media.service';
+import { signerOf } from './chat-signature';
 
 const PAGE = 60;
 
@@ -140,6 +141,8 @@ export class ChatConversationsService {
       ...this.row({ ...conversation }, customers, users),
       channel: { id: channel.id, name: channel.name, color: channel.color, type: channel.type, status: channel.status, phone: channel.phone, sector: channel.sector, botMode: channel.botMode },
       replyUntil: instagram ? await this.instagram.replyUntil(id) : null,
+      /** como as mensagens desta pessoa saem assinadas neste número (null = sem assinatura) */
+      signature: await signerOf(this.prisma, conversation.channel, { userId: actor.userId }),
       messages: messages.map((m, i) => {
         const { key, sourceUrl, ...media } = (m.media as ChatMedia | null) ?? {};
         return {
@@ -161,7 +164,7 @@ export class ChatConversationsService {
     let messageId: number;
     if (conversation.channel.type === 'instagram') {
       this.assertInstagram(conversation.channel);
-      const sent = await this.instagram.sendText(actor, conversation.contact.externalId, String(body.text ?? ''));
+      const sent = await this.instagram.sendText(actor, conversation.contact.externalId, String(body.text ?? ''), conversation.channel);
       messageId = sent!.id;
     } else {
       messageId = (await this.send.enqueue({ channel: conversation.channel, conversationId: id, contact: conversation.contact, text: String(body.text ?? ''), userId: actor.userId, confirmedNew: body.confirmedNew === true })).id;
@@ -194,7 +197,7 @@ export class ChatConversationsService {
     if (instagram) {
       const sent = await this.instagram.sendMedia(actor, conversation.contact.externalId, type, media);
       messageId = sent!.id;
-      if (caption) await this.instagram.sendText(actor, conversation.contact.externalId, caption);
+      if (caption) await this.instagram.sendText(actor, conversation.contact.externalId, caption, conversation.channel);
     } else {
       messageId = (await this.send.enqueue({ channel: conversation.channel, conversationId: id, contact: conversation.contact, text: type === 'audio' ? '' : caption, type, media, userId: actor.userId, confirmedNew: body.confirmedNew === true || body.confirmedNew === 'true' })).id;
     }

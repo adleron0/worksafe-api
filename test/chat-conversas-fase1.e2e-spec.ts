@@ -10,6 +10,7 @@ import { encryptPayload } from 'src/utils/crypto';
 import { InstagramMessagesService } from 'src/features/ai/connectors/instagram-messages.service';
 import { ChatInstagramService } from 'src/features/chat/chat-instagram.service';
 import { ChatMediaService } from 'src/features/chat/chat-media.service';
+import { ChatSendService } from 'src/features/chat/chat-send.service';
 import { bootTestApp, httpServer, shutdownTestApp, flushCache } from './setup/app';
 import { resetDb, testDb } from './setup/db';
 import { makeCompany, makeSeller } from './setup/factories';
@@ -27,6 +28,7 @@ describe('Conversas fase 1: tempo real, mídia e Instagram (e2e)', () => {
   let jwt: JwtService;
   let media: ChatMediaService;
   let bridge: ChatInstagramService;
+  let sendQueue: () => Promise<void>;
   let userId = 0;
 
   beforeAll(async () => {
@@ -40,6 +42,8 @@ describe('Conversas fase 1: tempo real, mídia e Instagram (e2e)', () => {
     jwt = app.get(JwtService);
     media = app.get(ChatMediaService, { strict: false });
     bridge = app.get(ChatInstagramService, { strict: false });
+    const queue = app.get(ChatSendService, { strict: false });
+    sendQueue = () => queue.tick();
     app.get(InstagramMessagesService, { strict: false }).autoDelayMs = 0;
     nock.disableNetConnect();
     nock.enableNetConnect(/127\.0\.0\.1|localhost/);
@@ -198,7 +202,7 @@ describe('Conversas fase 1: tempo real, mídia e Instagram (e2e)', () => {
     nock(EVO).post(/\/message\/sendMedia\/.*/, (body) => { sentMedia = body; return true; }).reply(201, { key: { id: 'OUTIMG' } });
     const sent = (await api().post(`/chat/conversations/${conv.id}/media`).set(auth(company.id)).field('caption', 'Segue a foto').attach('file', file, { filename: 'obra.jpg', contentType: 'image/jpeg' }).expect(200)).body;
     expect(sent).toMatchObject({ type: 'image', text: 'Segue a foto', status: 'sent', externalId: 'OUTIMG' });
-    expect(sentMedia).toMatchObject({ number: '5511988887777', mediatype: 'image', mimetype: 'image/jpeg', media: file.toString('base64'), caption: 'Segue a foto' });
+    expect(sentMedia).toMatchObject({ number: '5511988887777', mediatype: 'image', mimetype: 'image/jpeg', media: file.toString('base64'), caption: '*Vendedor:*\nSegue a foto' });
 
     let sentAudio: any = null;
     nock(EVO).post(/\/message\/sendWhatsAppAudio\/.*/, (body) => { sentAudio = body; return true; }).reply(201, { key: { id: 'OUTAUD' } });
@@ -215,6 +219,38 @@ describe('Conversas fase 1: tempo real, mídia e Instagram (e2e)', () => {
     await api().post(`/chat/conversations/${conv.id}/media`).set(auth(company.id, ['view_conversas', 'todas_conversas'])).attach('file', pdf, { filename: 'a.pdf', contentType: 'application/pdf' }).expect(403);
     const view = (await api().get(`/chat/conversations/${conv.id}`).set(auth(company.id)).expect(200)).body;
     expect(view.lastMessagePreview).toBe('📄 Documento');
+  });
+
+  it('assinatura: nome de quem respondeu na frente (primeiro nome, completo ou desligada); bot com o nome dele', async () => {
+    const { company, db } = await cenario();
+    const { id, secret } = await conectado(company.id);
+    await hook(id, secret, upsert('WA1', '5511988887777', { conversation: 'Oi' })).expect(200);
+    const conv = await db.chat_Conversation.findFirstOrThrow({ where: { channelId: id } });
+    const texts: string[] = [];
+    nock(EVO).post(/\/message\/sendText\/.*/).times(4).reply(201, (_uri, body: any) => { texts.push(body.text); return { key: { id: `OUT${texts.length}` } }; });
+
+    expect((await api().get(`/chat/conversations/${conv.id}`).set(auth(company.id)).expect(200)).body.signature).toBe('Vendedor');
+    const sent = (await api().post(`/chat/conversations/${conv.id}/messages`).set(auth(company.id)).send({ text: 'Bom dia!' }).expect(200)).body;
+    expect(sent.text).toBe('Bom dia!');
+    expect(texts[0]).toBe('*Vendedor:*\nBom dia!');
+
+    const settings = (await api().get(`/chat/channels/${id}`).set(auth(company.id)).expect(200)).body.settings;
+    expect(settings.assinatura).toEqual({ enabled: true, formato: 'primeiro' });
+    await api().put(`/chat/channels/${id}`).set(auth(company.id)).send({ settings: { ...settings, assinatura: { enabled: true, formato: 'completo' } } }).expect(200);
+    await api().post(`/chat/conversations/${conv.id}/messages`).set(auth(company.id)).send({ text: 'Segue o valor.' }).expect(200);
+    expect(texts[1]).toBe('*Vendedor Teste:*\nSegue o valor.');
+
+    await api().put(`/chat/channels/${id}`).set(auth(company.id)).send({ settings: { ...settings, assinatura: { enabled: false, formato: 'completo' } } }).expect(200);
+    expect((await api().get(`/chat/conversations/${conv.id}`).set(auth(company.id)).expect(200)).body.signature).toBeNull();
+    await api().post(`/chat/conversations/${conv.id}/messages`).set(auth(company.id)).send({ text: 'Sem nome agora.' }).expect(200);
+    expect(texts[2]).toBe('Sem nome agora.');
+
+    // mensagem do bot leva o nome do bot
+    await api().put(`/chat/channels/${id}`).set(auth(company.id)).send({ settings: { ...settings, assinatura: { enabled: true, formato: 'primeiro' } } }).expect(200);
+    const bot = await db.ai_Bot.create({ data: { companyId: company.id, key: 'bruno', name: 'Bot Operação', persona: 'Bruno', permissionKey: 'usar_bots', description: 'Operação', instructions: 'x', tools: [], provider: 'fake', model: 'fake' } as any });
+    await db.chat_Message.create({ data: { companyId: company.id, channelId: id, conversationId: conv.id, direction: 'out', type: 'text', text: 'Olá! Sou o assistente.', status: 'queued', origin: 'bot', sentByBotId: bot.id, scheduledAt: new Date() } });
+    await sendQueue();
+    expect(texts[3]).toBe('*Bruno:*\nOlá! Sou o assistente.');
   });
 
   // ---------------------------------------------------------------- Instagram
@@ -254,12 +290,13 @@ describe('Conversas fase 1: tempo real, mídia e Instagram (e2e)', () => {
     expect(new Date(view.replyUntil).getTime()).toBeGreaterThan(Date.now() + 23 * 3600000);
 
     // resposta pela caixa sai pela Meta e fica nas duas tabelas
-    nock(FB).post('/1784/messages', (body) => body.recipient.id === '777' && body.message.text === 'Temos sim! A próxima turma é dia 10.').query(true).reply(200, { recipient_id: '777', message_id: 'mid-out-1' });
+    nock(FB).post('/1784/messages', (body) => body.recipient.id === '777' && body.message.text === 'Vendedor:\nTemos sim! A próxima turma é dia 10.').query(true).reply(200, { recipient_id: '777', message_id: 'mid-out-1' });
     const sent = (await api().post(`/chat/conversations/${convId}/messages`).set(auth(company.id)).send({ text: 'Temos sim! A próxima turma é dia 10.' }).expect(200)).body;
-    expect(sent).toMatchObject({ direction: 'out', status: 'sent', externalId: 'ig:mid-out-1', sentByUserId: userId });
+    // assinada para o cliente, limpa na caixa
+    expect(sent).toMatchObject({ direction: 'out', status: 'sent', externalId: 'ig:mid-out-1', sentByUserId: userId, text: 'Temos sim! A próxima turma é dia 10.' });
     expect(await db.ai_SocialMessage.count({ where: { externalId: 'mid-out-1', direction: 'out' } })).toBe(1);
     // o eco da Meta não duplica
-    await igWebhook({ object: 'instagram', entry: [{ id: '1784', time: Date.now(), messaging: [{ sender: { id: '1784' }, recipient: { id: '777' }, timestamp: Date.now(), message: { mid: 'mid-out-1', text: 'Temos sim! A próxima turma é dia 10.', is_echo: true } }] }] }).expect(200);
+    await igWebhook({ object: 'instagram', entry: [{ id: '1784', time: Date.now(), messaging: [{ sender: { id: '1784' }, recipient: { id: '777' }, timestamp: Date.now(), message: { mid: 'mid-out-1', text: 'Vendedor:\nTemos sim! A próxima turma é dia 10.', is_echo: true } }] }] }).expect(200);
     await bridge.idle();
     expect(await db.chat_Message.count({ where: { conversationId: convId, direction: 'out' } })).toBe(1);
     expect((await db.chat_Conversation.findUniqueOrThrow({ where: { id: convId } })).assignedUserId).toBe(userId);
