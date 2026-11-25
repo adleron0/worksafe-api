@@ -12,6 +12,7 @@ import { ChatInstagramService } from './chat-instagram.service';
 import { ChatMedia, ChatMediaService } from './chat-media.service';
 import { signerOf } from './chat-signature';
 import { ChatCustomerService } from './chat-customer.service';
+import { ChatLibraryService } from './chat-library.service';
 
 const PAGE = 60;
 
@@ -28,7 +29,10 @@ export class ChatConversationsService {
     private readonly media: ChatMediaService,
     private readonly channels: ChatChannelsService,
     private readonly customerCards: ChatCustomerService,
+    private readonly library: ChatLibraryService,
   ) {}
+
+  private static TAGS = { tags: { where: { tag: { inactiveAt: null } }, select: { tag: { select: { id: true, name: true, color: true } } }, orderBy: { createdAt: 'asc' as const } } };
 
   private changed(conversation: { companyId: number; channelId: number; id: number; assignedUserId?: number | null }, kind: 'message' | 'conversation' = 'conversation') {
     this.events.emit({ companyId: conversation.companyId, kind, channelId: conversation.channelId, conversationId: conversation.id, assignedUserId: conversation.assignedUserId ?? null });
@@ -55,6 +59,7 @@ export class ChatConversationsService {
     if (box === 'sem_dono') and.push({ assignedUserId: null });
     if (box === 'nao_lidas') and.push({ unread: { gt: 0 } });
     if (query.channelId) and.push({ channelId: Number(query.channelId) });
+    if (query.tagId) and.push({ tags: { some: { tagId: Number(query.tagId) } } });
     if (query.sector) and.push({ sector: query.sector });
     const search = String(query.search ?? '').trim();
     if (search) {
@@ -70,7 +75,7 @@ export class ChatConversationsService {
     }
     const rows = await this.prisma.chat_Conversation.findMany({
       where,
-      include: { contact: true, channel: { select: { id: true, name: true, color: true, type: true } } },
+      include: { contact: true, channel: { select: { id: true, name: true, color: true, type: true } }, ...ChatConversationsService.TAGS },
       orderBy: [{ lastMessageAt: { sort: 'desc', nulls: 'last' } }, { id: 'desc' }],
       take: Math.min(200, Number(query.limit) || 100),
     });
@@ -115,11 +120,12 @@ export class ChatConversationsService {
       contact: { id: r.contact.id, name: r.contact.name || r.contact.pushName || customer?.name || null, pushName: r.contact.pushName, phone: r.contact.phone, avatarUrl: r.contact.avatarUrl, optOut: r.contact.optOut, isNew: !r.contact.firstInboundAt },
       customer,
       assignedUser: r.assignedUserId ? users.get(r.assignedUserId) ?? { id: r.assignedUserId, name: 'Usuário', imageUrl: null } : null,
+      tags: (r.tags ?? []).map((t: { tag: { id: number; name: string; color: string } }) => t.tag),
     };
   }
 
   private async load(actor: ChatActor, id: number) {
-    const conversation = await this.prisma.chat_Conversation.findFirst({ where: { AND: [this.scope(actor), { id }] }, include: { contact: true, channel: true } });
+    const conversation = await this.prisma.chat_Conversation.findFirst({ where: { AND: [this.scope(actor), { id }] }, include: { contact: true, channel: true, ...ChatConversationsService.TAGS } });
     if (!conversation) throw new NotFoundException('Conversa não encontrada');
     return conversation;
   }
@@ -326,6 +332,13 @@ export class ChatConversationsService {
       await this.prisma.chat_Message.create({ data: { companyId: actor.companyId, channelId: conversation.channelId, conversationId: id, direction: 'note', type: 'event', text, status: 'sent', origin: 'system', sentByUserId: actor.userId } });
     }
     this.changed(conversation);
+    return this.get(actor, id);
+  }
+
+  /** Etiquetas da conversa. */
+  async setTags(actor: ChatActor, id: number, tagIds: unknown) {
+    const conversation = await this.load(actor, id);
+    await this.library.setConversationTags(actor, conversation, tagIds);
     return this.get(actor, id);
   }
 

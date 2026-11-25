@@ -111,6 +111,7 @@ model Chat_Conversation {
   contact            Chat_Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   messages Chat_Message[]
+  tags     Chat_ConversationTag[]
 
   @@unique([channelId, contactId])
   @@index([companyId, status, lastMessageAt])
@@ -148,4 +149,49 @@ model Chat_Message {
   @@index([channelId, direction, status, sentAt])
   @@index([status, scheduledAt])
   @@index([channelId, textHash, sentAt])
+}
+
+/// Respostas rápidas: textos prontos chamados com "/" na conversa.
+/// Variáveis: {nome}, {primeiro_nome}, {empresa}, {atendente}.
+model Chat_QuickReply {
+  id              Int       @id @default(autoincrement())
+  companyId       Int
+  /// o que se digita depois da barra (ex.: orcamento)
+  shortcut        String    @db.VarChar(40)
+  title           String    @db.VarChar(120)
+  text            String    @db.Text
+  /// só aparece para o setor (null = todos)
+  sector          String?   @db.VarChar(40)
+  uses            Int       @default(0)
+  createdByUserId Int?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  inactiveAt      DateTime?
+
+  @@index([companyId, inactiveAt])
+}
+
+/// Etiquetas das conversas (ex.: Orçamento, Urgente, Pós-venda).
+model Chat_Tag {
+  id         Int       @id @default(autoincrement())
+  companyId  Int
+  name       String    @db.VarChar(40)
+  color      String    @db.VarChar(20)
+  createdAt  DateTime  @default(now())
+  inactiveAt DateTime?
+
+  conversations Chat_ConversationTag[]
+
+  @@index([companyId, inactiveAt])
+}
+
+model Chat_ConversationTag {
+  conversationId Int
+  tagId          Int
+  createdAt      DateTime          @default(now())
+  conversation   Chat_Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  tag            Chat_Tag          @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, tagId])
+  @@index([tagId])
 }
