@@ -134,3 +134,10 @@ export function outOfHours(settings: ChatSettings, now = new Date()): boolean {
   const inside = start <= end ? minutes >= start && minutes < end : minutes >= start || minutes < end;
   return !h.dias.includes(day) || !inside;
 }
+
+/** O que aparece na lista quando a mensagem não é texto. */
+const LABELS: Record<string, string> = {
+  image: '📷 Foto', audio: '🎤 Áudio', video: '🎬 Vídeo', document: '📄 Documento', sticker: '💟 Figurinha', location: '📍 Localização', contact: '👤 Contato', other: 'Mensagem',
+};
+
+export const previewOf = (type: string, text: string) => (text ? text : LABELS[type] ?? 'Mensagem').replace(/\s+/g, ' ').slice(0, 200);

@@ -6,6 +6,7 @@ import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { InstagramError, InstagramService, graph, metaMessage } from './instagram.service';
 import { InstagramSettings, spDayRange, withinReplyHours } from './instagram-settings';
+import { chatHooks } from 'src/features/chat/chat.hooks';
 
 /**
  * Direct e comentários do Instagram (Messaging API da Meta).
@@ -141,7 +142,12 @@ export class InstagramMessagesService {
   /** Insere sem duplicar (o id da Meta é único). Devolve a linha ou null se já existia. */
   private async insert(data: Prisma.Ai_SocialMessageUncheckedCreateInput) {
     try {
-      return await this.prisma.ai_SocialMessage.create({ data });
+      const row = await this.prisma.ai_SocialMessage.create({ data });
+      // a caixa de entrada (Conversas) espelha o Direct
+      if (row.channel === 'direct') {
+        try { chatHooks.instagramMessage?.(row); } catch (error) { this.logger.warn(`Conversas: espelho do Direct falhou: ${(error as Error).message}`); }
+      }
+      return row;
     } catch (error) {
       if ((error as { code?: string })?.code === 'P2002') return null;
       throw error;
@@ -292,6 +298,14 @@ export class InstagramMessagesService {
     const text = String(rawText ?? '').trim();
     if (!text) throw new BadRequestException('Escreva a resposta');
     if (Buffer.byteLength(text, 'utf8') > MAX_DM_BYTES) throw new BadRequestException('A resposta passa do tamanho que o Instagram aceita (cerca de 1.000 caracteres). Encurte o texto.');
+    const { id, lastIn } = await this.assertWindow(companyId, conversationId);
+    const used = await this.sentToday(companyId, 'direct');
+    if (used >= rule.limitePorDia) throw new BadRequestException(`Limite do dia atingido: ${rule.limitePorDia} respostas no Direct por dia. Aumente o limite em Bots → Conectores ou responda pelo app.`);
+    return { text, conversationId: id, username: lastIn.fromUsername, lastInboundAt: lastIn.sentAt, lastInboundText: lastIn.text, settings };
+  }
+
+  /** A conversa existe e ainda está dentro das 24 h da Meta. */
+  private async assertWindow(companyId: number, conversationId: string) {
     const id = String(conversationId ?? '').trim();
     if (!id) throw new BadRequestException('Conversa não informada');
     let lastIn = await this.prisma.ai_SocialMessage.findFirst({ where: { companyId, channel: 'direct', conversationId: id, direction: 'in' }, orderBy: { sentAt: 'desc' } });
@@ -304,9 +318,27 @@ export class InstagramMessagesService {
     if (Date.now() - lastIn.sentAt.getTime() > WINDOW_MS) {
       throw new BadRequestException(`A Meta só permite responder no Direct até 24 horas depois da última mensagem do cliente (a última foi em ${brDateTime(lastIn.sentAt)}). Responda pelo app do Instagram ou espere o cliente escrever de novo.`);
     }
-    const used = await this.sentToday(companyId, 'direct');
+    return { id, lastIn };
+  }
+
+  /** Manda foto, vídeo, áudio ou arquivo no Direct (a Meta baixa pelo endereço, que precisa ser público por alguns minutos). */
+  async replyMedia(actor: MessageActor, conversationId: string, file: { type: 'image' | 'video' | 'audio' | 'file'; url: string }) {
+    const settings = await this.rules(actor.companyId);
+    const rule = settings.responder_mensagens;
+    if (!rule.enabled) throw new BadRequestException('Responder mensagens do Direct está desligado nas configurações do Instagram (Bots → Conectores).');
+    const { id } = await this.assertWindow(actor.companyId, conversationId);
+    const used = await this.sentToday(actor.companyId, 'direct');
     if (used >= rule.limitePorDia) throw new BadRequestException(`Limite do dia atingido: ${rule.limitePorDia} respostas no Direct por dia. Aumente o limite em Bots → Conectores ou responda pelo app.`);
-    return { text, conversationId: id, username: lastIn.fromUsername, lastInboundAt: lastIn.sentAt, lastInboundText: lastIn.text, settings };
+    const sent = await this.meta(actor.companyId, async ({ accountId, token }) => {
+      const res = await axios.post(graph(`/${accountId}/messages`), { recipient: { id }, message: { attachment: { type: file.type, payload: { url: file.url } } } }, { params: { access_token: token }, timeout: 30000 });
+      return res.data ?? {};
+    });
+    const row = await this.insert({
+      companyId: actor.companyId, channel: 'direct', conversationId: id, externalId: String(sent.message_id ?? `sent:${randomUUID()}`),
+      direction: 'out', text: '', attachments: [{ type: file.type, url: null }], sentAt: new Date(), origin: 'system', status: 'sent',
+      repliedByBotId: actor.botId ?? null, repliedByUserId: actor.botId ? null : actor.userId ?? null,
+    });
+    return { ok: true, id: row?.id ?? null, conversationId: id };
   }
 
   /** Responde no Direct (tela, ferramenta ou resposta automática). */

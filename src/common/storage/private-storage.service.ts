@@ -72,13 +72,13 @@ export class PrivateStorageService {
   private readonly memoryUploads = new Map<string, { key: string; contentType: string; parts: Map<number, Buffer> }>();
 
   /** Link temporário para ver ou baixar direto do armazenamento. Quem tiver o link baixa sem login enquanto ele valer. */
-  async linkTo(key: string, options: { fileName: string; contentType: string; inline: boolean; seconds: number }): Promise<string> {
+  async linkTo(key: string, options: { fileName: string; contentType: string; inline: boolean; seconds: number; signingDate?: Date }): Promise<string> {
     if (this.inMemory) {
       if (!this.memory.has(key)) throw new NotFoundException('Arquivo não encontrado no armazenamento');
       return `memory://${key}?expires=${options.seconds}&disposition=${options.inline ? 'inline' : 'attachment'}`;
     }
     const disposition = `${options.inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(options.fileName)}`;
-    return getSignedUrl(this.s3(), new GetObjectCommand({ Bucket: this.bucket(), Key: key, ResponseContentDisposition: disposition, ResponseContentType: options.contentType }), { expiresIn: options.seconds });
+    return getSignedUrl(this.s3(), new GetObjectCommand({ Bucket: this.bucket(), Key: key, ResponseContentDisposition: disposition, ResponseContentType: options.contentType }), { expiresIn: options.seconds, ...(options.signingDate ? { signingDate: options.signingDate } : {}) });
   }
 
   /** Abre um envio em partes e devolve o identificador dele. */

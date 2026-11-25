@@ -1,6 +1,7 @@
-import { Body, Controller, Delete, ForbiddenException, Get, Headers, HttpCode, Param, ParseIntPipe, Patch, Post, Put, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, Headers, HttpCode, Param, ParseIntPipe, Patch, Post, Put, Query, Req, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { SkipThrottle } from '@nestjs/throttler';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { Public } from 'src/auth/decorators/public.decorator';
 import { extractUserPermissions } from 'src/auth/utils/check-permission.util';
@@ -8,6 +9,8 @@ import { clientIpOf } from 'src/common/security/client-ip';
 import { ChatActor, ChatChannelsService } from './chat-channels.service';
 import { ChatConversationsService } from './chat-conversations.service';
 import { ChatInboundService } from './chat-inbound.service';
+import { ChatEventsService } from './chat-events.service';
+import { MAX_OUT } from './chat-media.service';
 
 type Json = Record<string, any>;
 
@@ -19,12 +22,33 @@ const actorOf = (req: Request): ChatActor => {
 /** Conversas: números de WhatsApp, caixa de entrada e webhook do Evolution. */
 @Controller('chat')
 export class ChatController {
-  constructor(private readonly channels: ChatChannelsService, private readonly conversations: ChatConversationsService, private readonly inbound: ChatInboundService) {}
+  constructor(
+    private readonly channels: ChatChannelsService,
+    private readonly conversations: ChatConversationsService,
+    private readonly inbound: ChatInboundService,
+    private readonly events: ChatEventsService,
+  ) {}
 
   private seeing(req: Request) {
     const actor = actorOf(req);
     if (!['view_conversas', 'todas_conversas', 'canais_conversas'].some((p) => actor.permissions.includes(p))) throw new ForbiddenException('Acesso negado: Permissões insuficientes');
     return actor;
+  }
+
+  // ---------------------------------------------------------------- tempo real
+
+  /** Ticket de uso único para abrir o fluxo de eventos (o EventSource não manda o login). */
+  @Post('stream/ticket') @HttpCode(200)
+  ticket(@Req() req: Request) { return this.events.ticket(this.seeing(req)); }
+
+  @Public() @SkipThrottle() @Get('stream')
+  async stream(@Query('ticket') ticket: string, @Res() res: Response) {
+    const actor = await this.events.redeem(ticket);
+    if (!actor) {
+      res.status(401).json({ statusCode: 401, message: 'Ticket inválido ou vencido' });
+      return;
+    }
+    await this.events.open(actor, res);
   }
 
   @Get('meta')
@@ -77,6 +101,12 @@ export class ChatController {
 
   @Post('conversations/:id/messages') @HttpCode(200)
   send(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.conversations.sendText(this.seeing(req), id, body ?? {}); }
+
+  @Post('conversations/:id/media') @HttpCode(200)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_OUT + 1024, files: 1 } }))
+  media(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @UploadedFile() file: Express.Multer.File, @Body() body: Json) {
+    return this.conversations.sendMedia(this.seeing(req), id, file, body ?? {});
+  }
 
   @Post('conversations/:id/notes') @HttpCode(200)
   note(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.conversations.note(this.seeing(req), id, body ?? {}); }

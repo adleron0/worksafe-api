@@ -2,15 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Chat_Channel, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ChatChannelsService } from './chat-channels.service';
-import { isOptOut, normalizeSettings, outOfHours, phoneDigits } from './chat.settings';
+import { isOptOut, normalizeSettings, outOfHours, phoneDigits, previewOf } from './chat.settings';
 import { ChatSendService } from './chat-send.service';
+import { ChatEventsService } from './chat-events.service';
+import { ChatMediaService, MEDIA_TYPES } from './chat-media.service';
 
 type Json = Record<string, any>;
-
-/** O que aparece na lista quando a mensagem não é texto. */
-const LABELS: Record<string, string> = {
-  image: '📷 Foto', audio: '🎤 Áudio', video: '🎬 Vídeo', document: '📄 Documento', sticker: '💟 Figurinha', location: '📍 Localização', contact: '👤 Contato', other: 'Mensagem',
-};
 
 export function readMessage(message: Json | undefined): { type: string; text: string; media: Json | null } {
   const m = message ?? {};
@@ -31,7 +28,7 @@ export function readMessage(message: Json | undefined): { type: string; text: st
   return { type: 'other', text: '', media: null };
 }
 
-export const previewOf = (type: string, text: string) => (text ? text : LABELS[type] ?? 'Mensagem').replace(/\s+/g, ' ').slice(0, 200);
+export { previewOf };
 
 const STATUS_RANK: Record<string, number> = { queued: 0, sending: 1, sent: 2, delivered: 3, read: 4 };
 const ACK: Record<string, string> = { SERVER_ACK: 'sent', DELIVERY_ACK: 'delivered', READ: 'read', PLAYED: 'read', '2': 'sent', '3': 'delivered', '4': 'read', '5': 'read' };
@@ -41,7 +38,13 @@ const ACK: Record<string, string> = { SERVER_ACK: 'sent', DELIVERY_ACK: 'deliver
 export class ChatInboundService {
   private readonly logger = new Logger(ChatInboundService.name);
 
-  constructor(private readonly prisma: PrismaService, private readonly channels: ChatChannelsService, private readonly send: ChatSendService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly channels: ChatChannelsService,
+    private readonly send: ChatSendService,
+    private readonly events: ChatEventsService,
+    private readonly media: ChatMediaService,
+  ) {}
 
   async handle(channel: Chat_Channel, body: Json) {
     const event = String(body?.event ?? '').toLowerCase().replace(/_/g, '.');
@@ -145,11 +148,13 @@ export class ChatInboundService {
       if (type === 'other' && !text) continue; // reações, protocolo, edições
       const sentAt = item.messageTimestamp ? new Date(Number(item.messageTimestamp) * (Number(item.messageTimestamp) < 1e12 ? 1000 : 1)) : new Date();
       const { contact, conversation } = await this.contactAndConversation(channel, { ...who, pushName: fromMe ? null : item.pushName });
+      const hasFile = MEDIA_TYPES.includes(type);
+      let created;
       try {
-        await this.prisma.chat_Message.create({
+        created = await this.prisma.chat_Message.create({
           data: {
             companyId: channel.companyId, channelId: channel.id, conversationId: conversation.id,
-            direction: fromMe ? 'out' : 'in', type, text, media: media ?? undefined, externalId: item.key.id,
+            direction: fromMe ? 'out' : 'in', type, text, media: hasFile ? { ...(media ?? {}), state: 'pending' } : media ?? undefined, externalId: item.key.id,
             status: fromMe ? 'sent' : 'received', origin: fromMe ? 'phone' : 'webhook', sentAt,
           },
         });
@@ -166,6 +171,11 @@ export class ChatInboundService {
           ...(fromMe ? { unread: 0 } : { unread: { increment: 1 }, status: 'aberta' }),
           ...(reopened ? { resolvedAt: null, sector: conversation.sector ?? channel.sector } : {}),
         },
+      });
+      if (hasFile) this.media.fetchWhatsApp(created.id);
+      this.events.emit({
+        companyId: channel.companyId, kind: 'message', channelId: channel.id, conversationId: conversation.id, assignedUserId: conversation.assignedUserId,
+        inbound: !fromMe, contactName: contact.name || contact.pushName || contact.phone, preview: previewOf(type, text),
       });
       if (!fromMe) {
         const optOut = type === 'text' && isOptOut(text);
@@ -210,6 +220,7 @@ export class ChatInboundService {
       if (!message || message.direction !== 'out') continue;
       if ((STATUS_RANK[status] ?? 0) <= (STATUS_RANK[message.status] ?? 0)) continue;
       await this.prisma.chat_Message.update({ where: { id: message.id }, data: { status } });
+      this.events.emit({ companyId: channel.companyId, kind: 'status', channelId: channel.id, conversationId: message.conversationId });
       updated++;
     }
     return updated;

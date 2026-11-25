@@ -6,6 +6,9 @@ import { ChatActor } from './chat-channels.service';
 import { ChatInboundService } from './chat-inbound.service';
 import { ChatSendService } from './chat-send.service';
 import { SECTORS, phoneDigits } from './chat.settings';
+import { ChatEventsService } from './chat-events.service';
+import { ChatInstagramService } from './chat-instagram.service';
+import { ChatMedia, ChatMediaService } from './chat-media.service';
 
 const PAGE = 60;
 
@@ -17,7 +20,14 @@ export class ChatConversationsService {
     private readonly send: ChatSendService,
     private readonly inbound: ChatInboundService,
     private readonly provider: EvolutionProvider,
+    private readonly events: ChatEventsService,
+    private readonly instagram: ChatInstagramService,
+    private readonly media: ChatMediaService,
   ) {}
+
+  private changed(conversation: { companyId: number; channelId: number; id: number; assignedUserId?: number | null }, kind: 'message' | 'conversation' = 'conversation') {
+    this.events.emit({ companyId: conversation.companyId, kind, channelId: conversation.channelId, conversationId: conversation.id, assignedUserId: conversation.assignedUserId ?? null });
+  }
 
   private seesAll(actor: ChatActor) {
     return actor.permissions.includes('todas_conversas');
@@ -124,13 +134,19 @@ export class ChatConversationsService {
       // foto do perfil: busca uma vez, sem travar a tela
       void this.provider.profilePicture(conversation.channel.instanceName, conversation.contact.externalId).then((url) => url && this.prisma.chat_Contact.update({ where: { id: conversation.contact.id }, data: { avatarUrl: url } })).catch(() => undefined);
     }
+    const instagram = conversation.channel.type === 'instagram';
+    const links = await Promise.all(messages.map((m) => this.media.link(m.media as ChatMedia | null)));
     return {
       ...this.row({ ...conversation }, customers, users),
       channel: { id: channel.id, name: channel.name, color: channel.color, type: channel.type, status: channel.status, phone: channel.phone, sector: channel.sector, botMode: channel.botMode },
-      messages: messages.reverse().map((m) => ({
-        id: m.id, direction: m.direction, type: m.type, text: m.text, media: m.media, status: m.status, error: m.error, origin: m.origin, sentAt: m.sentAt,
-        sentBy: m.sentByUserId ? users.get(m.sentByUserId)?.name ?? null : m.origin === 'phone' ? 'Pelo celular' : null,
-      })),
+      replyUntil: instagram ? await this.instagram.replyUntil(id) : null,
+      messages: messages.map((m, i) => {
+        const { key, sourceUrl, ...media } = (m.media as ChatMedia | null) ?? {};
+        return {
+          id: m.id, direction: m.direction, type: m.type, text: m.text, media: m.media ? { ...media, url: links[i] } : null, status: m.status, error: m.error, origin: m.origin, sentAt: m.sentAt,
+          sentBy: m.sentByUserId ? users.get(m.sentByUserId)?.name ?? null : m.sentByBotId ? 'Bot' : m.origin === 'phone' ? (instagram ? 'Pelo app do Instagram' : 'Pelo celular') : null,
+        };
+      }).reverse(),
       hasMore: messages.length === PAGE,
     };
   }
@@ -142,17 +158,57 @@ export class ChatConversationsService {
   async sendText(actor: ChatActor, id: number, body: { text?: unknown; confirmedNew?: unknown }) {
     this.assertReply(actor);
     const conversation = await this.load(actor, id);
-    const message = await this.send.enqueue({ channel: conversation.channel, conversationId: id, contact: conversation.contact, text: String(body.text ?? ''), userId: actor.userId, confirmedNew: body.confirmedNew === true });
-    // quem responde uma conversa sem dono passa a ser o dono
-    if (!conversation.assignedUserId) await this.prisma.chat_Conversation.update({ where: { id }, data: { assignedUserId: actor.userId, status: 'aberta' } });
-    return this.prisma.chat_Message.findUnique({ where: { id: message.id } });
+    let messageId: number;
+    if (conversation.channel.type === 'instagram') {
+      this.assertInstagram(conversation.channel);
+      const sent = await this.instagram.sendText(actor, conversation.contact.externalId, String(body.text ?? ''));
+      messageId = sent!.id;
+    } else {
+      messageId = (await this.send.enqueue({ channel: conversation.channel, conversationId: id, contact: conversation.contact, text: String(body.text ?? ''), userId: actor.userId, confirmedNew: body.confirmedNew === true })).id;
+    }
+    await this.claim(actor, conversation);
+    return this.prisma.chat_Message.findUnique({ where: { id: messageId } });
+  }
+
+  private assertInstagram(channel: { status: string }) {
+    if (channel.status !== 'conectado') throw new BadRequestException('A conta do Instagram está desconectada. Conecte de novo em Bots → Conectores.');
+  }
+
+  /** Quem responde uma conversa sem dono passa a ser o dono. */
+  private async claim(actor: ChatActor, conversation: { id: number; companyId: number; channelId: number; assignedUserId: number | null }) {
+    if (conversation.assignedUserId) return;
+    await this.prisma.chat_Conversation.update({ where: { id: conversation.id }, data: { assignedUserId: actor.userId, status: 'aberta' } });
+    this.changed({ ...conversation, assignedUserId: actor.userId });
+  }
+
+  /** Foto, vídeo, documento ou áudio (gravado na hora = `ptt`). */
+  async sendMedia(actor: ChatActor, id: number, file: { buffer: Buffer; mimetype: string; originalname?: string; size: number } | undefined, body: { caption?: unknown; ptt?: unknown; confirmedNew?: unknown }) {
+    this.assertReply(actor);
+    const conversation = await this.load(actor, id);
+    const instagram = conversation.channel.type === 'instagram';
+    if (instagram) this.assertInstagram(conversation.channel);
+    const ptt = body.ptt === true || body.ptt === 'true';
+    const { type, media } = await this.media.upload(actor.companyId, id, file, ptt);
+    const caption = String(body.caption ?? '').trim();
+    let messageId: number;
+    if (instagram) {
+      const sent = await this.instagram.sendMedia(actor, conversation.contact.externalId, type, media);
+      messageId = sent!.id;
+      if (caption) await this.instagram.sendText(actor, conversation.contact.externalId, caption);
+    } else {
+      messageId = (await this.send.enqueue({ channel: conversation.channel, conversationId: id, contact: conversation.contact, text: type === 'audio' ? '' : caption, type, media, userId: actor.userId, confirmedNew: body.confirmedNew === true || body.confirmedNew === 'true' })).id;
+    }
+    await this.claim(actor, conversation);
+    return this.prisma.chat_Message.findUnique({ where: { id: messageId } });
   }
 
   async note(actor: ChatActor, id: number, body: { text?: unknown }) {
     const conversation = await this.load(actor, id);
     const text = String(body.text ?? '').trim();
     if (!text) throw new BadRequestException('Escreva a nota.');
-    return this.prisma.chat_Message.create({ data: { companyId: actor.companyId, channelId: conversation.channelId, conversationId: id, direction: 'note', type: 'text', text: text.slice(0, 4000), status: 'sent', origin: 'system', sentByUserId: actor.userId } });
+    const note = await this.prisma.chat_Message.create({ data: { companyId: actor.companyId, channelId: conversation.channelId, conversationId: id, direction: 'note', type: 'text', text: text.slice(0, 4000), status: 'sent', origin: 'system', sentByUserId: actor.userId } });
+    this.changed(conversation, 'message');
+    return note;
   }
 
   async retry(actor: ChatActor, id: number, messageId: number) {
@@ -167,6 +223,11 @@ export class ChatConversationsService {
     const conversation = await this.load(actor, id);
     if (!conversation.unread) return { ok: true };
     await this.prisma.chat_Conversation.update({ where: { id }, data: { unread: 0 } });
+    this.changed(conversation);
+    if (conversation.channel.type === 'instagram') {
+      void this.instagram.markRead(actor.companyId, conversation.contact.externalId);
+      return { ok: true };
+    }
     if (conversation.channel.instanceName && conversation.channel.status === 'conectado') {
       const unread = await this.prisma.chat_Message.findMany({ where: { conversationId: id, direction: 'in' }, orderBy: { id: 'desc' }, take: Math.min(conversation.unread, 20), select: { externalId: true } });
       void this.provider.markRead(conversation.channel.instanceName, conversation.contact.externalId, unread.map((m) => m.externalId!).filter(Boolean));
@@ -206,7 +267,9 @@ export class ChatConversationsService {
       if (sector !== conversation.sector) notes.push(`Transferida para o setor ${found?.name ?? 'nenhum'}`);
       data.sector = sector;
     }
-    await this.prisma.chat_Conversation.update({ where: { id }, data });
+    const saved = await this.prisma.chat_Conversation.update({ where: { id }, data });
+    this.changed(saved);
+    if (conversation.assignedUserId && conversation.assignedUserId !== saved.assignedUserId) this.changed(conversation);
     for (const text of notes) {
       await this.prisma.chat_Message.create({ data: { companyId: actor.companyId, channelId: conversation.channelId, conversationId: id, direction: 'note', type: 'event', text, status: 'sent', origin: 'system', sentByUserId: actor.userId } });
     }
@@ -220,6 +283,7 @@ export class ChatConversationsService {
       where: { id: Number(body.channelId), companyId: actor.companyId, active: true, ...(this.seesAll(actor) ? {} : { members: { some: { userId: actor.userId } } }) },
     });
     if (!channel) throw new NotFoundException('Número não encontrado');
+    if (channel.type !== 'whatsapp') throw new BadRequestException('No Instagram só dá para responder quem escreveu primeiro.');
     const phone = phoneDigits(String(body.phone ?? ''));
     if (phone.length < 12 || phone.length > 13) throw new BadRequestException('Digite o celular com DDD (ex.: 11 91234-5678).');
     const { contact, conversation } = await this.inbound.contactAndConversation(channel, { jid: `${phone}@s.whatsapp.net`, phone });
@@ -228,6 +292,7 @@ export class ChatConversationsService {
       await this.send.enqueue({ channel, conversationId: conversation.id, contact, text: String(body.text), userId: actor.userId, confirmedNew: body.confirmedNew === true });
     }
     await this.prisma.chat_Conversation.update({ where: { id: conversation.id }, data: { assignedUserId: conversation.assignedUserId ?? actor.userId, status: 'aberta' } });
+    this.changed({ ...conversation, assignedUserId: conversation.assignedUserId ?? actor.userId });
     return { id: conversation.id };
   }
 

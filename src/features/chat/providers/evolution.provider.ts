@@ -125,6 +125,39 @@ export class EvolutionProvider {
     }
   }
 
+  /** Envia foto, vídeo ou documento (arquivo em base64, sem o prefixo data:). */
+  async sendMedia(name: string, to: string, file: { mediatype: 'image' | 'video' | 'document'; mimetype: string; base64: string; fileName?: string | null; caption?: string }, typingMs: number): Promise<SendResult> {
+    try {
+      const { data } = await this.client().post(`/message/sendMedia/${encodeURIComponent(name)}`, {
+        number: to, mediatype: file.mediatype, mimetype: file.mimetype, media: file.base64, fileName: file.fileName ?? undefined, caption: file.caption || undefined, delay: typingMs,
+      }, { timeout: 60000 + typingMs, maxBodyLength: Infinity });
+      return { externalId: data?.key?.id ?? null };
+    } catch (error) {
+      this.fail(error, 'enviar o arquivo');
+    }
+  }
+
+  /** Áudio de voz (o Evolution converte para o formato do WhatsApp e mostra "gravando…"). */
+  async sendAudio(name: string, to: string, base64: string, typingMs: number): Promise<SendResult> {
+    try {
+      const { data } = await this.client().post(`/message/sendWhatsAppAudio/${encodeURIComponent(name)}`, { number: to, audio: base64, delay: typingMs }, { timeout: 60000 + typingMs, maxBodyLength: Infinity });
+      return { externalId: data?.key?.id ?? null };
+    } catch (error) {
+      this.fail(error, 'enviar o áudio');
+    }
+  }
+
+  /** Baixa a mídia de uma mensagem recebida (o WhatsApp guarda criptografada; o Evolution decifra). */
+  async mediaBase64(name: string, messageId: string): Promise<{ base64: string; mimetype: string | null; fileName: string | null } | null> {
+    try {
+      const { data } = await this.client().post(`/chat/getBase64FromMediaMessage/${encodeURIComponent(name)}`, { message: { key: { id: messageId } }, convertToMp4: false }, { timeout: 60000, maxContentLength: 40 * 1024 * 1024 });
+      if (!data?.base64) return null;
+      return { base64: String(data.base64).replace(/^data:[^;]+;base64,/, ''), mimetype: data.mimetype ?? null, fileName: data.fileName ?? null };
+    } catch (error) {
+      this.fail(error, 'baixar a mídia');
+    }
+  }
+
   async markRead(name: string, remoteJid: string, ids: string[]): Promise<void> {
     if (!ids.length) return;
     await this.client()

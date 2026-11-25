@@ -98,6 +98,11 @@ export class CacheService implements OnModuleDestroy, OnModuleInit {
     CacheService.instance = this.redis;
   }
 
+  /** Conexão crua (pub/sub precisa de uma cópia com `duplicate()`). */
+  client(): Redis {
+    return this.redis;
+  }
+
   async get<T = any>(key: string): Promise<T | null> {
     try {
       const value = await this.redis.get(key);

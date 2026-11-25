@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { EvolutionProvider, ProviderError } from './providers/evolution.provider';
+import { ChatEventsService } from './chat-events.service';
+import { ChatInstagramService } from './chat-instagram.service';
 import { BOT_MODES, SECTORS, TERMS, TERMS_VERSION, normalizeSettings, spDayStart } from './chat.settings';
 
 export interface ChatActor { userId: number; companyId: number; permissions: string[] }
@@ -16,7 +18,7 @@ export class ChatChannelsService {
   /** Último QR recebido pelo webhook (o Evolution troca a cada ~40 s). */
   private readonly qrCache = new Map<number, { qr: string; at: number }>();
 
-  constructor(private readonly prisma: PrismaService, private readonly provider: EvolutionProvider) {}
+  constructor(private readonly prisma: PrismaService, private readonly provider: EvolutionProvider, private readonly events: ChatEventsService, private readonly instagram: ChatInstagramService) {}
 
   webhookUrl(channelId: number): string {
     const base = (process.env.CHAT_WEBHOOK_BASE || process.env.WEBHOOK_URL || 'https://api.worksafebrasil.com.br').replace(/\/+$/, '');
@@ -64,6 +66,8 @@ export class ChatChannelsService {
   }
 
   async list(actor: ChatActor) {
+    // a conta do Instagram conectada em Bots → Conectores vira um canal sozinha
+    await this.instagram.ensureChannel(actor.companyId).catch((error) => this.logger.warn(`Canal do Instagram: ${error?.message}`));
     const all = actor.permissions.includes('todas_conversas') || actor.permissions.includes('canais_conversas');
     const channels = await this.prisma.chat_Channel.findMany({
       where: { companyId: actor.companyId, active: true, ...(all ? {} : { members: { some: { userId: actor.userId } } }) },
@@ -151,8 +155,13 @@ export class ChatChannelsService {
    * Evolution se preciso e devolve o QR code ou, com `phone`, o código de
    * pareamento.
    */
+  private notInstagram(channel: { type: string }) {
+    if (channel.type === 'instagram') throw new BadRequestException('A conta do Instagram se conecta e desconecta em Bots → Conectores.');
+  }
+
   async connect(actor: ChatActor, id: number, body: { acceptTerms?: unknown; phone?: unknown }, ip: string | null) {
     const channel = await this.load(actor.companyId, id);
+    this.notInstagram(channel);
     if (channel.termsVersion !== TERMS_VERSION) {
       if (body.acceptTerms !== true) throw new BadRequestException('Para conectar, aceite o termo de uso do WhatsApp não oficial.');
       await this.prisma.chat_Channel.update({ where: { id }, data: { termsVersion: TERMS_VERSION, termsAcceptedAt: new Date(), termsAcceptedByUserId: actor.userId, termsAcceptedIp: ip?.slice(0, 64) ?? null } });
@@ -185,6 +194,7 @@ export class ChatChannelsService {
   /** A tela pergunta a cada 2 s: conectou? Qual o QR atual? */
   async qr(actor: ChatActor, id: number) {
     const channel = await this.load(actor.companyId, id);
+    this.notInstagram(channel);
     if (channel.status === 'conectado') return { status: 'conectado', phone: channel.phone, profileName: channel.profileName, qr: null };
     if (!channel.instanceName) return { status: channel.status, qr: null };
     const state = await this.provider.state(channel.instanceName).catch(() => 'close' as const);
@@ -203,11 +213,13 @@ export class ChatChannelsService {
       where: { id },
       data: { status: 'conectado', statusReason: null, statusAt: new Date(), connectedAt: new Date(), ...(info.phone ? { phone: info.phone } : {}), ...(info.profileName ? { profileName: info.profileName } : {}) },
     });
+    this.events.emit({ companyId: channel.companyId, kind: 'channel', channelId: id });
     return { status: 'conectado', phone: channel.phone, profileName: channel.profileName, qr: null };
   }
 
   async markDown(id: number, status: 'caiu' | 'banido' | 'desconectado', reason: string) {
-    await this.prisma.chat_Channel.update({ where: { id }, data: { status, statusReason: reason, statusAt: new Date() } });
+    const channel = await this.prisma.chat_Channel.update({ where: { id }, data: { status, statusReason: reason, statusAt: new Date() } });
+    this.events.emit({ companyId: channel.companyId, kind: 'channel', channelId: id });
     if (status === 'banido') {
       await this.prisma.chat_Message.updateMany({ where: { channelId: id, status: 'queued' }, data: { status: 'failed', error: 'Número bloqueado pelo WhatsApp: envios pausados.' } });
     }
@@ -215,6 +227,7 @@ export class ChatChannelsService {
 
   async disconnect(actor: ChatActor, id: number) {
     const channel = await this.load(actor.companyId, id);
+    this.notInstagram(channel);
     if (channel.instanceName && this.provider.ready()) await this.provider.logout(channel.instanceName);
     await this.prisma.chat_Channel.update({ where: { id }, data: { status: 'desconectado', statusReason: 'Desconectado pelo sistema', statusAt: new Date() } });
     return { ok: true };

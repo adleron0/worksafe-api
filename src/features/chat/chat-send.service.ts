@@ -2,8 +2,10 @@ import { BadRequestException, ConflictException, Injectable, Logger, OnModuleDes
 import { Chat_Channel, Chat_Message } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { EvolutionProvider, ProviderError } from './providers/evolution.provider';
+import { ChatEventsService } from './chat-events.service';
+import { ChatMedia, ChatMediaService } from './chat-media.service';
 import { ChatChannelsService } from './chat-channels.service';
-import { previewOf } from './chat-inbound.service';
+import { previewOf } from './chat.settings';
 import { hasLink, hasShortener, normalizeSettings, spDayStart, textHash } from './chat.settings';
 
 const MAX_TEXT = 4000;
@@ -24,7 +26,17 @@ export class ChatSendService implements OnModuleInit, OnModuleDestroy {
   /** Nos testes: sem intervalo nem "digitando". */
   fast = process.env.NODE_ENV === 'test';
 
-  constructor(private readonly prisma: PrismaService, private readonly provider: EvolutionProvider, private readonly channels: ChatChannelsService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly provider: EvolutionProvider,
+    private readonly channels: ChatChannelsService,
+    private readonly events: ChatEventsService,
+    private readonly media: ChatMediaService,
+  ) {}
+
+  private changed(message: { companyId: number; channelId: number; conversationId: number }, kind: 'message' | 'status' = 'status') {
+    this.events.emit({ companyId: message.companyId, kind, channelId: message.channelId, conversationId: message.conversationId });
+  }
 
   onModuleInit() {
     if (process.env.NODE_ENV === 'test') return;
@@ -41,10 +53,11 @@ export class ChatSendService implements OnModuleInit, OnModuleDestroy {
    * Valida as proteções e põe na fila. `isNew` = o contato nunca escreveu para
    * este número (conta no limite de contatos novos do dia).
    */
-  async enqueue(params: { channel: Chat_Channel; conversationId: number; contact: { id: number; optOut: boolean; firstInboundAt: Date | null }; text: string; userId?: number | null; botId?: number | null; confirmedNew?: boolean; origin?: 'system' | 'bot' | 'auto' }) {
+  async enqueue(params: { channel: Chat_Channel; conversationId: number; contact: { id: number; optOut: boolean; firstInboundAt: Date | null }; text: string; userId?: number | null; botId?: number | null; confirmedNew?: boolean; origin?: 'system' | 'bot' | 'auto'; type?: string; media?: ChatMedia | null }) {
     const { channel, contact } = params;
     const text = String(params.text ?? '').trim();
-    if (!text) throw new BadRequestException('Escreva a mensagem.');
+    const type = params.media ? params.type ?? 'document' : 'text';
+    if (!text && type === 'text') throw new BadRequestException('Escreva a mensagem.');
     if (text.length > MAX_TEXT) throw new BadRequestException(`A mensagem passou de ${MAX_TEXT} caracteres.`);
     if (channel.status === 'banido') throw new BadRequestException('Este número foi bloqueado pelo WhatsApp. Os envios estão pausados.');
     if (channel.status !== 'conectado') throw new BadRequestException('Este número está desconectado. Conecte de novo em Conversas → Números.');
@@ -64,7 +77,7 @@ export class ChatSendService implements OnModuleInit, OnModuleDestroy {
     }
 
     const hash = textHash(text);
-    if (text.length >= 20) {
+    if (type === 'text' && text.length >= 20) {
       const since = new Date(Date.now() - 3600000);
       const same = await this.prisma.chat_Message.findMany({ where: { channelId: channel.id, textHash: hash, direction: 'out', sentAt: { gte: since }, conversationId: { not: params.conversationId } }, distinct: ['conversationId'], select: { conversationId: true } });
       if (same.length >= REPEAT_LIMIT) throw new BadRequestException('Este mesmo texto já foi para muitos contatos na última hora. Mude a mensagem (use o nome da pessoa) para não parecer disparo.');
@@ -72,12 +85,13 @@ export class ChatSendService implements OnModuleInit, OnModuleDestroy {
 
     const message = await this.prisma.chat_Message.create({
       data: {
-        companyId: channel.companyId, channelId: channel.id, conversationId: params.conversationId, direction: 'out', type: 'text', text,
+        companyId: channel.companyId, channelId: channel.id, conversationId: params.conversationId, direction: 'out', type, text, media: (params.media as any) ?? undefined,
         status: 'queued', origin: params.origin ?? (params.botId ? 'bot' : 'system'), sentByUserId: params.userId ?? null, sentByBotId: params.botId ?? null,
         textHash: hash, scheduledAt: new Date(), sentAt: new Date(),
       },
     });
-    await this.prisma.chat_Conversation.update({ where: { id: params.conversationId }, data: { lastMessageAt: message.sentAt, lastMessagePreview: previewOf('text', text), lastDirection: 'out', unread: 0 } });
+    await this.prisma.chat_Conversation.update({ where: { id: params.conversationId }, data: { lastMessageAt: message.sentAt, lastMessagePreview: previewOf(type, text), lastDirection: 'out', unread: 0 } });
+    this.changed(message, 'message');
     if (this.fast) await this.tick();
     return message;
   }
@@ -149,7 +163,7 @@ export class ChatSendService implements OnModuleInit, OnModuleDestroy {
     }
     const { intervalo } = normalizeSettings(channel.settings);
     const gap = this.fast ? 0 : this.rand(intervalo.min, intervalo.max);
-    const typing = this.fast ? 0 : Math.min(6000, Math.max(1200, next.text.length * 45));
+    const typing = this.fast ? 0 : next.type === 'text' ? Math.min(6000, Math.max(1200, next.text.length * 45)) : this.rand(1.5, 3.5);
     // trava atômica: só uma réplica passa, e a próxima mensagem espera o intervalo
     const claimed = await this.prisma.$executeRaw`
       UPDATE "Chat_Channel" SET "nextSendAt" = ${new Date(Date.now() + typing + gap)}
@@ -165,13 +179,14 @@ export class ChatSendService implements OnModuleInit, OnModuleDestroy {
     }
     try {
       const to = contact.externalId.endsWith('@s.whatsapp.net') ? contact.externalId.split('@')[0] : contact.externalId;
-      const { externalId } = await this.provider.sendText(channel.instanceName, to, next.text, typing);
+      const { externalId } = await this.deliver(channel.instanceName, to, next, typing);
       const known = externalId ? await this.prisma.chat_Message.findUnique({ where: { externalId } }) : null;
       if (known && known.id !== next.id) {
         // o eco do webhook chegou antes da resposta: junta as duas
         await this.prisma.chat_Message.delete({ where: { id: known.id } });
       }
       await this.prisma.chat_Message.update({ where: { id: next.id }, data: { status: 'sent', externalId: externalId ?? undefined, sentAt: new Date(), error: null } });
+      this.changed(next);
     } catch (error) {
       const message = error instanceof ProviderError ? error.message : (error as Error).message;
       await this.fail(next, message);
@@ -180,14 +195,27 @@ export class ChatSendService implements OnModuleInit, OnModuleDestroy {
     return true;
   }
 
+  /** Texto, arquivo ou áudio de voz. */
+  private async deliver(instance: string, to: string, message: Chat_Message, typing: number) {
+    if (message.type === 'text') return this.provider.sendText(instance, to, message.text, typing);
+    const media = (message.media as ChatMedia | null) ?? {};
+    if (!media.key) throw new BadRequestException('O arquivo desta mensagem não foi encontrado.');
+    const base64 = (await this.media.read(media.key)).toString('base64');
+    if (message.type === 'audio' && media.ptt) return this.provider.sendAudio(instance, to, base64, typing);
+    const mediatype = message.type === 'image' ? 'image' : message.type === 'video' ? 'video' : 'document';
+    return this.provider.sendMedia(instance, to, { mediatype, mimetype: media.mimetype || 'application/octet-stream', base64, fileName: media.fileName ?? (mediatype === 'document' ? 'arquivo' : null), caption: message.text }, typing);
+  }
+
   private async fail(message: Chat_Message, error: string) {
     await this.prisma.chat_Message.update({ where: { id: message.id }, data: { status: 'failed', error: error.slice(0, 1000) } });
+    this.changed(message);
   }
 
   /** Tentar de novo uma mensagem que falhou (volta para o fim da fila). */
   async retry(message: Chat_Message) {
     if (message.status !== 'failed' || message.direction !== 'out') throw new BadRequestException('Só dá para reenviar mensagem que falhou.');
     await this.prisma.chat_Message.update({ where: { id: message.id }, data: { status: 'queued', error: null, scheduledAt: new Date() } });
+    this.changed(message);
     if (this.fast) await this.tick();
     return this.prisma.chat_Message.findUnique({ where: { id: message.id } });
   }
