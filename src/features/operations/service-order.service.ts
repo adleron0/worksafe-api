@@ -4,6 +4,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { FlowDefinition, assertMove, listFlowEvents, recordFlowEvent } from 'src/common/flow/flow';
 import { SHIFTS, orderPeriod, teamOptions } from 'src/features/hr/allocation';
 import { OrderResultService } from './order-result.service';
+import { Schedule, donePercent, parseSchedule, plannedPercent, stepsOf as scheduleSteps } from './order-schedule';
 
 /**
  * Ordem de serviço: a obra que nasce de uma proposta de serviço aceita.
@@ -14,7 +15,7 @@ import { OrderResultService } from './order-result.service';
  */
 type Tx = Prisma.TransactionClient;
 type Body = Record<string, any>;
-export interface OrderActor { userId: number; companyId: number; canSeeCosts: boolean; seesAll: boolean }
+export interface OrderActor { userId: number; companyId: number; canSeeCosts: boolean; seesAll: boolean; canSeeValues?: boolean }
 /** Quem tem vê todas as OS; quem não tem vê só as suas. */
 export const ALL_ORDERS_PERMISSION = 'all_ordens_de_servico';
 
@@ -209,7 +210,12 @@ export class ServiceOrderService {
     };
     const status = STATUSES.includes(query.status as ServiceOrderStatus) ? (query.status as ServiceOrderStatus) : undefined;
     // canceladas só aparecem quando pedidas
-    const where: Prisma.Service_OrderWhereInput = { ...scope, status: status ?? { not: 'cancelada' } };
+    let where: Prisma.Service_OrderWhereInput = { ...scope, status: status ?? { not: 'cancelada' } };
+    // "sem RDO hoje": obras em execução que ainda não têm RDO lançado no dia
+    if (query.noReportToday === '1') {
+      const withReport = await this.prisma.service_DailyReport.findMany({ where: { companyId: actor.companyId, date: asDate(today()), inactiveAt: null }, select: { orderId: true } });
+      where = { ...scope, status: 'em_execucao', id: { notIn: withReport.map((report) => report.orderId) } };
+    }
     const [rows, total, groups] = await Promise.all([
       this.prisma.service_Order.findMany({ where, orderBy: [{ plannedStart: { sort: 'asc', nulls: 'last' } }, { id: 'desc' }], skip: page * limit, take: limit }),
       this.prisma.service_Order.count({ where }),
@@ -225,6 +231,24 @@ export class ServiceOrderService {
     const userOf = new Map(users.map((u) => [u.id, u.name]));
     const proposalOf = new Map(proposals.map((p) => [p.id, p]));
     const orderNumberOf = new Map(contracts.map((c) => [c.id, c.customerOrderNumber]));
+    // obra andando: avanço × previsto e o RDO de hoje, para a lista mostrar sem abrir
+    const running = rows.filter((row) => ['em_execucao', 'concluida'].includes(row.status));
+    const reports = running.length ? await this.prisma.service_DailyReport.findMany({
+      where: { orderId: { in: running.map((row) => row.id) }, inactiveAt: null }, orderBy: [{ date: 'asc' }, { id: 'asc' }], select: { orderId: true, date: true, status: true, progress: true },
+    }) : [];
+    const now = today();
+    const progressOf = new Map(running.map((row) => {
+      const mine = reports.filter((report) => report.orderId === row.id);
+      const last = new Map<number, number>();
+      for (const report of mine) for (const item of (report.progress as unknown as Array<{ step: number; percent: number }>) ?? []) last.set(item.step, item.percent);
+      const todays = mine.filter((report) => iso(report.date) === now);
+      return [row.id, {
+        done: donePercent(row.schedule as Schedule | null, last),
+        planned: row.startedAt ? plannedPercent(row.schedule as Schedule | null, iso(row.startedAt)!, iso(row.finishedAt) ?? now) : null,
+        todayReport: row.status !== 'em_execucao' ? null : todays.length === 0 ? 'nenhum' : todays.every((report) => report.status === 'fechado') ? 'fechado' : 'rascunho',
+        lastReport: mine.length ? iso(mine[mine.length - 1].date) : null,
+      }];
+    }));
     return {
       total,
       rows: rows.map((row) => {
@@ -234,7 +258,7 @@ export class ServiceOrderService {
           proposal: proposalOf.get(row.proposalId) ?? null, customerOrderNumber: orderNumberOf.get(row.contractId) ?? null,
           plannedStart: iso(row.plannedStart), plannedEnd: iso(row.plannedEnd), startedAt: iso(row.startedAt), finishedAt: iso(row.finishedAt),
           responsible: row.responsibleUserId ? userOf.get(row.responsibleUserId) ?? null : null, location: row.location,
-          checklist: { done: checklist.filter((item) => item.done).length, total: checklist.length }, late: this.lateOf(row),
+          checklist: { done: checklist.filter((item) => item.done).length, total: checklist.length }, late: this.lateOf(row), progress: progressOf.get(row.id) ?? null,
         };
       }),
       summary: Object.fromEntries(groups.map((g) => [g.status, g._count._all])),
@@ -263,7 +287,8 @@ export class ServiceOrderService {
       point: await this.pointOf(row),
       responsible, team: (row.team as unknown as TeamMember[]) ?? [],
       plannedStart: iso(row.plannedStart), plannedEnd: iso(row.plannedEnd), startedAt: iso(row.startedAt), finishedAt: iso(row.finishedAt),
-      scope: row.scope, schedule: row.schedule, checklist: (row.checklist as unknown as ChecklistItem[]) ?? [],
+      scope: row.scope, schedule: row.schedule, baseline: row.baseline, checklist: (row.checklist as unknown as ChecklistItem[]) ?? [],
+      safety: row.safety, publicEnabled: row.publicEnabled, canSeeValues: !!actor.canSeeValues,
       notes: row.notes, conclusionNotes: row.conclusionNotes, closedAt: row.closedAt,
       // custo orçado e receita: só com a permissão de custos
       canSeeCosts: actor.canSeeCosts, budget: actor.canSeeCosts ? row.budget : null,
@@ -440,9 +465,33 @@ export class ServiceOrderService {
       }
     }
     if ('notes' in body) data.notes = text(body.notes, 5000) || null;
+    if ('safety' in body) data.safety = text(body.safety, 5000) || null;
+    if ('schedule' in body) Object.assign(data, await this.scheduleOf(row, body.schedule));
     if ('conclusionNotes' in body) data.conclusionNotes = text(body.conclusionNotes, 5000) || null;
     await this.prisma.service_Order.update({ where: { id }, data });
     return this.get(actor, id);
+  }
+
+  /**
+   * Replanejar: o cronograma da OS vira o vigente e o da proposta fica guardado
+   * como linha de base (só na primeira vez). O RDO guarda o avanço pelo número
+   * da etapa, então etapas que já têm avanço não podem sair do cronograma.
+   */
+  private async scheduleOf(row: Service_Order, value: unknown): Promise<Prisma.Service_OrderUncheckedUpdateInput> {
+    let schedule: Schedule;
+    try { schedule = parseSchedule(value); } catch (error) { throw new BadRequestException((error as Error).message); }
+    const reports = await this.prisma.service_DailyReport.findMany({ where: { orderId: row.id, inactiveAt: null }, select: { progress: true } });
+    const used = reports.reduce((max, report) => Math.max(max, ...((report.progress as unknown as Array<{ step: number; percent: number }>) ?? []).filter((item) => item.percent > 0).map((item) => item.step)), -1);
+    if ((schedule.steps ?? []).length <= used) {
+      const title = scheduleSteps(row.schedule as Schedule | null)[used]?.title ?? `etapa ${used + 1}`;
+      throw new BadRequestException(`A etapa "${title}" já tem avanço lançado no RDO e não pode sair do cronograma`);
+    }
+    const changed = JSON.stringify(schedule) !== JSON.stringify(row.schedule ?? null);
+    if (!changed) return {};
+    return {
+      schedule: schedule as unknown as Prisma.InputJsonValue,
+      ...(row.baseline || !row.schedule ? {} : { baseline: row.schedule as Prisma.InputJsonValue }),
+    };
   }
 
   /**

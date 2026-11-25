@@ -4,21 +4,24 @@ import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { COSTS_PERMISSION, permissionsOf } from 'src/features/commercial/proposal.controller';
 import { DOCUMENTS_VIEW_PERMISSION, EmployeeDocumentService } from 'src/features/hr/document.service';
 import { PERSONAL_PERMISSION } from 'src/features/hr/employee.service';
+import { Throttle } from '@nestjs/throttler';
+import { Public } from 'src/auth/decorators/public.decorator';
 import { DailyReportService } from './daily-report.service';
+import { OrderDocumentService, VALUES_PERMISSION } from './order-document.service';
 import { OrderResultService } from './order-result.service';
 import { ALL_ORDERS_PERMISSION, OrderActor, ServiceOrderService } from './service-order.service';
 
 const actorOf = (req: Request): OrderActor => {
   const user = (req as Request & { user?: { sub?: number; companyId?: number; permissions?: unknown } }).user;
   const permissions = permissionsOf(user?.permissions);
-  return { userId: Number(user?.sub ?? 0), companyId: Number(user?.companyId ?? 0), canSeeCosts: permissions.includes(COSTS_PERMISSION), seesAll: permissions.includes(ALL_ORDERS_PERMISSION) };
+  return { userId: Number(user?.sub ?? 0), companyId: Number(user?.companyId ?? 0), canSeeCosts: permissions.includes(COSTS_PERMISSION), seesAll: permissions.includes(ALL_ORDERS_PERMISSION), canSeeValues: permissions.includes(VALUES_PERMISSION) };
 };
 type Json = Record<string, unknown>;
 
 /** Ordens de serviço: a esteira da operação (mobilizar, agendar, executar, concluir). */
 @Controller('service-orders')
 export class ServiceOrderController {
-  constructor(private readonly orders: ServiceOrderService, private readonly resultService: OrderResultService, private readonly documents: EmployeeDocumentService) {}
+  constructor(private readonly orders: ServiceOrderService, private readonly resultService: OrderResultService, private readonly documents: EmployeeDocumentService, private readonly sheets: OrderDocumentService) {}
 
   @Permissions('list_ordens_de_servico') @Get()
   list(@Req() req: Request, @Query() query: Record<string, string>) { return this.orders.list(actorOf(req), query ?? {}); }
@@ -74,6 +77,24 @@ export class ServiceOrderController {
 
   @Permissions('list_ordens_de_servico') @Get(':id/result')
   result(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.resultService.of(actorOf(req), id); }
+
+  /** A folha da OS (a mesma da tela e da impressão). `?values=1` pede os valores da venda (com a permissão). */
+  @Permissions('list_ordens_de_servico') @Get(':id/document')
+  document(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Query() query: Record<string, string>) { return this.sheets.document(actorOf(req), id, query ?? {}); }
+
+  /** Cronograma × RDO: dias da obra, curva previsto × feito, etapas e projeção de término. */
+  @Permissions('list_ordens_de_servico') @Get(':id/timeline')
+  timeline(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.sheets.timeline(actorOf(req), id); }
+
+  /** Link do cliente: ver, ligar/desligar e escolher o que mostra, trocar a chave. */
+  @Permissions('list_ordens_de_servico') @Get(':id/public')
+  publicSettings(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.sheets.publicSettings(actorOf(req), id); }
+
+  @Permissions('update_ordens_de_servico') @Put(':id/public')
+  updatePublic(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.sheets.updatePublic(actorOf(req), id, body ?? {}); }
+
+  @Permissions('update_ordens_de_servico') @Post(':id/public/renew') @HttpCode(200)
+  renewPublic(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.sheets.renewPublic(actorOf(req), id); }
 
   @Permissions('list_ordens_de_servico') @Get(':id')
   get(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.orders.get(actorOf(req), id); }
@@ -131,4 +152,13 @@ export class DailyReportController {
 
   @Permissions('update_rdo') @Delete('service-reports/:id')
   remove(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.reports.remove(actorOf(req), id); }
+}
+
+/** Acompanhamento da obra pelo cliente: link aberto, só leitura, sem valores. */
+@Controller('public/service-orders')
+export class PublicServiceOrderController {
+  constructor(private readonly sheets: OrderDocumentService) {}
+
+  @Public() @Throttle({ default: { limit: 60, ttl: 60000 } }) @Get(':key')
+  view(@Param('key') key: string) { return this.sheets.publicView(String(key ?? '')); }
 }

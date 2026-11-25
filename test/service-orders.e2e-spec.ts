@@ -242,7 +242,8 @@ describe('Operação — ordem de serviço (e2e)', () => {
     const blankReport = (await api().get(`/service-orders/${id}/reports/template`).set(h).expect(200)).body;
     expect(blankReport).toMatchObject({ date: TODAY, shift: 'integral', weather: 'bom', roles: ['Alpinista N1'], hoursPerDay: 8, order: { number: `OS-${YEAR}-0001` } });
     expect(blankReport.crew).toEqual(['João', 'Pedro'].map((name) => ({ name, role: 'Alpinista N1', hours: 8, overtime: 0, in: null, out: null, leaveReason: null })));
-    expect(blankReport.progress).toEqual([{ step: 0, title: 'Mobilização', percent: 0 }, { step: 1, title: 'Execução', percent: 0 }]);
+    // a obra começou anteontem: hoje é o 3º dia, que o cronograma reserva à execução
+    expect(blankReport.progress).toEqual([{ step: 0, title: 'Mobilização', percent: 0, today: false }, { step: 1, title: 'Execução', percent: 0, today: true }]);
 
     const first = (await rdo(h, id, {
       date: day(-2), crew: blankReport.crew, activities: 'Montagem do andaime e isolamento da área',

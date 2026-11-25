@@ -98,7 +98,7 @@ import { ActivityController } from 'src/features/commercial/activity.controller'
 import { PipelineController } from 'src/features/commercial/pipeline.controller';
 import { DashboardController } from 'src/features/dashboard/dashboard.controller';
 import { DashboardModule } from 'src/features/dashboard/module';
-import { DailyReportController, ServiceOrderController } from 'src/features/operations/service-order.controller';
+import { DailyReportController, PublicServiceOrderController, ServiceOrderController } from 'src/features/operations/service-order.controller';
 import { OperationsModule } from 'src/features/operations/module';
 import { PurchaseOrderController } from 'src/features/operations/purchase-order.controller';
 import { HrModule } from 'src/features/hr/module';
@@ -295,6 +295,7 @@ export const crudExtraControllers = [
   PipelineController,
   DashboardController,
   ServiceOrderController,
+  PublicServiceOrderController,
   DailyReportController,
   PurchaseOrderController,
   EmployeeController,

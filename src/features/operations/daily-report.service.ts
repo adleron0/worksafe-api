@@ -5,6 +5,7 @@ import { recordFlowEvent } from 'src/common/flow/flow';
 import type { PricingSnapshot } from 'src/features/commercial/commercial.service';
 import { computeBase, professionalCost } from 'src/features/commercial/pricing/engine';
 import { OrderActor, ordersVisibleTo } from './service-order.service';
+import { stepsOn } from './order-schedule';
 
 /**
  * RDO — relatório diário de obra.
@@ -87,6 +88,11 @@ export class DailyReportService {
   /** Etapas do cronograma planejado, na ordem. */
   private stepsOf(order: Service_Order) {
     return ((order.schedule as ScheduleShape | null)?.steps ?? []).map((step, index) => ({ step: index, title: step.title, start: Number(step.start) || 1, duration: Math.max(1, Number(step.duration) || 1) }));
+  }
+
+  /** Etapas que o cronograma prevê para um dia, contando do início real (ou do previsto). */
+  private todaySteps(order: Service_Order, date: string): number[] {
+    return stepsOn(order.schedule as never, iso(order.startedAt) ?? iso(order.plannedStart), date);
   }
 
   /** Funções de mão de obra vendidas (as opções de "função" da equipe do dia). */
@@ -284,7 +290,7 @@ export class DailyReportService {
       startTime: row.startTime, endTime: row.endTime, breakMinutes: row.breakMinutes, weatherEnd: row.weatherEnd,
       startCondition: row.startCondition, endCondition: row.endCondition, startNote: row.startNote, endNote: row.endNote,
       crew: (row.crew as unknown as CrewMember[]) ?? [], activities: row.activities,
-      progress: steps.map((step) => ({ step: step.step, title: step.title, percent: saved.get(step.step) ?? 0 })),
+      progress: steps.map((step) => ({ step: step.step, title: step.title, percent: saved.get(step.step) ?? 0, today: this.todaySteps(order, iso(row.date)!).includes(step.step) })),
       occurrences: (row.occurrences as unknown as Occurrence[]) ?? [], equipment: row.equipment, photos: (row.photos as unknown as Photo[]) ?? [], notes: row.notes,
       createdBy: row.createdByUserId ? names.get(row.createdByUserId) ?? null : null, closedAt: row.closedAt, closedBy: row.closedByUserId ? names.get(row.closedByUserId) ?? null : null,
       returned: row.returnedAt ? { note: row.returnNote, at: row.returnedAt, by: row.returnedByUserId ? names.get(row.returnedByUserId) ?? null : null } : null,
@@ -319,7 +325,7 @@ export class DailyReportService {
       startTime: previous?.startTime ?? null, endTime: null, breakMinutes: previous?.breakMinutes ?? 60, weatherEnd: null,
       startCondition: null, endCondition: null, startNote: null, endNote: null,
       crew: yesterday.length ? yesterday.map((member) => ({ name: member.name, role: member.role, hours: member.hours, overtime: 0, in: null, out: null, leaveReason: null, ...link(member) })) : team.map((member) => ({ ...member, in: null, out: null, leaveReason: null })), activities: null,
-      progress: this.stepsOf(order).map((step) => ({ step: step.step, title: step.title, percent: last.get(step.step) ?? 0 })),
+      progress: this.stepsOf(order).map((step) => ({ step: step.step, title: step.title, percent: last.get(step.step) ?? 0, today: this.todaySteps(order, date).includes(step.step) })),
       occurrences: [], equipment: previous?.equipment ?? null, photos: [], notes: null,
       createdBy: null, closedAt: null, closedBy: null, order: await this.orderBrief(order), roles: this.rolesOf(order), roleOptions: await this.roleOptionsOf(order), hoursPerDay: labor.hoursPerDay,
     };

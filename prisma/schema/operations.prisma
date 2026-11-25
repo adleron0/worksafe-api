@@ -55,6 +55,14 @@ model Service_Order {
   budget    Json?
   // conferência da mobilização: [{ id, title, done, doneAt, doneBy }]
   checklist Json
+  // riscos e EPIs obrigatórios da obra (sai na folha da OS)
+  safety    String?
+  // cronograma original da proposta, guardado quando a OS é replanejada (schedule vira o vigente)
+  baseline  Json?
+  // acompanhamento pelo cliente: link aberto com chave, e o que ele mostra
+  publicKey     String?  @unique @db.VarChar(64)
+  publicEnabled Boolean  @default(false)
+  publicOptions Json?
 
   notes           String?
   conclusionNotes String?
