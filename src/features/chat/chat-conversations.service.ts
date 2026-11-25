@@ -7,6 +7,7 @@ import { ChatInboundService } from './chat-inbound.service';
 import { ChatSendService } from './chat-send.service';
 import { SECTORS, phoneDigits } from './chat.settings';
 import { ChatEventsService } from './chat-events.service';
+import { ChatChannelsService } from './chat-channels.service';
 import { ChatInstagramService } from './chat-instagram.service';
 import { ChatMedia, ChatMediaService } from './chat-media.service';
 import { signerOf } from './chat-signature';
@@ -24,6 +25,7 @@ export class ChatConversationsService {
     private readonly events: ChatEventsService,
     private readonly instagram: ChatInstagramService,
     private readonly media: ChatMediaService,
+    private readonly channels: ChatChannelsService,
   ) {}
 
   private changed(conversation: { companyId: number; channelId: number; id: number; assignedUserId?: number | null }, kind: 'message' | 'conversation' = 'conversation') {
@@ -36,7 +38,7 @@ export class ChatConversationsService {
 
   /** Quem não vê tudo enxerga as conversas dos números em que está na equipe e as atribuídas a ele. */
   private scope(actor: ChatActor): Prisma.Chat_ConversationWhereInput {
-    const base: Prisma.Chat_ConversationWhereInput = { companyId: actor.companyId, channel: { active: true } };
+    const base: Prisma.Chat_ConversationWhereInput = { companyId: actor.companyId, channel: { active: true }, contact: { hidden: false } };
     if (this.seesAll(actor)) return base;
     return { ...base, OR: [{ channel: { members: { some: { userId: actor.userId } } } }, { assignedUserId: actor.userId }] };
   }
@@ -279,6 +281,14 @@ export class ChatConversationsService {
     return this.get(actor, id);
   }
 
+  /** Ocultar do sistema: apaga a conversa e deixa de gravar esse contato. */
+  async hide(actor: ChatActor, id: number) {
+    if (!['responder_conversas', 'canais_conversas'].some((p) => actor.permissions.includes(p))) throw new ForbiddenException('Você não tem permissão para ocultar contatos.');
+    const conversation = await this.load(actor, id);
+    await this.channels.hideContact(conversation.contactId, actor.userId);
+    return { ok: true };
+  }
+
   /** Nova conversa com um número (conta no limite de contatos novos). */
   async start(actor: ChatActor, body: { channelId?: unknown; phone?: unknown; name?: unknown; text?: unknown; confirmedNew?: unknown }) {
     this.assertReply(actor);
@@ -289,6 +299,7 @@ export class ChatConversationsService {
     if (channel.type !== 'whatsapp') throw new BadRequestException('No Instagram só dá para responder quem escreveu primeiro.');
     const phone = phoneDigits(String(body.phone ?? ''));
     if (phone.length < 12 || phone.length > 13) throw new BadRequestException('Digite o celular com DDD (ex.: 11 91234-5678).');
+    if (await this.inbound.hidden(channel.id, { jid: `${phone}@s.whatsapp.net`, phone })) throw new BadRequestException('Este número está oculto do sistema. Para conversar por aqui, mostre de novo em Números → Configurar.');
     const { contact, conversation } = await this.inbound.contactAndConversation(channel, { jid: `${phone}@s.whatsapp.net`, phone });
     if (body.name && !contact.name) await this.prisma.chat_Contact.update({ where: { id: contact.id }, data: { name: String(body.name).slice(0, 160) } });
     if (body.text) {

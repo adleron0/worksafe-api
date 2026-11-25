@@ -4,7 +4,9 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { EvolutionProvider, ProviderError } from './providers/evolution.provider';
 import { ChatEventsService } from './chat-events.service';
 import { ChatInstagramService } from './chat-instagram.service';
-import { BOT_MODES, SECTORS, TERMS, TERMS_VERSION, normalizeSettings, spDayStart } from './chat.settings';
+import { ChatMedia, ChatMediaService } from './chat-media.service';
+import { Prisma } from '@prisma/client';
+import { BOT_MODES, phoneDigits, SECTORS, TERMS, TERMS_VERSION, normalizeSettings, spDayStart } from './chat.settings';
 
 export interface ChatActor { userId: number; companyId: number; permissions: string[] }
 
@@ -18,7 +20,7 @@ export class ChatChannelsService {
   /** Último QR recebido pelo webhook (o Evolution troca a cada ~40 s). */
   private readonly qrCache = new Map<number, { qr: string; at: number }>();
 
-  constructor(private readonly prisma: PrismaService, private readonly provider: EvolutionProvider, private readonly events: ChatEventsService, private readonly instagram: ChatInstagramService) {}
+  constructor(private readonly prisma: PrismaService, private readonly provider: EvolutionProvider, private readonly events: ChatEventsService, private readonly instagram: ChatInstagramService, private readonly media: ChatMediaService) {}
 
   webhookUrl(channelId: number): string {
     const base = (process.env.CHAT_WEBHOOK_BASE || process.env.WEBHOOK_URL || 'https://api.worksafebrasil.com.br').replace(/\/+$/, '');
@@ -231,6 +233,55 @@ export class ChatChannelsService {
     if (channel.instanceName && this.provider.ready()) await this.provider.logout(channel.instanceName);
     await this.prisma.chat_Channel.update({ where: { id }, data: { status: 'desconectado', statusReason: 'Desconectado pelo sistema', statusAt: new Date() } });
     return { ok: true };
+  }
+
+  // ---------------------------------------------------------------- contatos ocultos
+
+  /**
+   * Oculta um contato (assunto pessoal): apaga a conversa, as mensagens e os
+   * arquivos dele do sistema e, daqui para frente, nada dele é gravado.
+   */
+  async hideContact(contactId: number, userId: number) {
+    const contact = await this.prisma.chat_Contact.update({ where: { id: contactId }, data: { hidden: true, hiddenAt: new Date(), hiddenByUserId: userId, customerId: null } });
+    const conversations = await this.prisma.chat_Conversation.findMany({ where: { contactId }, select: { id: true } });
+    const ids = conversations.map((c) => c.id);
+    if (ids.length) {
+      const files = await this.prisma.chat_Message.findMany({ where: { conversationId: { in: ids }, media: { not: Prisma.DbNull } }, select: { media: true } });
+      await this.prisma.chat_Message.deleteMany({ where: { conversationId: { in: ids } } });
+      await this.prisma.chat_Conversation.deleteMany({ where: { id: { in: ids } } });
+      await this.media.remove(files.map((f) => (f.media as ChatMedia | null)?.key).filter((k): k is string => !!k));
+    }
+    this.events.emit({ companyId: contact.companyId, kind: 'conversation', channelId: contact.channelId, conversationId: ids[0] ?? null });
+    return contact;
+  }
+
+  async hiddenList(actor: ChatActor, id: number) {
+    await this.load(actor.companyId, id);
+    const rows = await this.prisma.chat_Contact.findMany({ where: { channelId: id, hidden: true }, orderBy: { hiddenAt: 'desc' }, select: { id: true, name: true, pushName: true, phone: true, externalId: true, hiddenAt: true } });
+    return rows;
+  }
+
+  /** Oculta pelo número, antes mesmo de a pessoa escrever. */
+  async hidePhone(actor: ChatActor, id: number, body: { phone?: unknown; name?: unknown }) {
+    const channel = await this.load(actor.companyId, id);
+    if (channel.type !== 'whatsapp') throw new BadRequestException('No Instagram, oculte pela própria conversa.');
+    const phone = phoneDigits(String(body.phone ?? ''));
+    if (phone.length < 12 || phone.length > 13) throw new BadRequestException('Digite o celular com DDD (ex.: 11 91234-5678).');
+    const jid = `${phone}@s.whatsapp.net`;
+    const found = await this.prisma.chat_Contact.findMany({ where: { channelId: id, OR: [{ externalId: jid }, { phone }] } });
+    if (!found.some((c) => c.externalId === jid)) {
+      found.push(await this.prisma.chat_Contact.create({ data: { companyId: actor.companyId, channelId: id, externalId: jid, phone, name: body.name ? String(body.name).slice(0, 160) : null } }));
+    }
+    for (const contact of found) await this.hideContact(contact.id, actor.userId);
+    return this.hiddenList(actor, id);
+  }
+
+  /** Volta a aparecer (só o que chegar daqui para frente; o que foi apagado não volta). */
+  async unhide(actor: ChatActor, id: number, contactId: number) {
+    await this.load(actor.companyId, id);
+    const done = await this.prisma.chat_Contact.updateMany({ where: { id: contactId, channelId: id, hidden: true }, data: { hidden: false, hiddenAt: null, hiddenByUserId: null } });
+    if (!done.count) throw new NotFoundException('Contato oculto não encontrado');
+    return this.hiddenList(actor, id);
   }
 
   /** Confere o segredo que o Evolution manda no cabeçalho do webhook. */

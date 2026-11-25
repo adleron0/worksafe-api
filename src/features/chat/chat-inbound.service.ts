@@ -94,6 +94,12 @@ export class ChatInboundService {
     return { jid: pnJid ?? remote, phone };
   }
 
+  /** O contato foi ocultado (pelo jid ou pelo telefone)? */
+  async hidden(channelId: number, who: { jid: string; phone: string | null }) {
+    const found = await this.prisma.chat_Contact.findFirst({ where: { channelId, hidden: true, OR: [{ externalId: who.jid }, ...(who.phone ? [{ phone: who.phone }] : [])] }, select: { id: true } });
+    return !!found;
+  }
+
   /** Acha (ou cria) contato e conversa; vincula o cliente pelo telefone. */
   async contactAndConversation(channel: Chat_Channel, who: { jid: string; phone: string | null; pushName?: string | null }) {
     let contact = await this.prisma.chat_Contact.findUnique({ where: { channelId_externalId: { channelId: channel.id, externalId: who.jid } } });
@@ -147,6 +153,7 @@ export class ChatInboundService {
       const { type, text, media } = readMessage(item.message);
       if (type === 'other' && !text) continue; // reações, protocolo, edições
       const sentAt = item.messageTimestamp ? new Date(Number(item.messageTimestamp) * (Number(item.messageTimestamp) < 1e12 ? 1000 : 1)) : new Date();
+      if (await this.hidden(channel.id, who)) continue; // contato oculto: nada é gravado
       const { contact, conversation } = await this.contactAndConversation(channel, { ...who, pushName: fromMe ? null : item.pushName });
       const hasFile = MEDIA_TYPES.includes(type);
       let created;

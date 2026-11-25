@@ -119,6 +119,7 @@ export class ChatInstagramService implements OnModuleInit, OnModuleDestroy {
     const igsid = row.conversationId;
     const inbound = row.direction === 'in';
     let contact = await this.prisma.chat_Contact.findUnique({ where: { channelId_externalId: { channelId: channel.id, externalId: igsid } } });
+    if (contact?.hidden) return null; // contato oculto: nada é gravado
     const username = inbound && row.fromUsername ? `@${row.fromUsername}` : null;
     if (!contact) {
       contact = await this.prisma.chat_Contact

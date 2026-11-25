@@ -253,6 +253,41 @@ describe('Conversas fase 1: tempo real, mídia e Instagram (e2e)', () => {
     expect(texts[3]).toBe('_Bruno:_\nOlá! Sou o assistente.');
   });
 
+  it('ocultar: apaga a conversa e os arquivos, não grava mais nada do contato e volta a aparecer quando mostra de novo', async () => {
+    const { company, db } = await cenario();
+    const { id, secret } = await conectado(company.id);
+    nock(EVO).post(/\/chat\/getBase64FromMediaMessage\/.*/).reply(200, { base64: Buffer.from('foto').toString('base64'), mimetype: 'image/jpeg' });
+    await hook(id, secret, upsert('P1', '5511977771111', { conversation: 'Oi amor, chego tarde hoje' })).expect(200);
+    await hook(id, secret, upsert('P2', '5511977771111', { imageMessage: { mimetype: 'image/jpeg' } })).expect(200);
+    await media.idle();
+    const conv = await db.chat_Conversation.findFirstOrThrow({ where: { channelId: id } });
+
+    await api().post(`/chat/conversations/${conv.id}/hide`).set(auth(company.id, ['view_conversas', 'todas_conversas'])).expect(403);
+    await api().post(`/chat/conversations/${conv.id}/hide`).set(auth(company.id)).expect(200);
+    expect(await db.chat_Message.count({ where: { channelId: id } })).toBe(0);
+    expect(await db.chat_Conversation.count({ where: { channelId: id } })).toBe(0);
+    expect((await api().get('/chat/conversations').set(auth(company.id)).expect(200)).body.items).toHaveLength(0);
+
+    // o que chegar depois não é gravado (nem enviado pelo celular)
+    await hook(id, secret, upsert('P3', '5511977771111', { conversation: 'Tá bom' })).expect(200);
+    await hook(id, secret, { event: 'messages.upsert', data: { key: { remoteJid: '5511977771111@s.whatsapp.net', fromMe: true, id: 'P4' }, message: { conversation: 'Beijo' }, messageTimestamp: Math.floor(Date.now() / 1000) } }).expect(200);
+    expect(await db.chat_Message.count({ where: { channelId: id } })).toBe(0);
+    expect((await api().post('/chat/conversations').set(auth(company.id)).send({ channelId: id, phone: '11977771111' }).expect(400)).body.message).toMatch(/oculto/);
+
+    // ocultar pelo número antes de escrever, listar e mostrar de novo
+    const list = (await api().post(`/chat/channels/${id}/hidden`).set(auth(company.id)).send({ phone: '(11) 96666-2222', name: 'Mãe' }).expect(200)).body;
+    expect(list.map((c: any) => c.phone).sort()).toEqual(['5511966662222', '5511977771111']);
+    await hook(id, secret, upsert('P5', '5511966662222', { conversation: 'Filho, liga pra mim' })).expect(200);
+    expect(await db.chat_Message.count({ where: { channelId: id } })).toBe(0);
+
+    const contact = list.find((c: any) => c.phone === '5511977771111');
+    const after = (await api().delete(`/chat/channels/${id}/hidden/${contact.id}`).set(auth(company.id)).expect(200)).body;
+    expect(after).toHaveLength(1);
+    await hook(id, secret, upsert('P6', '5511977771111', { conversation: 'Voltei a aparecer' })).expect(200);
+    expect((await api().get('/chat/conversations').set(auth(company.id)).expect(200)).body.items[0]).toMatchObject({ lastMessagePreview: 'Voltei a aparecer' });
+    await api().get(`/chat/channels/${id}/hidden`).set(auth(company.id, ['view_conversas'])).expect(403);
+  });
+
   // ---------------------------------------------------------------- Instagram
 
   const sign = (raw: string) => `sha256=${createHmac('sha256', SECRET).update(raw).digest('hex')}`;

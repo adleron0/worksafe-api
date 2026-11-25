@@ -89,6 +89,11 @@ export class ChatMediaService {
     return key;
   }
 
+  /** Apaga do armazenamento (contato oculto). Arquivo que já não existe não é erro. */
+  async remove(keys: string[]) {
+    await Promise.all(keys.map((key) => this.storage.delete(key).catch(() => undefined)));
+  }
+
   async read(key: string) {
     return this.storage.get(key);
   }

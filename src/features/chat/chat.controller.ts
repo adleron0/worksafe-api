@@ -80,6 +80,15 @@ export class ChatController {
   @Permissions('canais_conversas') @Post('channels/:id/disconnect') @HttpCode(200)
   disconnect(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.channels.disconnect(actorOf(req), id); }
 
+  @Permissions('canais_conversas') @Get('channels/:id/hidden')
+  hiddenList(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.channels.hiddenList(actorOf(req), id); }
+
+  @Permissions('canais_conversas') @Post('channels/:id/hidden') @HttpCode(200)
+  hidePhone(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.channels.hidePhone(actorOf(req), id, body ?? {}); }
+
+  @Permissions('canais_conversas') @Delete('channels/:id/hidden/:contactId')
+  unhide(@Param('id', ParseIntPipe) id: number, @Param('contactId', ParseIntPipe) contactId: number, @Req() req: Request) { return this.channels.unhide(actorOf(req), id, contactId); }
+
   // ---------------------------------------------------------------- caixa de entrada
 
   @Get('conversations')
@@ -115,6 +124,9 @@ export class ChatController {
   retry(@Param('id', ParseIntPipe) id: number, @Param('messageId', ParseIntPipe) messageId: number, @Req() req: Request) {
     return this.conversations.retry(this.seeing(req), id, messageId);
   }
+
+  @Post('conversations/:id/hide') @HttpCode(200)
+  hide(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.conversations.hide(this.seeing(req), id); }
 
   @Post('conversations/:id/read') @HttpCode(200)
   read(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.conversations.read(this.seeing(req), id); }

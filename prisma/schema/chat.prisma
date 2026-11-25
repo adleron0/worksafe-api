@@ -72,6 +72,10 @@ model Chat_Contact {
   optOut         Boolean      @default(false)
   optOutAt       DateTime?
   firstInboundAt DateTime?
+  /// oculto: assunto pessoal; nada desse contato é gravado nem aparece no sistema
+  hidden         Boolean      @default(false)
+  hiddenAt       DateTime?
+  hiddenByUserId Int?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   channel        Chat_Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
@@ -81,6 +85,7 @@ model Chat_Contact {
   @@unique([channelId, externalId])
   @@index([companyId, phone])
   @@index([customerId])
+  @@index([channelId, hidden])
 }
 
 /// Uma conversa por contato e canal; resolvida reabre quando o cliente escreve.
