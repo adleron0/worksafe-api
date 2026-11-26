@@ -1,7 +1,8 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ibgeOf } from 'src/features/fiscal/fiscal.utils';
+import { entityScope } from './entity-scope';
 
 export type EntityKind = 'treinamento' | 'servico' | 'locacao';
 export const ENTITY_KINDS: EntityKind[] = ['treinamento', 'servico', 'locacao'];
@@ -92,8 +93,9 @@ export class CompanyEntityService {
 
   async list(companyId: number, all = false) {
     await this.ensureFirst(companyId);
+    const allowed = entityScope.allowed();
     const rows = await this.prisma.company_Entity.findMany({
-      where: { companyId, ...(all ? {} : { inactiveAt: null }) },
+      where: { companyId, ...(all ? {} : { inactiveAt: null }), ...(allowed ? { id: { in: allowed } } : {}) },
       include: this.include,
       orderBy: [{ inactiveAt: { sort: 'asc', nulls: 'first' } }, { isDefault: 'desc' }, { id: 'asc' }],
     });
@@ -125,6 +127,8 @@ export class CompanyEntityService {
     if (entityId !== undefined && entityId !== null && entityId !== '' && Number.isInteger(id) && id > 0) {
       const found = await this.prisma.company_Entity.findFirst({ where: { id, companyId }, select: { id: true, inactiveAt: true } });
       if (!found) throw new BadRequestException('CNPJ do grupo não encontrado');
+      const allowed = entityScope.allowed();
+      if (allowed && !allowed.includes(found.id)) throw new ForbiddenException('Seu usuário não tem acesso a este CNPJ do grupo');
       return found.id;
     }
     let rows = await this.prisma.company_Entity.findMany({ where: { companyId, inactiveAt: null }, orderBy: [{ isDefault: 'desc' }, { id: 'asc' }], select: { id: true, kinds: true } });
@@ -133,6 +137,12 @@ export class CompanyEntityService {
       rows = await this.prisma.company_Entity.findMany({ where: { companyId, inactiveAt: null }, orderBy: [{ isDefault: 'desc' }, { id: 'asc' }], select: { id: true, kinds: true } });
     }
     if (!rows.length) throw new BadRequestException('Cadastre o CNPJ da empresa em Configurações → Empresas do grupo');
+    // usuário limitado: escolhe entre os CNPJs dele (o da frente, senão o primeiro)
+    const allowed = entityScope.allowed();
+    if (allowed) {
+      rows = rows.filter((r) => allowed.includes(r.id));
+      if (!rows.length) throw new ForbiddenException('Seu usuário não tem acesso a nenhum CNPJ ativo do grupo');
+    }
     return (kind ? rows.find((r) => r.kinds.includes(kind)) : null)?.id ?? rows[0].id;
   }
 

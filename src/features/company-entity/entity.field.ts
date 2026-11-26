@@ -1,5 +1,6 @@
 import { CrudError } from '@adleron/crud-core';
 import { Prisma, PrismaClient } from '@prisma/client';
+import { entityScope } from './entity-scope';
 
 type Db = Pick<PrismaClient, 'company_Entity'> | Prisma.TransactionClient;
 type Fail = (message: string, field?: string) => never;
@@ -12,6 +13,8 @@ export async function entityField(db: Db, companyId: number, value: unknown, fai
   if (value === undefined || value === null || value === '' || value === 'null') return undefined;
   const id = Number(value);
   if (!Number.isInteger(id) || id <= 0) return fail('Empresa (CNPJ) inválida', 'entityId');
+  const allowed = entityScope.allowed();
+  if (allowed && !allowed.includes(id)) return fail('Seu usuário não tem acesso a este CNPJ do grupo', 'entityId');
   if (current && id === current) return id;
   const found = await db.company_Entity.findFirst({ where: { id, companyId }, select: { inactiveAt: true, tradeName: true } });
   if (!found) return fail('Empresa (CNPJ) do grupo não encontrada', 'entityId');

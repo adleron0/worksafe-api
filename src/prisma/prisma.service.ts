@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { getChanges } from 'src/utils/getChanges';
+import { entityScopeExtension } from 'src/features/company-entity/entity-scope';
 
 @Injectable()
 export class PrismaService
@@ -36,6 +37,8 @@ export class PrismaService
             ]
           : [],
     });
+    // usuário limitado a alguns CNPJs: a trava fica no próprio cliente (ver entity-scope.ts)
+    return this.$extends(entityScopeExtension) as unknown as this;
   }
 
   async onModuleInit() {

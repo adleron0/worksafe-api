@@ -12,6 +12,8 @@ model User {
   googleSub        String?                  @unique @db.VarChar(64)
   /// convidado externo: acesso vale até esta data (nulo = da casa)
   externalUntil    DateTime?
+  /// CNPJs do grupo que o usuário vê (vazio = todos)
+  entityIds        Int[]                    @default([])
   birthDate        DateTime?
   companyId        Int?
   company          Company?                 @relation(fields: [companyId], references: [id])

@@ -11,6 +11,7 @@ import {
 } from 'src/common/crud/hooks';
 import { SellerWalletService } from 'src/features/commercial/wallet.service';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { entityScope, forgetAllowedEntities } from 'src/features/company-entity/entity-scope';
 
 /**
  * Vendedor é só uma marcação no usuário, sem subconta em gateway. Marcar por aqui
@@ -69,6 +70,33 @@ const protectGoogleIdentity: EntityHooks<Request> = {
   },
 };
 
+/**
+ * CNPJs do grupo que o usuário vê (vazio = todos). Aceita lista, "1,2" ou JSON
+ * (o formulário vai em multipart por causa da foto). Só CNPJs do grupo; quem já é
+ * limitado não dá acesso a CNPJ que ele mesmo não vê.
+ */
+const entityAccess: EntityHooks<Request> = {
+  preWrite: async ({ op, data, scopeId, deps }) => {
+    if ((op !== 'create' && op !== 'update') || !data || !('entityIds' in data)) return undefined;
+    const raw = data.entityIds;
+    let list: unknown[] = [];
+    if (Array.isArray(raw)) list = raw;
+    else if (typeof raw === 'string' && raw.trim().startsWith('[')) { try { list = JSON.parse(raw); } catch { list = []; } }
+    else if (raw !== null && raw !== undefined && raw !== '') list = String(raw).split(',');
+    const ids = [...new Set(list.map((v) => Number(String(v).trim())).filter((n) => Number.isInteger(n) && n > 0))];
+    if (ids.length) {
+      const found = await (deps.prisma as PrismaService).company_Entity.count({ where: { companyId: Number(scopeId), id: { in: ids } } });
+      if (found !== ids.length) throw new CrudError('VALIDATION_FAILED', 'CNPJ do grupo não encontrado', 'entityIds');
+    }
+    const mine = entityScope.allowed();
+    if (mine && (!ids.length || ids.some((id) => !mine.includes(id)))) {
+      throw new CrudError('FORBIDDEN', 'Você só pode dar acesso aos CNPJs que você mesmo vê');
+    }
+    return { ...data, entityIds: ids };
+  },
+  postWrite: async ({ result }) => { forgetAllowedEntities(Number(result?.id)); },
+};
+
 export const userEntity: EntityRules = {
   entity: 'user',
   model: 'User',
@@ -91,11 +119,12 @@ export const userEntity: EntityRules = {
   // googleSub/externalUntil só pelo login Google e pelos convites
   neverWritable: ['active', 'searchName', 'sellerActivatedAt', 'commissionRate', 'commissionBase', 'googleSub', 'externalUntil'],
   // Achado nº 1: PUT /user/self não muda papel, empresa nem status de seller.
-  selfRestricted: ['profileId', 'sellerStatus', 'sellerConfig', 'isSeller'],
+  selfRestricted: ['profileId', 'sellerStatus', 'sellerConfig', 'isSeller', 'entityIds'],
   softDelete: { field: 'inactiveAt' },
   hooks: composeHooks<Request>(
     protectSuper,
     protectGoogleIdentity,
+    entityAccess,
     syncActiveFlag,
     imageUpload(),
     parseJsonFields('bankAccount', 'sellerConfig'),

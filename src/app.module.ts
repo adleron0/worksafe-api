@@ -6,6 +6,8 @@ import { UserModule } from './features/users/user/module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { APP_GUARD } from '@nestjs/core';
+import { MiddlewareConsumer, NestModule } from '@nestjs/common';
+import { entityScope } from './features/company-entity/entity-scope';
 import { AuthGuard } from './auth/auth.guard';
 import { SecurityModule } from './common/security/security.module';
 import { PermissionsModule } from './features/users/permissions/permissions.module';
@@ -104,4 +106,9 @@ import { FiscalModule } from './features/fiscal/module';
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  // a "caixa" dos CNPJs permitidos da requisição (o AuthGuard preenche)
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(entityScope.middleware).forRoutes('{*splat}');
+  }
+}

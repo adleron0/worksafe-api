@@ -15,6 +15,8 @@ import { decryptPayload } from 'src/utils/crypto';
 import { PROFILE_KEY } from './decorators/profiles.decorator';
 import { shouldIgnoreRoute, AUTH_GUARD_CONFIG } from './auth-guard.config';
 import * as Zlib from 'zlib';
+import { PrismaService } from 'src/prisma/prisma.service';
+import { allowedEntitiesOf, entityScope } from 'src/features/company-entity/entity-scope';
 
 const accessTokenSecret = process.env.JWT_ACCESS_SECRET;
 
@@ -23,6 +25,7 @@ export class AuthGuard implements CanActivate {
   constructor(
     private jwtService: JwtService,
     private reflector: Reflector,
+    private prisma: PrismaService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -138,6 +141,9 @@ export class AuthGuard implements CanActivate {
         );
       }
     }
+
+    // usuário limitado a alguns CNPJs do grupo (vazio = todos)
+    entityScope.set(await allowedEntitiesOf(this.prisma, Number(payload.sub)));
 
     // Opcional: passa o companyId do payload para o request
     request['companyId'] = payload.companyId;

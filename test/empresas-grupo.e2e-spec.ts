@@ -161,4 +161,48 @@ describe('Empresas do grupo — vários CNPJs (e2e)', () => {
     await api().post('/financial-bank-accounts').set(h).send({ name: 'Asaas Treinamentos', type: 'gateway', gateway: 'asaas', entityId: tr.id }).expect(201);
     await api().post('/financial-bank-accounts').set(h).send({ name: 'Asaas Treinamentos 2', type: 'gateway', gateway: 'asaas', entityId: tr.id }).expect(409);
   });
+  it('usuário limitado a um CNPJ só vê e grava registros dele; sem limite vê todos', async () => {
+    const { company, h } = await cenario();
+    const db = testDb();
+    const servicos = (await api().get('/company-entities').set(h).expect(200)).body[0];
+    const tr = (await api().post('/company-entities').set(h).send({ cnpj: TREINAMENTOS, corporateName: 'WorkSafe Treinamentos Ltda', tradeName: 'WorkSafe Treinamentos', kinds: ['treinamento'] }).expect(201)).body;
+    const due = new Date(Date.now() + 10 * 86400000).toISOString().slice(0, 10);
+    await api().post('/financial-payables').set(h).send({ description: 'Aluguel sala de aula', value: 900, dueDate: due, entityId: tr.id }).expect(201);
+    await api().post('/financial-payables').set(h).send({ description: 'Combustível', value: 300, dueDate: due }).expect(201);
+    const fuel = await db.financial_Payable.findFirstOrThrow({ where: { companyId: company.id, entityId: servicos.id } });
+
+    // o administrador limita outro usuário a Treinamentos
+    const admin = userId;
+    const other = await makeSeller(company.id);
+    const adminH = auth(company.id, [...PERMS, 'update_user', 'list_user']);
+    await api().put(`/user/${other.id}`).set(adminH).send({ entityIds: [999999] }).expect(400);
+    await api().put(`/user/${other.id}`).set(adminH).send({ entityIds: `${tr.id}` }).expect(200);
+    expect((await db.user.findUniqueOrThrow({ where: { id: other.id } })).entityIds).toEqual([tr.id]);
+
+    userId = other.id;
+    const limited = auth(company.id, [...PERMS, 'update_user']);
+    const entities = (await api().get('/company-entities').set(limited).expect(200)).body;
+    expect(entities.map((e: any) => e.id)).toEqual([tr.id]);
+    const rows = (list: any) => (list.data ?? list.rows ?? []) as any[];
+    const mine = (await api().get('/financial/payables').set(limited).expect(200)).body;
+    expect(rows(mine).map((r) => r.description)).toEqual(['Aluguel sala de aula']);
+    // pedir o outro CNPJ no filtro não fura a trava
+    expect(rows((await api().get(`/financial/payables?entityId=${servicos.id}`).set(limited).expect(200)).body)).toHaveLength(0);
+    // não grava no CNPJ que não vê
+    await api().post('/financial-payables').set(limited).send({ description: 'X', value: 1, dueDate: due, entityId: servicos.id }).expect((r) => expect([400, 403]).toContain(r.status));
+    expect(await db.financial_Payable.count({ where: { description: 'X' } })).toBe(0);
+    await api().put(`/financial-payables/${fuel.id}`).set(limited).send({ description: 'mexido' }).expect((r) => expect([403, 404]).toContain(r.status));
+    expect((await db.financial_Payable.findUniqueOrThrow({ where: { id: fuel.id } })).description).toBe('Combustível');
+    // sem CNPJ informado, o registro nasce no CNPJ dele
+    await api().post('/financial-payables').set(limited).send({ description: 'Apostilas', value: 50, dueDate: due }).expect(201);
+    expect((await db.financial_Payable.findFirstOrThrow({ where: { description: 'Apostilas' } })).entityId).toBe(tr.id);
+    // não dá a ninguém acesso a CNPJ que ele não vê (nem "todos")
+    await api().put(`/user/${admin}`).set(limited).send({ entityIds: [servicos.id] }).expect(403);
+    await api().put(`/user/${admin}`).set(limited).send({ entityIds: [] }).expect(403);
+
+    // quem não tem limite segue vendo os dois
+    userId = admin;
+    expect(rows((await api().get('/financial/payables').set(h).expect(200)).body)).toHaveLength(3);
+    expect((await api().get('/company-entities').set(h).expect(200)).body).toHaveLength(2);
+  });
 });
