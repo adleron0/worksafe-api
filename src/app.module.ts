@@ -1,3 +1,4 @@
+import { HealthController } from './common/health/health.controller';
 import { SellerWalletModule } from './features/commercial/wallet.module';
 import { Module } from '@nestjs/common';
 import * as cookieParser from 'cookie-parser';
@@ -91,7 +92,7 @@ import { ChatModule } from './features/chat/chat.module';
     // Conversas (WhatsApp)
     ChatModule,
   ],
-  controllers: [],
+  controllers: [HealthController],
   providers: [
     {
       provide: APP_GUARD,
