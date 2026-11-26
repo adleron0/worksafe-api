@@ -1,3 +1,4 @@
+import { ENTITY_SELECT, entityField } from 'src/features/company-entity/entity.field';
 import { CrudError, EntityRules } from '@adleron/crud-core';
 import { PrismaService } from 'src/prisma/prisma.service';
 
@@ -6,6 +7,7 @@ const PERMISSIONS = {
   update: 'update_financeiro', archive: 'inactive_financeiro', restore: 'activate_financeiro',
 } as const;
 
+const crudFail = (message: string, field?: string): never => { throw new CrudError('VALIDATION_FAILED', message, field); };
 const clean = (value: unknown) => String(value ?? '').trim().replace(/\s+/g, ' ');
 const blank = (value: unknown) => value === undefined || value === null || value === '' || value === 'null';
 const OPEN = ['waiting', 'overdue', 'processing'] as const;
@@ -57,10 +59,10 @@ export const bankAccountEntity: EntityRules = {
   entity: 'financial-bank-accounts', model: 'Financial_BankAccount',
   expose: ['list', 'getById', 'create', 'update', 'archive', 'restore'], restorePermission: 'own',
   permissions: PERMISSIONS,
-  filterable: ['name', 'type', 'isDefault', 'createdAt'],
+  filterable: ['name', 'type', 'isDefault', 'createdAt', 'entityId'],
   sortable: ['id', 'name', 'type', 'createdAt'],
-  includable: ['_count'],
-  includes: { _count: { select: { financialRecords: true, payables: true } } },
+  includable: ['_count', 'entity'],
+  includes: { _count: { select: { financialRecords: true, payables: true } }, entity: ENTITY_SELECT },
   softDelete: { field: 'inactiveAt' },
   hooks: {
     preWrite: async ({ op, data, existing, scopeId, deps }) => {
@@ -81,15 +83,23 @@ export const bankAccountEntity: EntityRules = {
         next.name = name;
       }
       if ('type' in next && !BANK_TYPES.includes(String(next.type))) throw new CrudError('VALIDATION_FAILED', 'Tipo de conta inválido', 'type');
+      // CNPJ do grupo dono da conta (vazio: o padrão)
+      if ('entityId' in next) {
+        const entityId = await entityField(prisma, companyId, next.entityId, crudFail, existing?.entityId as number | null | undefined);
+        if (entityId) next.entityId = entityId;
+        else delete next.entityId;
+      }
       const type = String(next.type ?? existing?.type ?? 'corrente');
       if (type === 'gateway') {
         const gateway = next.gateway ?? existing?.gateway;
         if (blank(gateway) || gateway === 'manual') throw new CrudError('VALIDATION_FAILED', 'Escolha o provedor da conta de gateway', 'gateway');
+        // uma conta de gateway por provedor em cada CNPJ (cada CNPJ tem a sua conta Asaas)
+        const entityId = next.entityId ?? existing?.entityId ?? null;
         const dup = await prisma.financial_BankAccount.findFirst({
-          where: { companyId, type: 'gateway', gateway, inactiveAt: null, ...(existing ? { NOT: { id: Number(existing.id) } } : {}) },
+          where: { companyId, type: 'gateway', gateway, inactiveAt: null, ...(entityId ? { entityId } : {}), ...(existing ? { NOT: { id: Number(existing.id) } } : {}) },
           select: { id: true },
         });
-        if (dup) throw new CrudError('CONFLICT', 'Já existe uma conta para esse provedor', 'gateway');
+        if (dup) throw new CrudError('CONFLICT', 'Este CNPJ já tem uma conta para esse provedor', 'gateway');
       } else if ('type' in next || 'gateway' in next) {
         next.gateway = null;
       }

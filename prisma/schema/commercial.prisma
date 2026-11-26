@@ -222,6 +222,9 @@ model Commercial_CoursePrice {
 model Commercial_Proposal {
   id        Int                      @id @default(autoincrement())
   companyId Int
+  // CNPJ do grupo (preenchido pelo banco quando vem vazio)
+  entityId Int?
+  entity   Company_Entity? @relation(fields: [entityId], references: [id])
   // PC-2026-0001 (revisões: PC-2026-0001-R1)
   number    String                   @db.VarChar(30)
   year      Int
@@ -493,6 +496,9 @@ enum CommercialContractStatus {
 model Commercial_Contract {
   id           Int                      @id @default(autoincrement())
   companyId    Int
+  // CNPJ do grupo (preenchido pelo banco quando vem vazio)
+  entityId Int?
+  entity   Company_Entity? @relation(fields: [entityId], references: [id])
   // CT-2026-0001
   number       String                   @db.VarChar(30)
   year         Int

@@ -29,8 +29,9 @@ export class FiscalTrainingJob {
     if (this.running || process.env.FISCAL_AUTO_EMIT_DISABLED === 'true') return;
     this.running = true;
     try {
-      const companies = await this.prisma.fiscal_Settings.findMany({ where: { autoEmitTraining: true }, select: { companyId: true, autoEmitTrainingSince: true, updatedByUserId: true } });
-      for (const row of companies) await this.runCompany(row.companyId, row.autoEmitTrainingSince, row.updatedByUserId ?? 0);
+      // cada CNPJ do grupo liga a emissão automática na própria configuração
+      const rows = await this.prisma.fiscal_Settings.findMany({ where: { autoEmitTraining: true }, select: { companyId: true, entityId: true, autoEmitTrainingSince: true, updatedByUserId: true } });
+      for (const row of rows) await this.runCompany(row.companyId, row.autoEmitTrainingSince, row.updatedByUserId ?? 0, row.entityId);
     } catch (error) {
       this.logger.warn(`Emissão automática de treinamento falhou: ${error instanceof Error ? error.message : error}`);
     } finally {
@@ -39,10 +40,12 @@ export class FiscalTrainingJob {
   }
 
   /** Uma rodada para uma empresa (também usada nos testes). Devolve quantas notas tentou. */
-  async runCompany(companyId: number, since: Date | null, userId: number): Promise<number> {
-    const info = await this.settings.get(companyId);
+  async runCompany(companyId: number, since: Date | null, userId: number, entityId?: number | null): Promise<number> {
+    const id = await this.settings.entityOf(companyId, entityId ?? undefined);
+    const info = await this.settings.get(companyId, id);
     if (!info.ready) return 0;
-    const pending = (await this.origins.pendingTraining(companyId, { since, limit: 50 })).filter((p) => !p.invoice);
+    // só as inscrições das turmas deste CNPJ (as outras saem pela configuração do outro)
+    const pending = (await this.origins.pendingTraining(companyId, { since, limit: 50, entityId: id })).filter((p) => !p.invoice);
     const actor = { companyId, userId };
     let tried = 0;
     for (const item of pending) {

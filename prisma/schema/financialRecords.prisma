@@ -3,6 +3,9 @@ model FinancialRecords {
   id             Int                      @id @default(autoincrement())
   accrualDate    String                   @db.VarChar(10) //formato: YYYY-MM
   companyId      Int
+  // CNPJ do grupo (preenchido pelo banco quando vem vazio)
+  entityId Int?
+  entity   Company_Entity? @relation(fields: [entityId], references: [id])
   company        Company                  @relation(fields: [companyId], references: [id])
   gateway        gateways
   status         financialRecordsStatus   @default(processing)

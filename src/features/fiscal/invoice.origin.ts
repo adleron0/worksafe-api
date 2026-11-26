@@ -199,7 +199,7 @@ export class InvoiceOriginService {
     if (!ids.length) throw new BadRequestException('Escolha as inscrições da nota');
     const subs = await this.prisma.courseClassSubscription.findMany({
       where: { id: { in: ids }, OR: [{ companyId }, { class: { companyId } }] },
-      include: { class: { select: { name: true, course: { select: { name: true } } } }, financialRecords: { where: { inactiveAt: null, status: { notIn: ['cancelled', 'declined', 'chargeback'] } }, select: { id: true, value: true, status: true, fiscalInvoiceId: true } } },
+      include: { class: { select: { name: true, entityId: true, course: { select: { name: true } } } }, financialRecords: { where: { inactiveAt: null, status: { notIn: ['cancelled', 'declined', 'chargeback'] } }, select: { id: true, value: true, status: true, fiscalInvoiceId: true } } },
     });
     if (subs.length !== ids.length) throw new NotFoundException('Inscrição não encontrada');
     for (const sub of subs) {
@@ -212,6 +212,7 @@ export class InvoiceOriginService {
     const customers = [...new Set(subs.map((s) => s.customerId ?? 0))];
     if (subs.length > 1 && (customers.length > 1 || !customers[0])) throw new BadRequestException('Várias inscrições numa nota só quando são da mesma empresa.');
     const customerId = customers[0] || null;
+    if (new Set(subs.map((s) => s.class?.entityId ?? 0)).size > 1) throw new BadRequestException('Estas inscrições são de turmas de CNPJs diferentes do grupo: cada CNPJ emite a sua nota.');
     const amountOf = (sub: (typeof subs)[number]) => round2(sub.financialRecords.reduce((s, r) => s + Number(r.value ?? 0), 0));
     const amount = round2(subs.reduce((s, sub) => s + amountOf(sub), 0));
     const first = subs[0];
@@ -228,7 +229,7 @@ export class InvoiceOriginService {
   }
 
   /** Inscrições pagas de turma aberta que ainda não têm nota (a fila de "notas a emitir" do treinamento). */
-  async pendingTraining(companyId: number, query: { since?: Date | null; limit?: number } = {}) {
+  async pendingTraining(companyId: number, query: { since?: Date | null; limit?: number; entityId?: number } = {}) {
     const records = await this.prisma.financialRecords.findMany({
       where: {
         companyId, subscriptionId: { not: null }, status: 'received', inactiveAt: null, fiscalInvoiceId: null,
@@ -244,7 +245,7 @@ export class InvoiceOriginService {
     const subs = await this.prisma.courseClassSubscription.findMany({
       where: { id: { in: ids } },
       include: {
-        class: { select: { id: true, name: true, course: { select: { name: true } } } },
+        class: { select: { id: true, name: true, entityId: true, course: { select: { name: true } } } },
         customer: { select: { id: true, name: true } },
         financialRecords: { where: { inactiveAt: null, status: { notIn: ['cancelled', 'declined', 'chargeback'] } }, select: { value: true, fiscalInvoiceId: true } },
       },
@@ -255,9 +256,11 @@ export class InvoiceOriginService {
     for (const r of records) if (!paidAt.has(r.subscriptionId!)) paidAt.set(r.subscriptionId!, r.paidAt);
     return subs
       .filter((s) => s.financialRecords.every((r) => !r.fiscalInvoiceId))
+      // a nota sai pelo CNPJ da turma
+      .filter((s) => !query.entityId || s.class?.entityId === query.entityId)
       .map((s) => ({
         subscriptionId: s.id, name: s.name, cpf: s.cpf, email: s.email,
-        classId: s.class?.id ?? null, className: s.class?.name ?? null, courseName: s.class?.course?.name ?? null,
+        entityId: s.class?.entityId ?? null, classId: s.class?.id ?? null, className: s.class?.name ?? null, courseName: s.class?.course?.name ?? null,
         customer: s.customer, value: round2(s.financialRecords.reduce((acc, r) => acc + Number(r.value ?? 0), 0)),
         paidAt: paidAt.get(s.id) ?? null,
         invoice: linkOf.get(s.id) ? { id: linkOf.get(s.id)!.invoiceId, status: linkOf.get(s.id)!.invoice.status } : null,

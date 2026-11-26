@@ -1,0 +1,62 @@
+// ------------------------------------------------------------------ empresas do grupo (CNPJs)
+//
+// A WorkSafe é uma empresa só no sistema (um login, uma base), mas tem vários
+// CNPJs: WorkSafe Treinamentos, WorkSafe Serviços... Cada CNPJ emite as próprias
+// notas, tem contas bancárias, conta Asaas e funcionários. Os registros dizem de
+// qual CNPJ são (entityId); quando nascem sem, o banco preenche pela origem
+// (curso, proposta, contrato, conta bancária) ou pelo CNPJ padrão (gatilhos na
+// migração 20270110100000_empresas_grupo). Plano em worksafe/cnpj-planejamento/.
+
+model Company_Entity {
+  id                    Int         @id @default(autoincrement())
+  companyId             Int
+  company               Company     @relation(fields: [companyId], references: [id])
+  cnpj                  String      @db.VarChar(14)
+  corporateName         String      @db.VarChar(255) // razão social
+  tradeName             String      @db.VarChar(120) // como a equipe chama ("WorkSafe Treinamentos")
+  // frentes que este CNPJ atende por padrão: treinamento, servico, locacao
+  kinds                 String[]    @default([])
+  // CNPJ usado quando nada indica outro
+  isDefault             Boolean     @default(false)
+  color                 String?     @db.VarChar(7)
+  logoUrl               String?     @db.VarChar(255)
+  stateId               Int?
+  state                 DOM_States? @relation(fields: [stateId], references: [id])
+  cityId                Int?
+  city                  DOM_Cities? @relation(fields: [cityId], references: [id])
+  zipCode               String?     @db.VarChar(9)
+  address               String?     @db.VarChar(255)
+  addressNumber         String?     @db.VarChar(20)
+  addressComplement     String?     @db.VarChar(120)
+  neighborhood          String?     @db.VarChar(120)
+  email                 String?     @db.VarChar(255)
+  phone                 String?     @db.VarChar(30)
+  municipalRegistration String?     @db.VarChar(20)
+  stateRegistration     String?     @db.VarChar(20)
+  // identidade dos documentos deste CNPJ (mesmo formato de Commercial_Settings.brand); nulo = a do grupo
+  brand                 Json?
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  inactiveAt DateTime?
+
+  fiscalSettings   Fiscal_Settings[]
+  fiscalInvoices   Fiscal_Invoice[]
+  bankAccounts     Financial_BankAccount[]
+  receivables      FinancialRecords[]
+  payables         Financial_Payable[]
+  recurrences      Financial_Recurrence[]
+  gateways         CompanyGateWays[]
+  proposals        Commercial_Proposal[]
+  contracts        Commercial_Contract[]
+  serviceOrders    Service_Order[]
+  rentals          Stock_Rental[]
+  courses          Course[]
+  classes          CourseClass[]
+  employees        Hr_Employee[]
+  receivedInvoices Fiscal_ReceivedInvoice[]
+  serviceCodes     Fiscal_ServiceCode[]
+
+  @@unique([companyId, cnpj])
+  @@index([companyId])
+}

@@ -14,6 +14,7 @@ import { SefinClient, SefinMessage, SefinResult, SefinTransportError } from './s
 import { FiscalActor, FiscalSettingsService } from './settings.service';
 import { signXml } from './xml-signer';
 import { InvoiceOriginService, originOf, ResolvedOrigin } from './invoice.origin';
+import { CompanyEntityService } from 'src/features/company-entity/entity.service';
 
 type Tx = Prisma.TransactionClient;
 type InvoiceRow = Prisma.Fiscal_InvoiceGetPayload<{ include: { links: true; events: true } }>;
@@ -82,7 +83,35 @@ export class FiscalInvoiceService {
     private readonly storage: PrivateStorageService,
     private readonly email: EmailService,
     private readonly origins: InvoiceOriginService,
+    private readonly entities: CompanyEntityService,
   ) {}
+
+  /**
+   * CNPJ emissor da nota: o escolhido na tela; senão o da nota gravada; senão
+   * o da origem (contrato, turma da inscrição); senão o do serviço fiscal; senão
+   * o padrão do grupo.
+   */
+  private async entityFor(companyId: number, body: Record<string, unknown>, invoiceId?: number): Promise<number> {
+    if (body.entityId) return this.entities.resolveId(companyId, body.entityId);
+    if (invoiceId) {
+      const saved = await this.prisma.fiscal_Invoice.findFirst({ where: { id: invoiceId, companyId }, select: { entityId: true } });
+      if (saved?.entityId) return saved.entityId;
+    }
+    const origin = originOf(body.origin);
+    if (origin?.contractId) {
+      const contract = await this.prisma.commercial_Contract.findFirst({ where: { id: origin.contractId, companyId }, select: { entityId: true } });
+      if (contract?.entityId) return contract.entityId;
+    }
+    if (origin?.kind === 'subscriptions' && origin.subscriptionIds?.length) {
+      const sub = await this.prisma.courseClassSubscription.findFirst({ where: { id: origin.subscriptionIds[0] }, select: { class: { select: { entityId: true } } } });
+      if (sub?.class?.entityId) return sub.class.entityId;
+    }
+    if (body.serviceCodeId) {
+      const code = await this.prisma.fiscal_ServiceCode.findFirst({ where: { id: Number(body.serviceCodeId), companyId }, select: { entityId: true } });
+      if (code?.entityId) return code.entityId;
+    }
+    return this.entities.resolveId(companyId, undefined, origin?.kind === 'subscriptions' ? 'treinamento' : null);
+  }
 
   // ------------------------------------------------------------------ tomador e serviço
 
@@ -173,7 +202,8 @@ export class FiscalInvoiceService {
 
   /** Monta a nota a partir do que veio da tela, sem gravar: valores, retenções, discriminação, erros e avisos. */
   async build(companyId: number, body: Record<string, unknown>, invoiceId?: number) {
-    const [settings, emitter] = await Promise.all([this.settings.settingsRow(companyId), this.settings.emitter(companyId)]);
+    const entityId = await this.entityFor(companyId, body, invoiceId);
+    const [settings, emitter] = await Promise.all([this.settings.settingsRow(companyId, entityId), this.settings.emitter(companyId, entityId)]);
     const taker = await this.takerFrom(companyId, body);
     const service = await this.serviceFrom(companyId, body);
     const retentions = (body.retentions ?? {}) as Partial<Record<FederalTax, RetentionField>>;
@@ -206,11 +236,11 @@ export class FiscalInvoiceService {
     if (isCnpj(t.document) && !addressOk) errors.push('Tomador com CNPJ precisa de endereço completo (rua, bairro, CEP e cidade).');
     if (isCpf(t.document) && issWithheld && !addressOk) errors.push('Com ISS retido, o tomador precisa de endereço completo.');
     if (t.address && !t.address.ibge && t.address.street) errors.push('Não achei o código IBGE da cidade do tomador. Confira a cidade no cadastro.');
-    if (digits(t.document) === emitter.cnpj) errors.push('O tomador não pode ser a própria empresa.');
+    if (digits(t.document) === emitter.cnpj) errors.push('O tomador não pode ser o próprio CNPJ emissor.');
     if (!description) errors.push('Escreva a discriminação do serviço.');
     if (!placeOfService) errors.push(body.placeCity ? 'Não achei o código IBGE da cidade da prestação. Confira o nome e a UF.' : 'Informe o município onde o serviço foi prestado.');
     if (competence > todayBr()) errors.push('A competência não pode ser depois de hoje.');
-    if (!emitter.ibge) errors.push('A cidade da empresa não está cadastrada (o código IBGE sai dela).');
+    if (!emitter.ibge) errors.push(`A cidade de ${emitter.tradeName} não está cadastrada em Empresas do grupo (o código IBGE sai dela).`);
     // ME/EPP com ISS pelo Simples: a alíquota só vai na nota quando o cliente retém (E0625 × E0621)
     if (settings.simplesNacional === 3 && !issWithheld && issRate) warnings.push('No Simples, a alíquota do ISS só vai na nota quando o cliente retém. Ela foi deixada de fora.');
     if (settings.simplesNacional === 3 && issWithheld && issRate !== null && issRate < 2) warnings.push('A alíquota do ISS retido costuma ser de pelo menos 2%. Confira.');
@@ -243,10 +273,20 @@ export class FiscalInvoiceService {
       if (livre && origin.balance !== undefined && calc.gross - origin.balance > 0.009) warnings.push(`O valor passa do saldo a notar do contrato (${brl(origin.balance)}).`);
       if (originIn.kind === 'contract') warnings.push('Esta nota não gera conta a receber agora: ao faturar cada parcela, escolha "Usar nota já emitida".');
     }
+    if (originIn?.contractId) {
+      const contract = await this.prisma.commercial_Contract.findFirst({ where: { id: originIn.contractId, companyId }, select: { entityId: true } });
+      if (contract?.entityId && contract.entityId !== entityId) warnings.push('O contrato desta nota é de outro CNPJ do grupo. Confira o CNPJ emissor.');
+    }
+    if (service.snapshot.serviceCodeId) {
+      const code = await this.prisma.fiscal_ServiceCode.findFirst({ where: { id: service.snapshot.serviceCodeId }, select: { entityId: true } });
+      if (code?.entityId && code.entityId !== entityId) warnings.push('Este serviço fiscal foi cadastrado para outro CNPJ do grupo.');
+    }
     const receivable = !origin && receivableIn?.create ? { dueDate: dateOnly(receivableIn.dueDate) ?? competence, description: clean(receivableIn.description, 255) || null, paymentMethod: receivableIn.paymentMethod ?? 'boleto' } : null;
     if (receivable && receivable.dueDate < competence) warnings.push('O vencimento da conta a receber é antes da competência da nota.');
 
     return {
+      entityId,
+      emitter: { entityId, tradeName: emitter.tradeName, cnpj: emitter.cnpj, name: emitter.name },
       taker: t,
       customerId: taker.customerId,
       traineeId: taker.traineeId,
@@ -269,6 +309,7 @@ export class FiscalInvoiceService {
   async preview(companyId: number, body: Record<string, unknown>) {
     const built = await this.build(companyId, body);
     const { extra, origin, ...rest } = built;
+    void extra;
     const place = built.placeOfService ? cityOfIbge(built.placeOfService) : null;
     return {
       ...rest, placeLabel: place ? `${place.name}/${place.uf}` : null, reference: extra.reference, order: extra.order, canEmit: built.errors.length === 0,
@@ -278,6 +319,7 @@ export class FiscalInvoiceService {
 
   private dataOf(built: Awaited<ReturnType<FiscalInvoiceService['build']>>) {
     return {
+      entityId: built.entityId,
       takerKind: built.taker.kind,
       customerId: built.customerId,
       traineeId: built.traineeId,
@@ -325,7 +367,7 @@ export class FiscalInvoiceService {
     const built = await this.build(actor.companyId, body, id);
     // a numeração reservada fica: reenviar com o mesmo número é seguro (Id igual)
     const data = this.dataOf(built);
-    if (found.dpsNumber && found.environment !== built.environment) Object.assign(data, { dpsNumber: null, dpsSeries: null, dpsId: null });
+    if (found.dpsNumber && (found.environment !== built.environment || found.entityId !== built.entityId)) Object.assign(data, { dpsNumber: null, dpsSeries: null, dpsId: null });
     await this.prisma.$transaction(async (tx) => {
       await tx.fiscal_Invoice.update({ where: { id }, data: { ...data, status: 'rascunho', messages: Prisma.JsonNull } });
       // vínculos da origem acompanham o que está na nota (os de conta a receber ficam)
@@ -374,21 +416,22 @@ export class FiscalInvoiceService {
 
   // ------------------------------------------------------------------ emissão
 
-  private async client(companyId: number, environment: 'restrita' | 'producao') {
-    const cert = await this.settings.certificate(companyId);
+  /** Conexão com o ambiente nacional usando o certificado do CNPJ emissor. */
+  private async client(companyId: number, entityId: number | null, environment: 'restrita' | 'producao') {
+    const cert = await this.settings.certificate(companyId, entityId);
     return { cert, client: new SefinClient(environment, cert) };
   }
 
-  private async dpsExists(companyId: number, row: { environment: 'restrita' | 'producao'; dpsId: string | null }) {
+  private async dpsExists(companyId: number, row: { environment: 'restrita' | 'producao'; dpsId: string | null; entityId: number | null }) {
     if (!row.dpsId) return false;
-    const { client } = await this.client(companyId, row.environment);
+    const { client } = await this.client(companyId, row.entityId, row.environment);
     return client.dpsExists(row.dpsId);
   }
 
-  /** Reserva série e número da DPS (atômico: o incremento trava a linha da configuração). */
-  private async reserveNumber(tx: Tx, companyId: number, environment: 'restrita' | 'producao') {
+  /** Reserva série e número da DPS do CNPJ emissor (atômico: o incremento trava a linha da configuração). */
+  private async reserveNumber(tx: Tx, settingsId: number, environment: 'restrita' | 'producao') {
     const field = environment === 'producao' ? 'nextDpsNumber' : 'nextDpsNumberTest';
-    const updated = await tx.fiscal_Settings.update({ where: { companyId }, data: { [field]: { increment: 1 } } });
+    const updated = await tx.fiscal_Settings.update({ where: { id: settingsId }, data: { [field]: { increment: 1 } } });
     return { series: updated.dpsSeries, number: updated[field] - 1 };
   }
 
@@ -445,12 +488,13 @@ export class FiscalInvoiceService {
     if (row.status === 'emitindo') return this.check(actor, id);
     if (!['rascunho', 'rejeitada'].includes(row.status)) throw new BadRequestException(`Nota ${STATUS_LABEL[row.status].toLowerCase()} não pode ser emitida`);
 
-    const [settingsInfo, settings, emitter] = await Promise.all([this.settings.get(actor.companyId), this.settings.settingsRow(actor.companyId), this.settings.emitter(actor.companyId)]);
-    if (!settingsInfo.ready) throw new BadRequestException(`Antes de emitir: ${settingsInfo.pending.join(' ')}`);
     // revalida com o cadastro de agora (tomador e serviço podem ter mudado)
     const rebuilt = await this.build(actor.companyId, this.bodyOf(row), id);
+    const entityId = rebuilt.entityId;
+    const [settingsInfo, settings, emitter] = await Promise.all([this.settings.get(actor.companyId, entityId), this.settings.settingsRow(actor.companyId, entityId), this.settings.emitter(actor.companyId, entityId)]);
+    if (!settingsInfo.ready) throw new BadRequestException(`Antes de emitir por ${emitter.tradeName}: ${settingsInfo.pending.join(' ')}`);
     if (rebuilt.errors.length) throw new BadRequestException(rebuilt.errors.join(' '));
-    const { cert, client } = await this.client(actor.companyId, settings.environment);
+    const { cert, client } = await this.client(actor.companyId, entityId, settings.environment);
 
     let replaces: { accessKey: string } | null = null;
     if (row.replacesId) {
@@ -462,7 +506,7 @@ export class FiscalInvoiceService {
     const reserved = await this.prisma.$transaction(async (tx) => {
       let series = row.dpsSeries;
       let number = row.dpsNumber;
-      if (!number || row.environment !== settings.environment) ({ series, number } = await this.reserveNumber(tx, actor.companyId, settings.environment));
+      if (!number || row.environment !== settings.environment || row.entityId !== entityId) ({ series, number } = await this.reserveNumber(tx, settings.id, settings.environment));
       const fresh = await tx.fiscal_Invoice.update({
         where: { id },
         data: { ...this.dataOf(rebuilt), status: 'emitindo', environment: settings.environment, dpsSeries: series, dpsNumber: number, sentAt: new Date(), issuedByUserId: actor.userId, messages: Prisma.JsonNull },
@@ -501,7 +545,7 @@ export class FiscalInvoiceService {
     const row = await this.row(actor.companyId, id);
     if (row.provider !== 'sefin' || !row.dpsId) throw new BadRequestException('Esta nota ainda não foi enviada');
     if (row.status === 'autorizada') return this.get(actor.companyId, id);
-    const { client } = await this.client(actor.companyId, row.environment);
+    const { client } = await this.client(actor.companyId, row.entityId, row.environment);
     let found: SefinResult;
     try {
       found = await client.getDps(row.dpsId);
@@ -542,7 +586,7 @@ export class FiscalInvoiceService {
       await this.createReceivable(tx, actor, id);
     });
     if (row.origin && !row.originBilledAt && !row.replacesId) await this.billOrigin(actor, id);
-    const settings = await this.settings.settingsRow(actor.companyId);
+    const settings = await this.settings.settingsRow(actor.companyId, row.entityId);
     if (settings.autoSendEmail) {
       await this.send(actor, id, {}).catch((error) => this.logger.warn(`E-mail da NFS-e ${id} não enviado: ${error instanceof Error ? error.message : error}`));
     }
@@ -609,7 +653,7 @@ export class FiscalInvoiceService {
     const method = (['boleto', 'pix', 'transferencia', 'dinheiro', 'outro', 'cartaoCredito'].includes(String(plan.paymentMethod)) ? plan.paymentMethod : 'boleto') as paymentMethods;
     const record = await tx.financialRecords.create({
       data: {
-        companyId: actor.companyId, gateway: 'manual', status: 'waiting', paymentMethod: method,
+        companyId: actor.companyId, entityId: row.entityId, gateway: 'manual', status: 'waiting', paymentMethod: method,
         customerId: row.customerId, traineeId: row.traineeId, value: base, netValue: Number(row.netValue),
         dueDate: noonUtc(plan.dueDate), accrualDate,
         invoiceNumber: row.number, invoiceIssuedAt: row.issuedAt, fiscalInvoiceId: row.id,
@@ -643,8 +687,8 @@ export class FiscalInvoiceService {
     let eventInfo: Record<string, unknown> = {};
     if (row.provider === 'sefin') {
       if (!row.accessKey) throw new BadRequestException('A nota não tem chave de acesso');
-      const emitter = await this.settings.emitter(actor.companyId);
-      const { cert, client } = await this.client(actor.companyId, row.environment);
+      const emitter = await this.settings.emitter(actor.companyId, row.entityId);
+      const { cert, client } = await this.client(actor.companyId, row.entityId, row.environment);
       const event = buildCancelEvent({ environment: row.environment, authorDocument: emitter.cnpj, accessKey: row.accessKey, reasonCode, reason });
       const signed = signXml(event.xml, 'infPedReg', cert.privateKeyPem, cert.certificatePem);
       let result: SefinResult;
@@ -710,7 +754,7 @@ export class FiscalInvoiceService {
     const extra = service.extra ?? {};
     const taker = row.taker as unknown as TakerSnapshot;
     return {
-      takerKind: row.takerKind, customerId: row.customerId, traineeId: row.traineeId,
+      entityId: row.entityId, takerKind: row.takerKind, customerId: row.customerId, traineeId: row.traineeId,
       taker: { document: taker.document, name: taker.name, municipalRegistration: taker.municipalRegistration, email: taker.email, phone: taker.phone, address: taker.address ?? null },
       serviceCodeId: row.serviceCodeId, nationalCode: service.nationalCode, nbsCode: service.nbsCode, issTaxation: service.issTaxation,
       description: row.description, placeOfService: row.placeOfService, competence: row.competence.toISOString().slice(0, 10),
@@ -730,6 +774,7 @@ export class FiscalInvoiceService {
       id: row.id,
       status: row.status,
       statusLabel: STATUS_LABEL[row.status],
+      entityId: row.entityId,
       provider: row.provider,
       environment: row.environment,
       takerKind: row.takerKind,
@@ -784,13 +829,15 @@ export class FiscalInvoiceService {
       select: { id: true, description: true, value: true, netValue: true, status: true, dueDate: true, paidAt: true, inactiveAt: true },
       orderBy: { id: 'asc' },
     });
-    return { ...this.out(row), receivables: records.map((r) => ({ ...r, value: Number(r.value ?? 0), netValue: r.netValue === null ? null : Number(r.netValue) })) };
+    const names = await this.entities.names(companyId);
+    return { ...this.out(row), entity: row.entityId ? names.get(row.entityId) ?? null : null, receivables: records.map((r) => ({ ...r, value: Number(r.value ?? 0), netValue: r.netValue === null ? null : Number(r.netValue) })) };
   }
 
   async list(companyId: number, query: Record<string, unknown>) {
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
     const where: Prisma.Fiscal_InvoiceWhereInput = { companyId };
+    if (Number(query.entityId) > 0) where.entityId = Number(query.entityId);
     const statuses = String(query.status ?? '').split(',').filter((s) => STATUS_LABEL[s]);
     if (statuses.length) where.status = { in: statuses as Prisma.EnumFiscalInvoiceStatusFilter['in'] };
     if (query.environment === 'producao' || query.environment === 'restrita') where.environment = query.environment;
@@ -808,6 +855,7 @@ export class FiscalInvoiceService {
         ...(doc.length >= 4 ? [{ taker: { path: ['document'], string_contains: doc } }, { accessKey: { contains: doc } }] : []),
       ];
     }
+    const names = await this.entities.names(companyId);
     const [rows, total, sums, counts] = await Promise.all([
       this.prisma.fiscal_Invoice.findMany({ where, orderBy: [{ createdAt: 'desc' }], skip: (page - 1) * limit, take: limit }),
       this.prisma.fiscal_Invoice.count({ where }),
@@ -815,7 +863,7 @@ export class FiscalInvoiceService {
       this.prisma.fiscal_Invoice.groupBy({ by: ['status'], where: { ...where, status: undefined }, _count: true }),
     ]);
     return {
-      data: rows.map((r) => this.out(r)),
+      data: rows.map((r) => ({ ...this.out(r), entity: r.entityId ? names.get(r.entityId) ?? null : null })),
       total,
       page,
       limit,
@@ -840,7 +888,7 @@ export class FiscalInvoiceService {
 
   async pdf(companyId: number, id: number): Promise<{ body: Buffer; fileName: string }> {
     const row = await this.row(companyId, id);
-    const [emitter, settings] = await Promise.all([this.settings.emitter(companyId), this.settings.settingsRow(companyId)]);
+    const [emitter, settings] = await Promise.all([this.settings.emitter(companyId, row.entityId), this.settings.settingsRow(companyId, row.entityId)]);
     const fed = (row.federalRetentions as Record<FederalTax, number> | null) ?? { inss: 0, ir: 0, csll: 0, pis: 0, cofins: 0 };
     const taker = row.taker as unknown as TakerSnapshot;
     const service = row.service as unknown as ServiceSnapshot & { extra?: ExtraData };
@@ -877,7 +925,7 @@ export class FiscalInvoiceService {
     const to = String(body.to ?? taker.email ?? '').split(/[;,\s]+/).map((s) => s.trim()).filter((s) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s));
     if (!to.length) throw new BadRequestException('O tomador não tem e-mail. Informe para quem enviar.');
     if (!process.env.EMAIL_HOST || !process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) throw new BadRequestException('O envio de e-mail não está configurado no servidor. Baixe o PDF e envie por outro canal.');
-    const emitter = await this.settings.emitter(actor.companyId);
+    const emitter = await this.settings.emitter(actor.companyId, row.entityId);
     const pdf = await this.pdf(actor.companyId, id);
     const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = [{ filename: pdf.fileName, content: pdf.body, contentType: 'application/pdf' }];
     if (row.xmlKey) attachments.push({ filename: `NFS-e ${row.number ?? row.id}.xml`, content: await this.storage.get(row.xmlKey), contentType: 'application/xml' });

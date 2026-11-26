@@ -1,3 +1,4 @@
+import { ENTITY_SELECT, entityField } from 'src/features/company-entity/entity.field';
 import { SellerWalletService } from 'src/features/commercial/wallet.service';
 import { CrudError, EntityRules, composeHooks } from '@adleron/crud-core';
 import { Request } from 'express';
@@ -64,10 +65,10 @@ export const financialRecordEntity: EntityRules = {
     update: 'update_financeiro', archive: 'inactive_financeiro', restore: 'activate_financeiro' },
   filterable: ['contractId', 'accrualDate', 'gateway', 'status', 'paymentMethod', 'subscriptionId', 'traineeId', 'customerId', 'sellerId', 'couponId',
     'dueDate', 'paidAt', 'externalId', 'createdAt', 'invoiceNumber', 'invoiceIssuedAt',
-    'chartAccountId', 'costCenterId', 'bankAccountId', 'trainee.name', 'customer.name', 'seller.name', 'value', 'description', 'recurrenceId'],
+    'chartAccountId', 'costCenterId', 'bankAccountId', 'trainee.name', 'customer.name', 'seller.name', 'value', 'description', 'recurrenceId', 'entityId'],
   sortable: ['id', 'dueDate', 'paidAt', 'value', 'createdAt', 'invoiceIssuedAt'],
-  includable: ['subscription', 'trainee', 'customer', 'seller', 'coupon', 'splitTransactions', 'chartAccount', 'costCenter', 'bankAccount'],
-  includes: { trainee: { select: { id: true, name: true, cpf: true } }, customer: { select: { id: true, name: true, cnpj: true } },
+  includable: ['subscription', 'trainee', 'customer', 'seller', 'coupon', 'splitTransactions', 'chartAccount', 'costCenter', 'bankAccount', 'entity'],
+  includes: { entity: ENTITY_SELECT, trainee: { select: { id: true, name: true, cpf: true } }, customer: { select: { id: true, name: true, cnpj: true } },
     seller: { select: { id: true, name: true } }, coupon: { select: { id: true, code: true } },
     chartAccount: { select: { id: true, code: true, name: true } }, costCenter: { select: { id: true, name: true } },
     bankAccount: { select: { id: true, name: true, type: true } } },
@@ -106,6 +107,12 @@ export const financialRecordEntity: EntityRules = {
       }
       for (const field of ['customerId', 'traineeId', 'subscriptionId', 'chartAccountId', 'costCenterId'] as const) {
         if (field in next && blank(next[field])) next[field] = null;
+      }
+      // CNPJ do grupo que recebe (vazio: o da origem ou o padrão)
+      if ('entityId' in next) {
+        const entityId = await entityField(prisma, companyId, next.entityId, (message, field) => { throw new CrudError('VALIDATION_FAILED', message, field); }, existing?.entityId as number | null | undefined);
+        if (entityId) next.entityId = entityId;
+        else delete next.entityId;
       }
       if ('netValue' in next) next.netValue = money(next.netValue, 'netValue', 'Valor líquido');
       if ('installmentNumber' in next) next.installmentNumber = positiveInt(next.installmentNumber, 'installmentNumber', 'Número da parcela');

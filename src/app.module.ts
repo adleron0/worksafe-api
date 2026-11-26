@@ -28,6 +28,7 @@ import { ReviewsModule } from './features/training/reviews/module';
 import { WebhooksModule } from './features/gateway/webhooks/module';
 import { FinancialrecordsModule } from './features/gateway/financialrecords/module';
 import { CompanyModule } from './features/company/module';
+import { CompanyEntityModule } from './features/company-entity/module';
 import { EmailModule } from './features/email/email.module';
 import { EnumsModule } from './features/enums/enums.module';
 import { CouponModule } from './features/training/coupon/module';
@@ -75,6 +76,7 @@ import { FiscalModule } from './features/fiscal/module';
     WebhooksModule,
     FinancialrecordsModule,
     CompanyModule,
+    CompanyEntityModule,
     EmailModule,
     EnumsModule,
     StudentModule,

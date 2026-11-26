@@ -1,3 +1,4 @@
+import { CompanyEntityService } from 'src/features/company-entity/entity.service';
 import { DealEvents } from './deal.events';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CommercialDueRule, CommercialItemType, CommercialProposalKind, CommercialProposalStatus, Prisma } from '@prisma/client';
@@ -112,7 +113,9 @@ export interface DraftItem {
 export interface DraftSection { id?: number; title: string; kind: CommercialItemType; margin: number; showInDocument: boolean; items: DraftItem[] }
 export interface DraftInstallment { percent: number | null; amount: number | null; dueRule: CommercialDueRule; dueDate: string | null; dueDays: number | null; workPercent?: number | null; description: string | null }
 export interface Draft {
-  kind: CommercialProposalKind; customerId: number; contactName: string | null; contactEmail: string | null; contactPhone: string | null;
+  kind: CommercialProposalKind; customerId: number;
+  /** CNPJ do grupo que vende (nulo = o da frente do tipo, resolvido antes de gravar) */
+  entityId: number | null; contactName: string | null; contactEmail: string | null; contactPhone: string | null;
   requester: string | null; department: string | null; title: string; description: string | null; sellerId: number | null;
   validUntil: string | null; referenceDate: string; workDays: number; weekendDays: number;
   contingencyRate: number; commissionRate: number; commissionBase: 'faturado' | 'lucro'; commissionInPrice: boolean;
@@ -172,7 +175,8 @@ function addressLines(street: Array<string | number | null | undefined>, neighbo
 @Injectable()
 export class ProposalService {
   constructor(private readonly prisma: PrismaService, private readonly commercial: CommercialService, private readonly documents: DocumentService,
-    private readonly contracts: ContractService, private readonly activities: ActivityService, private readonly dealEvents: DealEvents) {}
+    private readonly contracts: ContractService, private readonly activities: ActivityService, private readonly dealEvents: DealEvents,
+    private readonly entities: CompanyEntityService) {}
 
   // ------------------------------------------------------------------ leitura do corpo
 
@@ -284,8 +288,11 @@ export class ProposalService {
     // o valor inicial (vendedor → padrão da base → zero) é decidido em `applyCommissionDefault`
     const commissionDefault = { rate: 0, base: 'lucro', inPrice: false };
     const seeCosts = actor.canSeeCosts;
+    // CNPJ do grupo: o escolhido; sem escolha, o da proposta (se o tipo não mudou) ou o da frente do novo tipo
+    const pickedEntity = optional(body.entityId, 'Empresa', 1, 2147483647);
+    const entityId = pickedEntity ?? (keep && keep.kind === kind && !('entityId' in body) ? keep.entityId : null);
     return {
-      kind, customerId, title, referenceDate, workDays, weekendDays,
+      kind, customerId, title, referenceDate, workDays, weekendDays, entityId,
       contactName: clean(body.contactName, 160) || null, contactEmail: clean(body.contactEmail, 255) || null, contactPhone: clean(body.contactPhone, 60) || null,
       requester: clean(body.requester, 160) || null, department: clean(body.department, 160) || null,
       description: text(body.description) || null, internalNotes: text(body.internalNotes) || null,
@@ -515,6 +522,8 @@ export class ProposalService {
   }
 
   private async assertRefs(companyId: number, draft: Draft) {
+    // CNPJ do grupo: confere o escolhido ou pega o da frente (treinamento, serviço, locação)
+    draft.entityId = await this.entities.resolveId(companyId, draft.entityId ?? undefined, draft.kind);
     const customer = await this.prisma.customer.findFirst({ where: { id: draft.customerId, companyId }, select: { id: true } });
     if (!customer) throw new BadRequestException('Cliente não encontrado');
     if (draft.sellerId) {
@@ -535,7 +544,7 @@ export class ProposalService {
   private draftOf(row: ProposalRow): Draft {
     const n = (value: Prisma.Decimal | null) => (value === null ? null : Number(value));
     return {
-      kind: row.kind, customerId: row.customerId, contactName: row.contactName, contactEmail: row.contactEmail, contactPhone: row.contactPhone,
+      kind: row.kind, customerId: row.customerId, entityId: row.entityId, contactName: row.contactName, contactEmail: row.contactEmail, contactPhone: row.contactPhone,
       requester: row.requester, department: row.department, title: row.title, description: row.description, sellerId: row.sellerId,
       validUntil: iso(row.validUntil), referenceDate: iso(row.referenceDate)!, workDays: row.workDays, weekendDays: row.weekendDays,
       contingencyRate: Number(row.contingencyRate), commissionRate: Number(row.commissionRate), commissionBase: row.commissionBase === 'lucro' ? 'lucro' : 'faturado',
@@ -686,17 +695,15 @@ export class ProposalService {
    * ficam diluídos): o cliente nunca vê custo, margem nem "imprevisibilidade".
    */
   private async documentData(companyId: number, number: string, date: Date, draft: Draft, result: ReturnType<ProposalService['calc']>): Promise<DocumentData> {
+    // quem vende é o CNPJ do grupo da proposta: nome, CNPJ, endereço e identidade dele
     const [company, customer, seller, brand] = await Promise.all([
-      this.prisma.company.findUnique({ where: { id: companyId }, select: {
-        comercial_name: true, corporate_name: true, cnpj: true, address: true, addressNumber: true, addressComplement: true, neighborhood: true, zipCode: true,
-        city: { select: { name: true } }, state: { select: { uf: true } },
-      } }),
+      this.entities.identity(companyId, draft.entityId, draft.kind),
       this.prisma.customer.findFirst({ where: { id: draft.customerId, companyId }, select: {
         name: true, corporateName: true, cnpj: true, email: true, phone: true, street: true, number: true, complement: true, neighborhood: true, zipcode: true,
         city: { select: { name: true } }, state: { select: { uf: true } },
       } }),
       draft.sellerId ? this.prisma.user.findFirst({ where: { id: draft.sellerId, companyId }, select: { name: true, email: true, phone: true } }) : null,
-      this.documents.brand(companyId),
+      this.documents.brand(companyId, draft.entityId),
     ]);
     const total = round2(result.totals.total);
     const factor = result.totals.subtotal > 0 ? result.totals.total / result.totals.subtotal : 0;
@@ -729,10 +736,7 @@ export class ProposalService {
     });
     const values = installmentValues(result.totals.total, draft.installments);
     return {
-      company: {
-        name: company?.comercial_name ?? '', corporateName: company?.corporate_name ?? '', cnpj: company?.cnpj ?? '',
-        addressLines: addressLines([company?.address, company?.addressNumber, company?.addressComplement], company?.neighborhood, company?.city?.name, company?.state?.uf, company?.zipCode),
-      },
+      company: { name: company.tradeName, corporateName: company.name, cnpj: company.cnpj, addressLines: company.addressLines },
       customer: {
         name: customer?.name ?? '', corporateName: customer?.corporateName ?? '', cnpj: customer?.cnpj ?? '', email: customer?.email ?? '', phone: customer?.phone ?? '',
         addressLines: addressLines([customer?.street, customer?.number, customer?.complement], customer?.neighborhood, customer?.city?.name, customer?.state?.uf, customer?.zipcode),
@@ -811,8 +815,8 @@ export class ProposalService {
     const html = frozen ? row.frozenHtml!
       : (await this.renderFor(actor.companyId, row.number, new Date(), draft, this.calc(draft, row.snapshot as unknown as PricingSnapshot))).html;
     const [company, brand, seller] = await Promise.all([
-      this.prisma.company.findUnique({ where: { id: actor.companyId }, select: { comercial_name: true } }),
-      this.documents.brand(actor.companyId),
+      this.entities.identity(actor.companyId, row.entityId, row.kind).then((e) => ({ comercial_name: e.tradeName })),
+      this.documents.brand(actor.companyId, row.entityId),
       row.sellerId ? this.prisma.user.findFirst({ where: { id: row.sellerId, companyId: actor.companyId }, select: { name: true } }) : null,
     ]);
     const requiresCode = this.documents.emailConfigured() && Boolean(row.contactEmail);

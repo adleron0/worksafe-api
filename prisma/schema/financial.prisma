@@ -66,6 +66,9 @@ model Financial_CostCenter {
 model Financial_BankAccount {
   id                 Int             @id @default(autoincrement())
   companyId          Int
+  // CNPJ do grupo (preenchido pelo banco quando vem vazio)
+  entityId Int?
+  entity   Company_Entity? @relation(fields: [entityId], references: [id])
   name               String          @db.VarChar(120)
   type               BankAccountType @default(corrente)
   bankCode           String?         @db.VarChar(10)
@@ -163,6 +166,9 @@ model Financial_Supplier {
 model Financial_Payable {
   id          Int                 @id @default(autoincrement())
   companyId   Int
+  // CNPJ do grupo (preenchido pelo banco quando vem vazio)
+  entityId Int?
+  entity   Company_Entity? @relation(fields: [entityId], references: [id])
   supplierId  Int?
   supplier    Financial_Supplier? @relation(fields: [supplierId], references: [id], onDelete: Restrict)
   description String              @db.VarChar(255)
@@ -245,6 +251,9 @@ model Financial_Payable {
 model Financial_Recurrence {
   id             Int       @id @default(autoincrement())
   companyId      Int
+  // CNPJ do grupo (preenchido pelo banco quando vem vazio)
+  entityId Int?
+  entity   Company_Entity? @relation(fields: [entityId], references: [id])
   // payable | receivable
   kind           String    @db.VarChar(12)
   description    String    @db.VarChar(255)

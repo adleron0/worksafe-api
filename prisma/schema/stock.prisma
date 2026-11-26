@@ -368,6 +368,9 @@ model Stock_ServiceEvent {
 model Stock_Rental {
   id        Int     @id @default(autoincrement())
   companyId Int
+  // CNPJ do grupo (preenchido pelo banco quando vem vazio)
+  entityId Int?
+  entity   Company_Entity? @relation(fields: [entityId], references: [id])
   // OL-2026-0001 (Ordem de Locação; as antigas eram LOC-)
   number    String  @db.VarChar(30)
   year      Int

@@ -33,6 +33,7 @@ const NOTE_INPUT = {
   modo: str('Nota do contrato: total, saldo ou livre', { enum: ['total', 'saldo', 'livre'] }),
   inscricaoIds: ids('Inscrições pagas de turma aberta (origem inscricoes): uma pessoa física ou várias da mesma empresa'),
   clienteId: int('Cliente tomador (avulsa)'),
+  empresaId: int('CNPJ do grupo que emite (empresas_do_grupo). Vazio = o da origem (contrato, turma) ou o padrão'),
   servicoFiscalId: int('Serviço fiscal (avulsa; nas outras origens vem sugerido)'),
   valor: num('Valor do serviço (avulsa ou contrato em valor livre)'),
   descricao: str('Discriminação do serviço (opcional: vem sugerida)'),
@@ -58,6 +59,7 @@ async function noteBody(ctx: ToolContext, input: Record<string, any>, deps: Tool
     const suggested = (await api(deps).call(ctx, 'GET', 'fiscal/invoices/from-origin', { query })) as Record<string, any>;
     return {
       ...suggested,
+      ...(positiveInt(input.empresaId) ? { entityId: Number(input.empresaId) } : {}),
       ...(input.descricao ? { description: text(input.descricao, 2000) } : {}),
       ...(input.competencia ? { competence: input.competencia } : {}),
       ...(origem === 'contrato' && input.modo === 'livre' && input.valor ? { grossValue: Number(input.valor), origin: { ...suggested.origin, mode: 'livre' } } : {}),
@@ -70,12 +72,14 @@ async function noteBody(ctx: ToolContext, input: Record<string, any>, deps: Tool
   // sem serviço informado, vale o serviço fiscal padrão da empresa
   let serviceCodeId = positiveInt(input.servicoFiscalId);
   if (!serviceCodeId) {
-    const services = (await api(deps).call(ctx, 'GET', 'fiscal/service-codes')) as Array<{ id: number; isDefault: boolean }>;
-    serviceCodeId = (services.find((sv) => sv.isDefault) ?? services[0])?.id ?? null;
-    if (!serviceCodeId) throw new ToolRefusal('Nenhum serviço fiscal cadastrado: cadastre em Financeiro → Fiscal');
+    const services = (await api(deps).call(ctx, 'GET', 'fiscal/service-codes', { query: positiveInt(input.empresaId) ? { entityId: input.empresaId } : {} })) as Array<{ id: number; isDefault: boolean; entityId: number | null }>;
+    // o padrão do próprio CNPJ vale mais que o padrão de "todos"
+    serviceCodeId = (services.find((sv) => sv.isDefault && sv.entityId) ?? services.find((sv) => sv.isDefault) ?? services[0])?.id ?? null;
+    if (!serviceCodeId) throw new ToolRefusal('Nenhum serviço fiscal cadastrado: cadastre em Fiscal → Configuração');
   }
   return {
     takerKind: 'cliente', customerId: Number(input.clienteId), serviceCodeId,
+    ...(positiveInt(input.empresaId) ? { entityId: Number(input.empresaId) } : {}),
     grossValue: Number(input.valor), description: input.descricao ? text(input.descricao, 2000) : '', competence: input.competencia,
     issWithheld: !!input.issRetido, retentions: retentions ?? {},
     receivable: { create: true, dueDate: input.vencimento || new Date(Date.now() + 27 * 86400000).toISOString().slice(0, 10) },
@@ -86,6 +90,7 @@ async function noteBody(ctx: ToolContext, input: Record<string, any>, deps: Tool
 function previewLines(preview: any): { label: string; value: string }[] {
   const c = preview.calc ?? {};
   const out = [
+    ...(preview.emitter?.tradeName ? [{ label: 'Emitente', value: `${preview.emitter.tradeName} (${preview.emitter.cnpj})` }] : []),
     { label: 'Tomador', value: `${preview.taker?.name ?? '—'} (${preview.taker?.document ?? 'sem documento'})` },
     { label: 'Valor', value: brl(c.gross ?? 0) },
   ];
@@ -99,6 +104,7 @@ function previewLines(preview: any): { label: string; value: string }[] {
 }
 
 const slimInvoice = (inv: any) => ({
+  emitente: inv.entity?.tradeName ?? null,
   id: inv.id, numero: inv.number, situacao: inv.status, ambiente: inv.environment, emitidaFora: inv.provider === 'externa',
   tomador: inv.taker?.name, documento: inv.taker?.document, servico: inv.service?.name, competencia: inv.competence,
   valor: inv.grossValue, liquido: inv.netValue, emitidaEm: inv.issuedAt, origem: inv.origin?.label ?? null, link: link(inv.id),
@@ -112,10 +118,11 @@ export const NFSE_TOOLS: ToolDefinition[] = [
     inputSchema: obj({
       situacao: str('Situação', { enum: STATUS }), busca: str('Tomador, CPF/CNPJ, número ou descrição'),
       competenciaDe: str('Competência a partir de (AAAA-MM-DD)'), competenciaAte: str('Competência até (AAAA-MM-DD)'), clienteId: int('Cliente'),
+      empresaId: int('Só as notas deste CNPJ do grupo (empresas_do_grupo)'),
     }),
     permissions: VIEW, risk: 'read',
     run: async (ctx, input, deps) => {
-      const res = (await api(deps).call(ctx, 'GET', 'fiscal/invoices', { query: { status: input.situacao, q: input.busca, from: input.competenciaDe, to: input.competenciaAte, customerId: input.clienteId, limit: 30 } })) as any;
+      const res = (await api(deps).call(ctx, 'GET', 'fiscal/invoices', { query: { status: input.situacao, q: input.busca, from: input.competenciaDe, to: input.competenciaAte, customerId: input.clienteId, entityId: input.empresaId, limit: 30 } })) as any;
       return { total: res.total, resumo: res.summary, notas: (res.data ?? []).map(slimInvoice) };
     },
   },

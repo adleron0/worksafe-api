@@ -181,13 +181,16 @@ export class RetentionService {
       id: true, value: true, netValue: true, receivedValue: true, status: true, paidAt: true, interestValue: true, fineValue: true, discountValue: true,
       invoiceNumber: true, description: true, contractId: true, dueDate: true, customer: { select: { id: true, name: true } },
     } satisfies Prisma.FinancialRecordsSelect;
+    // CNPJ do grupo (vazio = todos): retenções das contas a receber dele e as guias que ele paga
+    const entityIds = String(query.entityId ?? '').split(',').map(Number).filter((n) => n > 0);
+    const byEntity = entityIds.length ? { entityId: { in: entityIds } } : {};
     const [rows, guides] = await Promise.all([
       this.prisma.financial_Retention.findMany({
-        where: { companyId, accrualDate: { gte: from, lte: to }, financialRecord: live },
+        where: { companyId, accrualDate: { gte: from, lte: to }, financialRecord: { ...live, ...byEntity } },
         include: { financialRecord: { select: recordSelect } }, orderBy: [{ accrualDate: 'asc' }, { financialRecordId: 'asc' }, { id: 'asc' }],
       }),
       this.prisma.financial_Payable.findMany({
-        where: { companyId, inactiveAt: null, taxKind: { not: null }, accrualDate: { gte: from, lte: to } },
+        where: { companyId, ...byEntity, inactiveAt: null, taxKind: { not: null }, accrualDate: { gte: from, lte: to } },
         select: { id: true, taxKind: true, description: true, value: true, paidValue: true, status: true, dueDate: true, paidAt: true, accrualDate: true }, orderBy: { dueDate: 'asc' },
       }),
     ]);
@@ -207,7 +210,7 @@ export class RetentionService {
     // contas a receber de contrato pagas no período, sem retenção e com menos dinheiro do que a nota
     const unretained = await this.prisma.financialRecords.findMany({
       where: {
-        companyId, ...live, status: 'received', contractId: { not: null }, retentions: { none: {} }, invoiceNumber: { not: null },
+        companyId, ...live, ...byEntity, status: 'received', contractId: { not: null }, retentions: { none: {} }, invoiceNumber: { not: null },
         accrualDate: { gte: from, lte: to }, receivedValue: { not: null },
       },
       select: recordSelect, take: 200,

@@ -8,6 +8,9 @@
 model Hr_Employee {
   id        Int    @id @default(autoincrement())
   companyId Int
+  // CNPJ do grupo (preenchido pelo banco quando vem vazio)
+  entityId Int?
+  entity   Company_Entity? @relation(fields: [entityId], references: [id])
   name      String @db.VarChar(160)
 
   // dados pessoais: só aparecem para quem tem view_dados_pessoais_funcionarios

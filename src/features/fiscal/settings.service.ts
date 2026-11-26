@@ -1,11 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { CompanyEntityService } from 'src/features/company-entity/entity.service';
 import { CertificateError, decryptCertificate, encryptCertificate, loadCertificate, LoadedCertificate } from './certificate';
 import { NBS } from './data/nbs';
 import { CORRELACAO_IBSCBS, IND_OP } from './data/ibscbs';
 import { SERVICOS_NACIONAIS } from './data/servicos-nacionais';
-import { clean, digits, ibgeOf, normalizeName, toNumber } from './fiscal.utils';
+import { clean, digits, normalizeName, toNumber } from './fiscal.utils';
 import { SefinClient, SefinTransportError } from './sefin.client';
 
 export interface FiscalActor { userId: number; companyId: number }
@@ -16,6 +17,8 @@ const CST_VALUES = new Set(['00', '01', '02', '03', '04', '05', '06', '07', '08'
 /** Empresa emissora como a nota precisa dela. */
 export interface Emitter {
   companyId: number;
+  entityId: number;
+  tradeName: string;
   cnpj: string;
   name: string;
   ibge: string | null;
@@ -34,50 +37,60 @@ export interface Emitter {
  */
 @Injectable()
 export class FiscalSettingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly entities: CompanyEntityService) {}
 
-  async settingsRow(companyId: number) {
-    const found = await this.prisma.fiscal_Settings.findUnique({ where: { companyId } });
-    if (found) return found;
-    return this.prisma.fiscal_Settings.upsert({ where: { companyId }, create: { companyId }, update: {} });
+  /** CNPJ do grupo de uma operação fiscal: o informado ou o padrão. */
+  entityOf(companyId: number, entityId?: unknown) {
+    return this.entities.resolveId(companyId, entityId);
   }
 
-  async emitter(companyId: number): Promise<Emitter> {
-    const company = await this.prisma.company.findUnique({ where: { id: companyId }, include: { city: true, state: true } });
-    if (!company) throw new NotFoundException('Empresa não encontrada');
-    const uf = company.state?.uf ?? null;
+  /** Configuração fiscal de um CNPJ do grupo (criada na primeira vez). */
+  async settingsRow(companyId: number, entityId?: number | null) {
+    const id = await this.entities.resolveId(companyId, entityId ?? undefined);
+    const found = await this.prisma.fiscal_Settings.findUnique({ where: { entityId: id } });
+    if (found) return found;
+    const entity = await this.prisma.company_Entity.findUnique({ where: { id }, select: { municipalRegistration: true } });
+    return this.prisma.fiscal_Settings.upsert({ where: { entityId: id }, create: { companyId, entityId: id, municipalRegistration: entity?.municipalRegistration?.slice(0, 15) ?? null }, update: {} });
+  }
+
+  /** Emitente da nota: o CNPJ do grupo (endereço, cidade, contato). */
+  async emitter(companyId: number, entityId?: number | null): Promise<Emitter> {
+    const e = await this.entities.identity(companyId, entityId);
     return {
-      companyId,
-      cnpj: digits(company.cnpj),
-      name: company.corporate_name || company.comercial_name,
-      ibge: company.city ? ibgeOf(company.city.name, uf) : null,
-      cityName: company.city?.name ?? null,
-      uf,
-      address: [company.address, company.addressNumber, company.addressComplement, company.neighborhood].filter(Boolean).join(', '),
-      email: company.financial_email || company.representative_email || null,
-      phone: company.financial_contact || company.representative_contact || null,
-      logoUrl: company.logoUrl,
+      companyId, entityId: e.entityId, tradeName: e.tradeName, cnpj: e.cnpj, name: e.name, ibge: e.ibge, cityName: e.cityName, uf: e.uf,
+      address: e.address, email: e.email, phone: e.phone, logoUrl: e.logoUrl,
     };
   }
 
+  /** Situação fiscal de cada CNPJ do grupo (pronto para emitir? o que falta?). */
+  async overview(companyId: number) {
+    const list = await this.entities.list(companyId);
+    return Promise.all(list.map(async (e) => {
+      const info = await this.get(companyId, e.id);
+      return { entityId: e.id, tradeName: e.tradeName, cnpj: e.cnpj, color: e.color, environment: info.environment, hasCertificate: info.hasCertificate, certificateDaysLeft: info.certificateDaysLeft, ready: info.ready, pending: info.pending };
+    }));
+  }
+
   /** O que a tela de configuração mostra, com a lista do que falta para emitir. */
-  async get(companyId: number) {
+  async get(companyId: number, entityId?: number | null) {
+    const id = await this.entities.resolveId(companyId, entityId ?? undefined);
+    const serviceWhere = { companyId, inactiveAt: null, OR: [{ entityId: null }, { entityId: id }] };
     const [row, emitter, services] = await Promise.all([
-      this.settingsRow(companyId),
-      this.emitter(companyId),
-      this.prisma.fiscal_ServiceCode.count({ where: { companyId, inactiveAt: null } }),
+      this.settingsRow(companyId, id),
+      this.emitter(companyId, id),
+      this.prisma.fiscal_ServiceCode.count({ where: serviceWhere }),
     ]);
     const { certificateEncrypted, ...rest } = row;
     const pending: string[] = [];
     if (!process.env.FISCAL_SECRET) pending.push('O servidor ainda não tem a chave FISCAL_SECRET (sem ela o certificado não pode ser guardado).');
-    if (!emitter.ibge) pending.push('Cadastre a cidade da empresa (Configurações da empresa): o código IBGE sai dela.');
-    if (!certificateEncrypted) pending.push('Envie o certificado digital A1 (.pfx) da empresa.');
+    if (!emitter.ibge) pending.push(`Cadastre a cidade do CNPJ ${emitter.tradeName} (Empresas do grupo): o código IBGE sai dela.`);
+    if (!certificateEncrypted) pending.push(`Envie o certificado digital A1 (.pfx) do CNPJ ${emitter.tradeName}.`);
     if (row.certificateValidTo && row.certificateValidTo.getTime() < Date.now()) pending.push('O certificado digital venceu. Envie o novo.');
-    if (row.certificateDocument && row.certificateDocument.slice(0, 8) !== emitter.cnpj.slice(0, 8)) pending.push('O certificado é de outro CNPJ. Envie o certificado da empresa.');
+    if (row.certificateDocument && row.certificateDocument.slice(0, 8) !== emitter.cnpj.slice(0, 8)) pending.push(`O certificado é de outro CNPJ. Envie o certificado de ${emitter.tradeName}.`);
     if (row.simplesNacional === 3 && (row.simplesTotalRate === null || Number(row.simplesTotalRate) <= 0)) pending.push('Informe o % aproximado dos tributos no Simples (vai na nota).');
     if (!services) pending.push('Cadastre pelo menos um serviço fiscal (código de tributação nacional).');
     if (row.ibsCbsEnabled) {
-      const missing = await this.prisma.fiscal_ServiceCode.count({ where: { companyId, inactiveAt: null, OR: [{ ibsCbsIndOp: null }, { ibsCbsClassTrib: null }] } });
+      const missing = await this.prisma.fiscal_ServiceCode.count({ where: { ...serviceWhere, AND: [{ OR: [{ ibsCbsIndOp: null }, { ibsCbsClassTrib: null }] }] } });
       if (missing) pending.push(`IBS/CBS ligado: ${missing} serviço(s) fiscal(is) sem indicador da operação ou cClassTrib.`);
     }
     const daysLeft = row.certificateValidTo ? Math.floor((row.certificateValidTo.getTime() - Date.now()) / 86400000) : null;
@@ -93,8 +106,9 @@ export class FiscalSettingsService {
     };
   }
 
-  async update(actor: FiscalActor, body: Record<string, unknown>) {
-    const current = await this.settingsRow(actor.companyId);
+  async update(actor: FiscalActor, body: Record<string, unknown>, entityId?: unknown) {
+    const id = await this.entities.resolveId(actor.companyId, entityId ?? body.entityId);
+    const current = await this.settingsRow(actor.companyId, id);
     const data: Prisma.Fiscal_SettingsUpdateInput = { updatedByUserId: actor.userId };
     for (const field of SETTINGS_FIELDS) {
       if (!(field in body)) continue;
@@ -148,7 +162,7 @@ export class FiscalSettingsService {
           const n = Number(value);
           if (!Number.isInteger(n) || n < 1) throw new BadRequestException('O próximo número da DPS precisa ser inteiro e maior que zero');
           const used = await this.prisma.fiscal_Invoice.aggregate({
-            where: { companyId: actor.companyId, environment: field === 'nextDpsNumber' ? 'producao' : 'restrita', dpsSeries: String(body.dpsSeries ?? current.dpsSeries) },
+            where: { companyId: actor.companyId, entityId: id, environment: field === 'nextDpsNumber' ? 'producao' : 'restrita', dpsSeries: String(body.dpsSeries ?? current.dpsSeries) },
             _max: { dpsNumber: true },
           });
           if (used._max.dpsNumber && n <= used._max.dpsNumber) throw new BadRequestException(`O número ${used._max.dpsNumber} já foi usado nesta série: o próximo precisa ser maior.`);
@@ -178,13 +192,14 @@ export class FiscalSettingsService {
           break;
       }
     }
-    await this.prisma.fiscal_Settings.update({ where: { companyId: actor.companyId }, data });
-    return this.get(actor.companyId);
+    await this.prisma.fiscal_Settings.update({ where: { id: current.id }, data });
+    return this.get(actor.companyId, id);
   }
 
   // ------------------------------------------------------------------ certificado
 
-  async saveCertificate(actor: FiscalActor, file: Buffer | undefined, password: unknown) {
+  async saveCertificate(actor: FiscalActor, file: Buffer | undefined, password: unknown, entityId?: unknown) {
+    const id = await this.entities.resolveId(actor.companyId, entityId);
     if (!file?.length) throw new BadRequestException('Envie o arquivo do certificado (.pfx ou .p12)');
     if (file.length > 50_000) throw new BadRequestException('Arquivo grande demais para um certificado A1');
     let cert: LoadedCertificate;
@@ -194,9 +209,9 @@ export class FiscalSettingsService {
       throw new BadRequestException(error instanceof Error ? error.message : 'Certificado inválido');
     }
     if (cert.validTo.getTime() < Date.now()) throw new BadRequestException(`Este certificado venceu em ${cert.validTo.toLocaleDateString('pt-BR')}.`);
-    const emitter = await this.emitter(actor.companyId);
+    const emitter = await this.emitter(actor.companyId, id);
     if (cert.document && cert.document.length === 14 && cert.document.slice(0, 8) !== emitter.cnpj.slice(0, 8)) {
-      throw new BadRequestException(`O certificado é do CNPJ ${cert.document}, mas a empresa é ${emitter.cnpj}.`);
+      throw new BadRequestException(`O certificado é do CNPJ ${cert.document}, mas ${emitter.tradeName} é ${emitter.cnpj}.`);
     }
     let encrypted: string;
     try {
@@ -204,9 +219,9 @@ export class FiscalSettingsService {
     } catch (error) {
       throw new BadRequestException(error instanceof CertificateError ? error.message : 'Não foi possível guardar o certificado');
     }
-    await this.settingsRow(actor.companyId);
+    const row = await this.settingsRow(actor.companyId, id);
     await this.prisma.fiscal_Settings.update({
-      where: { companyId: actor.companyId },
+      where: { id: row.id },
       data: {
         certificateEncrypted: encrypted,
         certificateSubject: cert.subject.slice(0, 255),
@@ -217,26 +232,30 @@ export class FiscalSettingsService {
         updatedByUserId: actor.userId,
       },
     });
-    return this.get(actor.companyId);
+    return this.get(actor.companyId, id);
   }
 
-  async removeCertificate(actor: FiscalActor) {
-    await this.settingsRow(actor.companyId);
+  async removeCertificate(actor: FiscalActor, entityId?: unknown) {
+    const id = await this.entities.resolveId(actor.companyId, entityId);
+    const row = await this.settingsRow(actor.companyId, id);
     await this.prisma.fiscal_Settings.update({
-      where: { companyId: actor.companyId },
+      where: { id: row.id },
       data: { certificateEncrypted: null, certificateSubject: null, certificateDocument: null, certificateValidFrom: null, certificateValidTo: null, certificateUpdatedAt: new Date(), updatedByUserId: actor.userId },
     });
-    return this.get(actor.companyId);
+    return this.get(actor.companyId, id);
   }
 
   /** Certificado aberto, pronto para assinar e conectar. */
-  async certificate(companyId: number): Promise<LoadedCertificate> {
-    const row = await this.settingsRow(companyId);
-    if (!row.certificateEncrypted) throw new BadRequestException('Envie o certificado digital A1 da empresa em Financeiro → Fiscal.');
+  async certificate(companyId: number, entityId?: number | null): Promise<LoadedCertificate> {
+    const row = await this.settingsRow(companyId, entityId);
+    if (!row.certificateEncrypted) {
+      const e = await this.emitter(companyId, row.entityId);
+      throw new BadRequestException(`Envie o certificado digital A1 de ${e.tradeName} em Fiscal → Configuração.`);
+    }
     try {
       const { pfx, password } = decryptCertificate(row.certificateEncrypted);
       const cert = loadCertificate(pfx, password);
-      if (cert.validTo.getTime() < Date.now()) throw new BadRequestException('O certificado digital venceu. Envie o novo em Financeiro → Fiscal.');
+      if (cert.validTo.getTime() < Date.now()) throw new BadRequestException('O certificado digital venceu. Envie o novo em Fiscal → Configuração.');
       return cert;
     } catch (error) {
       if (error instanceof BadRequestException) throw error;
@@ -245,9 +264,10 @@ export class FiscalSettingsService {
   }
 
   /** Testa a conexão com o ambiente nacional usando o certificado (consulta de uma DPS que não existe). */
-  async testConnection(companyId: number) {
-    const [row, emitter] = await Promise.all([this.settingsRow(companyId), this.emitter(companyId)]);
-    const cert = await this.certificate(companyId);
+  async testConnection(companyId: number, entityId?: unknown) {
+    const id = await this.entities.resolveId(companyId, entityId);
+    const [row, emitter] = await Promise.all([this.settingsRow(companyId, id), this.emitter(companyId, id)]);
+    const cert = await this.certificate(companyId, id);
     const client = new SefinClient(row.environment, cert, 20_000);
     const probe = `DPS${(emitter.ibge ?? '0000000').padStart(7, '0')}2${emitter.cnpj.padStart(14, '0')}${'49999'}${'9'.repeat(15)}`;
     try {
@@ -261,9 +281,10 @@ export class FiscalSettingsService {
 
   // ------------------------------------------------------------------ serviços fiscais
 
-  async listServiceCodes(companyId: number, includeInactive = false) {
+  /** Serviços fiscais; com `entityId`, só os que valem para aquele CNPJ (os dele e os de todos). */
+  async listServiceCodes(companyId: number, includeInactive = false, entityId?: number | null) {
     const rows = await this.prisma.fiscal_ServiceCode.findMany({
-      where: { companyId, ...(includeInactive ? {} : { inactiveAt: null }) },
+      where: { companyId, ...(includeInactive ? {} : { inactiveAt: null }), ...(entityId ? { OR: [{ entityId: null }, { entityId }] } : {}) },
       orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
     });
     return rows.map((r) => this.serviceCodeOut(r));
@@ -313,6 +334,7 @@ export class FiscalSettingsService {
       data.description = description.slice(0, 2000);
     }
     if ('isDefault' in body) data.isDefault = !!body.isDefault;
+    if ('entityId' in body) data.entityId = body.entityId === null || body.entityId === '' ? null : Number(body.entityId) || null;
     if ('ibsCbsIndOp' in body) {
       const code = digits(body.ibsCbsIndOp);
       if (code && !IND_OP.some((i) => i[0] === code)) throw new BadRequestException('Indicador da operação não encontrado no Anexo C');
@@ -328,8 +350,10 @@ export class FiscalSettingsService {
 
   async createServiceCode(actor: FiscalActor, body: Record<string, unknown>) {
     const data = this.serviceCodeData(body, false) as Prisma.Fiscal_ServiceCodeUncheckedCreateInput;
+    if (data.entityId) data.entityId = await this.entities.resolveId(actor.companyId, data.entityId);
     const created = await this.prisma.$transaction(async (tx) => {
-      if (data.isDefault) await tx.fiscal_ServiceCode.updateMany({ where: { companyId: actor.companyId }, data: { isDefault: false } });
+      // um padrão por CNPJ (e um para "todos")
+      if (data.isDefault) await tx.fiscal_ServiceCode.updateMany({ where: { companyId: actor.companyId, entityId: data.entityId ?? null }, data: { isDefault: false } });
       return tx.fiscal_ServiceCode.create({ data: { ...data, companyId: actor.companyId } });
     });
     return this.serviceCodeOut(created);
@@ -339,9 +363,11 @@ export class FiscalSettingsService {
     const found = await this.prisma.fiscal_ServiceCode.findFirst({ where: { id, companyId: actor.companyId } });
     if (!found) throw new NotFoundException('Serviço fiscal não encontrado');
     const data = this.serviceCodeData(body, true);
+    if (typeof data.entityId === 'number') data.entityId = await this.entities.resolveId(actor.companyId, data.entityId);
     if ('active' in body) data.inactiveAt = body.active ? null : new Date();
+    const scope = data.entityId !== undefined ? (data.entityId as number | null) : found.entityId;
     const updated = await this.prisma.$transaction(async (tx) => {
-      if (data.isDefault) await tx.fiscal_ServiceCode.updateMany({ where: { companyId: actor.companyId, id: { not: id } }, data: { isDefault: false } });
+      if (data.isDefault) await tx.fiscal_ServiceCode.updateMany({ where: { companyId: actor.companyId, entityId: scope, id: { not: id } }, data: { isDefault: false } });
       return tx.fiscal_ServiceCode.update({ where: { id }, data });
     });
     return this.serviceCodeOut(updated);

@@ -74,10 +74,14 @@ export class TreasuryService {
         companyId, ...(query.inactive === 'true' ? {} : { inactiveAt: null }),
         ...(from || to ? { date: { ...(from ? { gte: dayStart(from) } : {}), ...(to ? { lt: dayStart(plusDays(to, 1)) } : {}) } } : {}),
       },
-      include: { fromBankAccount: { select: { id: true, name: true } }, toBankAccount: { select: { id: true, name: true } } },
+      include: { fromBankAccount: { select: { id: true, name: true, entityId: true } }, toBankAccount: { select: { id: true, name: true, entityId: true } } },
       orderBy: [{ date: 'desc' }, { id: 'desc' }],
       take: 300,
-    });
+    }).then((rows) => rows.map((t) => ({
+      ...t,
+      // contas de CNPJs diferentes: é um empréstimo entre empresas do grupo (mútuo), não só uma troca de conta
+      betweenEntities: !!t.fromBankAccount.entityId && !!t.toBankAccount.entityId && t.fromBankAccount.entityId !== t.toBankAccount.entityId,
+    })));
   }
 
   async createTransfer(actor: PayableActor, body: Body, statementRef?: string) {

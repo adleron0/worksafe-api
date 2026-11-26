@@ -77,11 +77,14 @@ export class ReportService {
     if (from > to) fail('A data inicial é maior que a final');
     const group = (['day', 'week', 'month'].includes(String(query.group)) ? query.group : 'week') as Group;
     const banks = ints(query.bankAccountId);
+    // CNPJ do grupo: só as contas bancárias e as contas em aberto dele (vazio = o grupo todo)
+    const entities = ints(query.entityId);
+    const byEntity = entities.length ? { entityId: { in: entities } } : {};
     // baixas e transferências até o fim do período, já pela data inicial de cada conta
-    const { accounts, list: moves } = await this.balance.movements(companyId, { to, accountIds: banks.length ? banks : undefined });
+    const { accounts, list: moves } = await this.balance.movements(companyId, { to, accountIds: banks.length ? banks : undefined, entityIds: entities.length ? entities : undefined });
     const [openReceivables, openPayables] = await Promise.all([
-      this.prisma.financialRecords.findMany({ where: { companyId, status: { in: OPEN }, inactiveAt: null, dueDate: { lt: dayStart(plusDays(to, 1)) } }, select: { dueDate: true, value: true, netValue: true } }),
-      this.prisma.financial_Payable.findMany({ where: { companyId, status: 'aberta', inactiveAt: null, dueDate: { lt: dayStart(plusDays(to, 1)) } }, select: { dueDate: true, value: true } }),
+      this.prisma.financialRecords.findMany({ where: { companyId, ...byEntity, status: { in: OPEN }, inactiveAt: null, dueDate: { lt: dayStart(plusDays(to, 1)) } }, select: { dueDate: true, value: true, netValue: true } }),
+      this.prisma.financial_Payable.findMany({ where: { companyId, ...byEntity, status: 'aberta', inactiveAt: null, dueDate: { lt: dayStart(plusDays(to, 1)) } }, select: { dueDate: true, value: true } }),
     ]);
 
     // saldo no início do período = saldo no fim da véspera: saldos iniciais que
@@ -190,16 +193,19 @@ export class ReportService {
     };
 
     const periodRange = { gte: dayStart(`${from}-01`), lt: dayStart(plusDays(monthEnd(to), 1)) };
+    // CNPJ do grupo (vazio = o consolidado do grupo)
+    const entities = ints(query.entityId);
+    const byEntity = entities.length ? { entityId: { in: entities } } : {};
     const receivables = await this.prisma.financialRecords.findMany({
       where: basis === 'caixa'
-        ? { companyId, inactiveAt: null, status: 'received', paidAt: periodRange }
-        : { companyId, inactiveAt: null, status: { notIn: LOST }, accrualDate: { gte: from, lte: to } },
+        ? { companyId, ...byEntity, inactiveAt: null, status: 'received', paidAt: periodRange }
+        : { companyId, ...byEntity, inactiveAt: null, status: { notIn: LOST }, accrualDate: { gte: from, lte: to } },
       select: { accrualDate: true, paidAt: true, value: true, chartAccountId: true, interestValue: true, fineValue: true, discountValue: true },
     });
     const payables = await this.prisma.financial_Payable.findMany({
       where: basis === 'caixa'
-        ? { companyId, inactiveAt: null, status: 'paga', paidAt: periodRange }
-        : { companyId, inactiveAt: null, accrualDate: { gte: from, lte: to } },
+        ? { companyId, ...byEntity, inactiveAt: null, status: 'paga', paidAt: periodRange }
+        : { companyId, ...byEntity, inactiveAt: null, accrualDate: { gte: from, lte: to } },
       select: { accrualDate: true, paidAt: true, value: true, chartAccountId: true, interestValue: true, fineValue: true, discountValue: true },
     });
 

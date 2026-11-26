@@ -39,10 +39,13 @@ export class BalanceService {
     return dayOf(row?.startDate);
   }
 
-  async accounts(companyId: number, ids?: number[]): Promise<{ startDate: string | null; accounts: AccountWithStart[] }> {
+  async accounts(companyId: number, ids?: number[], entityIds?: number[]): Promise<{ startDate: string | null; accounts: AccountWithStart[] }> {
     const [startDate, rows] = await Promise.all([
       this.startDate(companyId),
-      this.prisma.financial_BankAccount.findMany({ where: { companyId, ...(ids?.length ? { id: { in: ids } } : {}) }, orderBy: [{ isDefault: 'desc' }, { name: 'asc' }] }),
+      this.prisma.financial_BankAccount.findMany({
+        where: { companyId, ...(ids?.length ? { id: { in: ids } } : {}), ...(entityIds?.length ? { entityId: { in: entityIds } } : {}) },
+        orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
+      }),
     ]);
     return { startDate, accounts: rows.map((a) => ({ ...a, start: dayOf(a.openingBalanceDate) ?? startDate })) };
   }
@@ -50,20 +53,25 @@ export class BalanceService {
   /**
    * Movimentos de caixa (baixas e transferências) até `to`, já filtrados pela
    * data inicial de cada conta. Com `accountIds`, só os dessas contas (e sem os
-   * movimentos sem conta).
+   * movimentos sem conta). Com `entityIds`, só as contas desses CNPJs do grupo.
    */
-  async movements(companyId: number, options: { to?: string; accountIds?: number[] } = {}) {
-    const { startDate, accounts } = await this.accounts(companyId, options.accountIds);
-    const filtered = !!options.accountIds?.length;
+  async movements(companyId: number, options: { to?: string; accountIds?: number[]; entityIds?: number[] } = {}) {
+    const { startDate, accounts } = await this.accounts(companyId, options.accountIds, options.entityIds);
+    const filtered = !!options.accountIds?.length || !!options.entityIds?.length;
     const byId = new Map(accounts.map((a) => [a.id, a]));
-    const gatewayAccount = new Map(accounts.filter((a) => a.type === 'gateway' && a.gateway).map((a) => [a.gateway as string, a.id]));
+    // recebível de gateway sem conta: vai para a conta do provedor do mesmo CNPJ (cada CNPJ tem a sua conta Asaas)
+    const gatewayAccount = new Map<string, number>();
+    for (const a of accounts.filter((x) => x.type === 'gateway' && x.gateway)) {
+      gatewayAccount.set(`${a.entityId ?? 0}:${a.gateway}`, a.id);
+      if (!gatewayAccount.has(`*:${a.gateway}`)) gatewayAccount.set(`*:${a.gateway}`, a.id);
+    }
     const upTo = options.to ? { lt: dayStart(plusDays(options.to, 1)) } : undefined;
     const paidAt = { not: null, ...(upTo ?? {}) };
 
     const [received, paid, transfers] = await Promise.all([
       this.prisma.financialRecords.findMany({
         where: { companyId, status: 'received', inactiveAt: null, paidAt },
-        select: { paidAt: true, value: true, netValue: true, receivedValue: true, bankAccountId: true, gateway: true },
+        select: { paidAt: true, value: true, netValue: true, receivedValue: true, bankAccountId: true, gateway: true, entityId: true },
       }),
       this.prisma.financial_Payable.findMany({
         where: { companyId, status: 'paga', inactiveAt: null, paidAt },
@@ -88,7 +96,7 @@ export class BalanceService {
       list.push({ day: dayText, accountId, amount, kind });
     };
     for (const r of received) {
-      const accountId = r.bankAccountId ?? gatewayAccount.get(r.gateway) ?? null;
+      const accountId = r.bankAccountId ?? gatewayAccount.get(`${r.entityId ?? 0}:${r.gateway}`) ?? gatewayAccount.get(`*:${r.gateway}`) ?? null;
       push(dayOf(r.paidAt)!, accountId, num(r.receivedValue ?? r.netValue ?? r.value), 'in');
     }
     for (const p of paid) push(dayOf(p.paidAt)!, p.bankAccountId ?? null, -num(p.paidValue ?? p.value), 'out');
@@ -107,8 +115,8 @@ export class BalanceService {
   }
 
   /** Saldo de cada conta no fim do dia `date` (sem data: tudo o que já foi lançado). */
-  async balances(companyId: number, date?: string, accountIds?: number[]) {
-    const { startDate, accounts, list } = await this.movements(companyId, { to: date, accountIds: accountIds?.length ? accountIds : undefined });
+  async balances(companyId: number, date?: string, accountIds?: number[], entityIds?: number[]) {
+    const { startDate, accounts, list } = await this.movements(companyId, { to: date, accountIds: accountIds?.length ? accountIds : undefined, entityIds: entityIds?.length ? entityIds : undefined });
     const rows = accounts.map((account) => {
       const mine = list.filter((m) => m.accountId === account.id);
       const sum = (kind: CashMovement['kind']) => mine.filter((m) => m.kind === kind).reduce((s, m) => s + m.amount, 0);

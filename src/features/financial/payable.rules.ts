@@ -1,3 +1,4 @@
+import { ENTITY_SELECT, entityField } from 'src/features/company-entity/entity.field';
 import { CrudError, EntityRules, composeHooks } from '@adleron/crud-core';
 import { Prisma } from '@prisma/client';
 import { Request } from 'express';
@@ -187,6 +188,11 @@ export async function normalizePayable(
   for (const field of ['chartAccountId', 'costCenterId'] as const) {
     if (has(field)) next[field] = blank(input[field]) ? null : Number(input[field]);
   }
+  // CNPJ do grupo que paga (vazio: o da OS, da conta bancária ou o padrão)
+  if (has('entityId')) {
+    const entityId = await entityField(prisma, companyId, input.entityId, fail, existing?.entityId);
+    if (entityId) next.entityId = entityId;
+  }
   await assertClassification(
     prisma as PrismaService, companyId,
     { chartAccountId: next.chartAccountId, costCenterId: next.costCenterId },
@@ -200,7 +206,7 @@ export async function normalizePayable(
 }
 
 const PAYABLE_FIELDS = ['description', 'value', 'dueDate', 'accrualDate', 'paymentMethod', 'documentNumber', 'observations', 'barcode', 'pixCode',
-  'installmentNumber', 'installmentTotal', 'supplierId', 'serviceOrderId', 'chartAccountId', 'costCenterId', 'taxKind'];
+  'installmentNumber', 'installmentTotal', 'supplierId', 'serviceOrderId', 'chartAccountId', 'costCenterId', 'taxKind', 'entityId'];
 
 /**
  * Contas a pagar. Situação e pagamento só mudam pelas rotas de baixa e estorno;
@@ -211,10 +217,11 @@ export const payableEntity: EntityRules = {
   expose: ['list', 'getById', 'create', 'update', 'archive', 'restore'], restorePermission: 'own',
   permissions: PERMISSIONS,
   filterable: ['status', 'accrualDate', 'dueDate', 'paidAt', 'supplierId', 'serviceOrderId', 'chartAccountId', 'costCenterId', 'bankAccountId',
-    'origin', 'groupKey', 'taxKind', 'description', 'documentNumber', 'createdAt', 'supplier.name', 'value', 'recurrenceId'],
+    'origin', 'groupKey', 'taxKind', 'description', 'documentNumber', 'createdAt', 'supplier.name', 'value', 'recurrenceId', 'entityId'],
   sortable: ['id', 'dueDate', 'paidAt', 'value', 'createdAt'],
-  includable: ['supplier', 'serviceOrder', 'chartAccount', 'costCenter', 'bankAccount'],
+  includable: ['supplier', 'serviceOrder', 'chartAccount', 'costCenter', 'bankAccount', 'entity'],
   includes: {
+    entity: ENTITY_SELECT,
     supplier: { select: { id: true, name: true, document: true, pixKey: true } },
     serviceOrder: { select: { id: true, number: true } },
     chartAccount: { select: { id: true, code: true, name: true } }, costCenter: { select: { id: true, name: true } },

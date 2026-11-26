@@ -25,7 +25,7 @@ const noonUtc = (date: string) => new Date(`${date}T15:00:00.000Z`);
 @Injectable()
 export class FiscalReceivedService {
   private readonly logger = new Logger(FiscalReceivedService.name);
-  private syncing = new Set<number>();
+  private syncing = new Set<string>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -34,14 +34,42 @@ export class FiscalReceivedService {
     private readonly storage: PrivateStorageService,
   ) {}
 
-  /** Lê a distribuição a partir do último NSU até não haver mais nada (no máximo 20 lotes por vez). */
-  async sync(companyId: number) {
-    if (this.syncing.has(companyId)) throw new ConflictException('Já estou buscando as notas recebidas: aguarde um pouco');
-    this.syncing.add(companyId);
+  /**
+   * Busca as notas recebidas de todos os CNPJs do grupo que têm certificado (ou
+   * só de um, com `entityId`). Cada CNPJ tem a própria distribuição e o próprio NSU.
+   */
+  async sync(companyId: number, entityId?: unknown) {
+    const targets = entityId
+      ? [await this.settings.entityOf(companyId, entityId)]
+      : (await this.prisma.fiscal_Settings.findMany({ where: { companyId, certificateEncrypted: { not: null }, entityId: { not: null } }, select: { entityId: true } })).map((r) => r.entityId!);
+    if (!targets.length) throw new BadRequestException('Nenhum CNPJ do grupo tem certificado digital: envie o A1 em Fiscal → Configuração.');
+    let created = 0;
+    let seen = 0;
+    let lastNsu = 0;
+    const errors: string[] = [];
+    for (const target of targets) {
+      try {
+        const r = await this.syncEntity(companyId, target);
+        created += r.created;
+        seen += r.seen;
+        lastNsu = Math.max(lastNsu, r.lastNsu);
+      } catch (error) {
+        if (targets.length === 1) throw error;
+        errors.push(error instanceof Error ? error.message : String(error));
+      }
+    }
+    return { created, seen, lastNsu, errors };
+  }
+
+  /** Lê a distribuição de um CNPJ a partir do último NSU até não haver mais nada (no máximo 20 lotes por vez). */
+  private async syncEntity(companyId: number, entityId: number) {
+    const lock = `${companyId}:${entityId}`;
+    if (this.syncing.has(lock)) throw new ConflictException('Já estou buscando as notas recebidas: aguarde um pouco');
+    this.syncing.add(lock);
     try {
-      const row = await this.settings.settingsRow(companyId);
-      const emitter = await this.settings.emitter(companyId);
-      const cert = await this.settings.certificate(companyId);
+      const row = await this.settings.settingsRow(companyId, entityId);
+      const emitter = await this.settings.emitter(companyId, entityId);
+      const cert = await this.settings.certificate(companyId, entityId);
       const client = new AdnClient(row.environment, cert);
       let nsu = row.receivedLastNsu;
       let created = 0;
@@ -54,7 +82,7 @@ export class FiscalReceivedService {
           nsu = Math.max(nsu, doc.nsu);
           if (!/NFSE/i.test(doc.type) || !doc.xml) continue;
           const parsed = parseReceivedXml(doc.xml);
-          // só o que a empresa TOMOU; as notas que ela mesma emitiu já estão na área fiscal
+          // só o que este CNPJ TOMOU; as notas que ele mesmo emitiu já estão na área fiscal
           if (!parsed.accessKey || digits(parsed.takerDocument) !== emitter.cnpj || digits(parsed.issuerDocument) === emitter.cnpj) continue;
           const exists = await this.prisma.fiscal_ReceivedInvoice.findUnique({ where: { companyId_accessKey: { companyId, accessKey: parsed.accessKey } } });
           if (exists) continue;
@@ -63,7 +91,7 @@ export class FiscalReceivedService {
           const supplier = parsed.issuerDocument ? await this.prisma.financial_Supplier.findFirst({ where: { companyId, document: digits(parsed.issuerDocument) }, select: { id: true } }) : null;
           await this.prisma.fiscal_ReceivedInvoice.create({
             data: {
-              companyId, nsu: doc.nsu, accessKey: parsed.accessKey, number: parsed.number ?? null,
+              companyId, entityId, nsu: doc.nsu, accessKey: parsed.accessKey, number: parsed.number ?? null,
               issuedAt: parsed.processedAt ? new Date(parsed.processedAt) : null,
               competence: parsed.competence ? new Date(`${parsed.competence}T00:00:00Z`) : null,
               issuerDocument: digits(parsed.issuerDocument).slice(0, 14), issuerName: clean(parsed.issuerName, 300) || 'Fornecedor',
@@ -76,13 +104,13 @@ export class FiscalReceivedService {
         }
         if (done) break;
       }
-      await this.prisma.fiscal_Settings.update({ where: { companyId }, data: { receivedLastNsu: nsu, receivedSyncedAt: new Date() } });
+      await this.prisma.fiscal_Settings.update({ where: { id: row.id }, data: { receivedLastNsu: nsu, receivedSyncedAt: new Date() } });
       return { created, seen, lastNsu: nsu };
     } catch (error) {
       if (error instanceof SefinTransportError) throw new BadRequestException(error.message);
       throw error;
     } finally {
-      this.syncing.delete(companyId);
+      this.syncing.delete(lock);
     }
   }
 
@@ -90,24 +118,28 @@ export class FiscalReceivedService {
   @Cron('0 20 */6 * * *')
   async scheduled() {
     if (process.env.FISCAL_AUTO_EMIT_DISABLED === 'true') return;
-    const rows = await this.prisma.fiscal_Settings.findMany({ where: { certificateEncrypted: { not: null } }, select: { companyId: true } });
-    for (const row of rows) await this.sync(row.companyId).catch((error) => this.logger.warn(`Notas recebidas (empresa ${row.companyId}): ${error instanceof Error ? error.message : error}`));
+    const rows = await this.prisma.fiscal_Settings.findMany({ where: { certificateEncrypted: { not: null }, entityId: { not: null } }, select: { companyId: true, entityId: true } });
+    for (const row of rows) await this.syncEntity(row.companyId, row.entityId!).catch((error) => this.logger.warn(`Notas recebidas (CNPJ ${row.entityId}): ${error instanceof Error ? error.message : error}`));
   }
 
   async list(companyId: number, query: Record<string, unknown>) {
     const where: Prisma.Fiscal_ReceivedInvoiceWhereInput = { companyId };
+    const entityId = Number(query.entityId) > 0 ? Number(query.entityId) : undefined;
+    if (entityId) where.entityId = entityId;
     if (STATUS.includes(String(query.status))) where.status = String(query.status);
     const q = clean(query.q);
     if (q) where.OR = [{ issuerName: { contains: q, mode: 'insensitive' } }, { number: { contains: q } }, { issuerDocument: { contains: digits(q) || q } }];
-    const [rows, counts, settings] = await Promise.all([
+    const [rows, counts, synced, entities] = await Promise.all([
       this.prisma.fiscal_ReceivedInvoice.findMany({ where, orderBy: [{ issuedAt: 'desc' }, { id: 'desc' }], take: 200 }),
-      this.prisma.fiscal_ReceivedInvoice.groupBy({ by: ['status'], where: { companyId }, _count: true }),
-      this.settings.settingsRow(companyId),
+      this.prisma.fiscal_ReceivedInvoice.groupBy({ by: ['status'], where: { companyId, ...(entityId ? { entityId } : {}) }, _count: true }),
+      this.prisma.fiscal_Settings.aggregate({ where: { companyId, ...(entityId ? { entityId } : {}) }, _max: { receivedSyncedAt: true } }),
+      this.prisma.company_Entity.findMany({ where: { companyId }, select: { id: true, tradeName: true, color: true, cnpj: true } }),
     ]);
+    const names = new Map(entities.map((e) => [e.id, { tradeName: e.tradeName, color: e.color, cnpj: e.cnpj }]));
     return {
-      data: rows.map((r) => ({ ...r, grossValue: Number(r.grossValue), netValue: Number(r.netValue), issValue: Number(r.issValue) })),
+      data: rows.map((r) => ({ ...r, grossValue: Number(r.grossValue), netValue: Number(r.netValue), issValue: Number(r.issValue), entity: r.entityId ? names.get(r.entityId) ?? null : null })),
       byStatus: Object.fromEntries(counts.map((c) => [c.status, c._count])),
-      syncedAt: settings.receivedSyncedAt,
+      syncedAt: synced._max.receivedSyncedAt,
     };
   }
 
@@ -144,7 +176,7 @@ export class FiscalReceivedService {
       const competence = (row.competence ?? row.issuedAt ?? new Date()).toISOString().slice(0, 7);
       const created = await tx.financial_Payable.create({
         data: {
-          companyId: actor.companyId, supplierId, value, dueDate: noonUtc(dueDate), accrualDate: competence, status: 'aberta', origin: 'nfse',
+          companyId: actor.companyId, entityId: row.entityId, supplierId, value, dueDate: noonUtc(dueDate), accrualDate: competence, status: 'aberta', origin: 'nfse',
           description: clean(body.description, 255) || `NFS-e ${row.number ?? ''} · ${row.issuerName}`.slice(0, 255),
           documentNumber: row.number, paymentMethod: body.paymentMethod ? String(body.paymentMethod) : null,
           chartAccountId: Number(body.chartAccountId) || null, costCenterId: Number(body.costCenterId) || null,
@@ -167,54 +199,68 @@ export class FiscalReceivedService {
 
   // ------------------------------------------------------------------ pacote do contador
 
-  /** ZIP do mês: XML e PDF das notas emitidas, XML das recebidas e a planilha resumo. */
-  async accountantPackage(companyId: number, month: unknown) {
+  /**
+   * ZIP do mês: XML e PDF das notas emitidas, XML das recebidas e a planilha
+   * resumo. Cada CNPJ do grupo tem a própria escrituração: com `entityId` sai
+   * só aquele; sem, uma pasta por CNPJ.
+   */
+  async accountantPackage(companyId: number, month: unknown, entityId?: unknown) {
     const m = String(month ?? '').slice(0, 7);
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(m)) throw new BadRequestException('Informe o mês (AAAA-MM)');
     const [y, mm] = m.split('-').map(Number);
     const from = new Date(Date.UTC(y, mm - 1, 1));
     const to = new Date(Date.UTC(y, mm, 1));
+    const only = entityId ? await this.settings.entityOf(companyId, entityId) : undefined;
+    const entities = await this.prisma.company_Entity.findMany({ where: { companyId, ...(only ? { id: only } : {}) }, select: { id: true, tradeName: true, cnpj: true }, orderBy: { id: 'asc' } });
+    const multi = entities.length > 1;
+    const folder = (id: number | null) => {
+      if (!multi) return '';
+      const e = entities.find((x) => x.id === id);
+      return `${zipSafeName(e ? `${e.tradeName} ${e.cnpj}` : 'sem CNPJ')}/`;
+    };
+    const entityName = (id: number | null) => entities.find((x) => x.id === id)?.tradeName ?? '';
     const issued = await this.prisma.fiscal_Invoice.findMany({
-      where: { companyId, environment: 'producao', status: { in: ['autorizada', 'cancelada', 'substituida'] }, competence: { gte: from, lt: to } },
+      where: { companyId, ...(only ? { entityId: only } : {}), environment: 'producao', status: { in: ['autorizada', 'cancelada', 'substituida'] }, competence: { gte: from, lt: to } },
       orderBy: [{ number: 'asc' }, { id: 'asc' }],
     });
     const received = await this.prisma.fiscal_ReceivedInvoice.findMany({
-      where: { companyId, status: { not: 'cancelada' }, OR: [{ competence: { gte: from, lt: to } }, { competence: null, issuedAt: { gte: from, lt: to } }] },
+      where: { companyId, ...(only ? { entityId: only } : {}), status: { not: 'cancelada' }, OR: [{ competence: { gte: from, lt: to } }, { competence: null, issuedAt: { gte: from, lt: to } }] },
       orderBy: [{ issuedAt: 'asc' }],
     });
     const entries: ZipEntry[] = [];
     for (const inv of issued) {
       const base = zipSafeName(`NFS-e ${inv.number ?? inv.id}`);
-      if (inv.xmlKey) entries.push({ name: `emitidas/${base}.xml`, data: await this.storage.get(inv.xmlKey) });
+      if (inv.xmlKey) entries.push({ name: `${folder(inv.entityId)}emitidas/${base}.xml`, data: await this.storage.get(inv.xmlKey) });
       const pdf = await this.invoices.pdf(companyId, inv.id).catch(() => null);
-      if (pdf) entries.push({ name: `emitidas/${base}.pdf`, data: pdf.body });
+      if (pdf) entries.push({ name: `${folder(inv.entityId)}emitidas/${base}.pdf`, data: pdf.body });
     }
     for (const rec of received) {
-      if (rec.xmlKey) entries.push({ name: `recebidas/${zipSafeName(`${rec.issuerName} NFS-e ${rec.number ?? rec.id}`)}.xml`, data: await this.storage.get(rec.xmlKey) });
+      if (rec.xmlKey) entries.push({ name: `${folder(rec.entityId)}recebidas/${zipSafeName(`${rec.issuerName} NFS-e ${rec.number ?? rec.id}`)}.xml`, data: await this.storage.get(rec.xmlKey) });
     }
     const fed = (json: unknown) => (json ?? {}) as Record<string, number>;
     const sheet = buildXlsx([
       {
         name: 'Emitidas',
-        columns: [{ header: 'Número' }, { header: 'Situação' }, { header: 'Emissão' }, { header: 'Competência' }, { header: 'Tomador' }, { header: 'CPF/CNPJ' }, { header: 'Valor' }, { header: 'ISS' }, { header: 'ISS retido' }, { header: 'INSS' }, { header: 'IR' }, { header: 'CSLL' }, { header: 'PIS' }, { header: 'COFINS' }, { header: 'Líquido' }, { header: 'Chave' }],
+        columns: [{ header: 'CNPJ emissor' }, { header: 'Número' }, { header: 'Situação' }, { header: 'Emissão' }, { header: 'Competência' }, { header: 'Tomador' }, { header: 'CPF/CNPJ' }, { header: 'Valor' }, { header: 'ISS' }, { header: 'ISS retido' }, { header: 'INSS' }, { header: 'IR' }, { header: 'CSLL' }, { header: 'PIS' }, { header: 'COFINS' }, { header: 'Líquido' }, { header: 'Chave' }],
         rows: issued.map((inv) => {
           const t = inv.taker as { name?: string; document?: string };
           const f = fed(inv.federalRetentions);
-          return [inv.number, inv.status, { date: inv.issuedAt }, { date: inv.competence }, t.name, t.document, { money: Number(inv.grossValue) }, { money: Number(inv.issValue) }, inv.issWithheld ? 'sim' : 'não',
+          return [entityName(inv.entityId), inv.number, inv.status, { date: inv.issuedAt }, { date: inv.competence }, t.name, t.document, { money: Number(inv.grossValue) }, { money: Number(inv.issValue) }, inv.issWithheld ? 'sim' : 'não',
             { money: f.inss ?? 0 }, { money: f.ir ?? 0 }, { money: f.csll ?? 0 }, { money: f.pis ?? 0 }, { money: f.cofins ?? 0 }, { money: Number(inv.netValue) }, inv.accessKey];
         }),
       },
       {
         name: 'Recebidas',
-        columns: [{ header: 'Número' }, { header: 'Emissão' }, { header: 'Competência' }, { header: 'Fornecedor' }, { header: 'CNPJ' }, { header: 'Valor' }, { header: 'ISS retido' }, { header: 'INSS' }, { header: 'IR' }, { header: 'CSLL' }, { header: 'PIS' }, { header: 'COFINS' }, { header: 'Líquido' }, { header: 'Situação' }, { header: 'Chave' }],
+        columns: [{ header: 'CNPJ tomador' }, { header: 'Número' }, { header: 'Emissão' }, { header: 'Competência' }, { header: 'Fornecedor' }, { header: 'CNPJ' }, { header: 'Valor' }, { header: 'ISS retido' }, { header: 'INSS' }, { header: 'IR' }, { header: 'CSLL' }, { header: 'PIS' }, { header: 'COFINS' }, { header: 'Líquido' }, { header: 'Situação' }, { header: 'Chave' }],
         rows: received.map((r) => {
           const f = fed(r.retentions);
-          return [r.number, { date: r.issuedAt }, { date: r.competence }, r.issuerName, r.issuerDocument, { money: Number(r.grossValue) }, r.issWithheld ? 'sim' : 'não',
+          return [entityName(r.entityId), r.number, { date: r.issuedAt }, { date: r.competence }, r.issuerName, r.issuerDocument, { money: Number(r.grossValue) }, r.issWithheld ? 'sim' : 'não',
             { money: f.inss ?? 0 }, { money: f.ir ?? 0 }, { money: f.csll ?? 0 }, { money: f.pis ?? 0 }, { money: f.cofins ?? 0 }, { money: Number(r.netValue) }, r.status, r.accessKey];
         }),
       },
     ]);
     entries.push({ name: `resumo-${m}.xlsx`, data: sheet });
-    return { body: buildZip(entries), fileName: `notas-fiscais-${m}.zip`, counts: { issued: issued.length, received: received.length, generatedAt: todayBr() } };
+    const suffix = only && entities[0] ? `-${zipSafeName(entities[0].tradeName).replace(/\s+/g, '-').toLowerCase()}` : '';
+    return { body: buildZip(entries), fileName: `notas-fiscais-${m}${suffix}.zip`, counts: { issued: issued.length, received: received.length, generatedAt: todayBr() } };
   }
 }

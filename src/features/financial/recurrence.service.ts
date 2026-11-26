@@ -1,3 +1,4 @@
+import { ENTITY_SELECT, entityField } from 'src/features/company-entity/entity.field';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, paymentMethods } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -68,7 +69,7 @@ export class RecurrenceService {
         if (rule.kind === 'payable') {
           await db.financial_Payable.create({
             data: {
-              companyId: rule.companyId, description: rule.description, value: rule.value, dueDate: cursor, accrualDate,
+              companyId: rule.companyId, entityId: rule.entityId, description: rule.description, value: rule.value, dueDate: cursor, accrualDate,
               status: 'aberta', origin: 'manual', recurrenceId: rule.id, supplierId: rule.supplierId, chartAccountId: rule.chartAccountId,
               costCenterId: rule.costCenterId, serviceOrderId: rule.serviceOrderId, paymentMethod: rule.paymentMethod,
               observations: rule.observations, createdByUserId: rule.createdByUserId,
@@ -77,7 +78,7 @@ export class RecurrenceService {
         } else {
           await db.financialRecords.create({
             data: {
-              companyId: rule.companyId, description: rule.description, value: rule.value, dueDate: cursor, accrualDate,
+              companyId: rule.companyId, entityId: rule.entityId, description: rule.description, value: rule.value, dueDate: cursor, accrualDate,
               gateway: 'manual', status: 'waiting', paymentMethod: (rule.paymentMethod ?? 'outro') as paymentMethods,
               customerId: rule.customerId, chartAccountId: rule.chartAccountId, costCenterId: rule.costCenterId,
               recurrenceId: rule.id, observations: rule.observations?.slice(0, 255) ?? null,
@@ -109,6 +110,11 @@ export class RecurrenceService {
       data.paymentMethod = blank(body.paymentMethod) ? null : String(body.paymentMethod);
     }
     if (has('observations')) data.observations = String(body.observations ?? '').trim().slice(0, 500) || null;
+    // CNPJ do grupo dos lançamentos gerados (vazio: o da OS ou o padrão)
+    if ('entityId' in body) {
+      const entityId = await entityField(db, companyId, body.entityId, (m) => fail(m), existing?.entityId as number | null | undefined);
+      if (entityId) data.entityId = entityId;
+    }
     if (has('endDate')) {
       data.endDate = blank(body.endDate) ? null : payableDay(body.endDate, 'Data final', 'endDate', (m) => fail(m));
     }
@@ -215,7 +221,7 @@ export class RecurrenceService {
   async list(companyId: number, kind?: string) {
     await this.ensure(companyId);
     const rules = await this.prisma.financial_Recurrence.findMany({
-      where: { companyId, ...(kind ? { kind } : {}) }, orderBy: [{ inactiveAt: { sort: 'desc', nulls: 'first' } }, { description: 'asc' }],
+      where: { companyId, ...(kind ? { kind } : {}) }, include: { entity: ENTITY_SELECT }, orderBy: [{ inactiveAt: { sort: 'desc', nulls: 'first' } }, { description: 'asc' }],
     });
     const today = dayStart(todayBr());
     const ids = rules.map((r) => r.id);

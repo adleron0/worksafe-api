@@ -277,8 +277,39 @@ export class DocumentService {
 
   // ------------------------------------------------------------------ identidade
 
-  /** Identidade usada nas propostas: o que foi configurado, completado pelo cadastro da empresa. */
-  async brand(companyId: number): Promise<Brand> {
+  /**
+   * Identidade usada nas propostas: a do CNPJ do grupo (quando informado), por
+   * cima da configurada para o grupo, completada pelo cadastro da empresa. Cada
+   * CNPJ pode ter logo, cor, contatos, inscrições e dados bancários próprios.
+   */
+  async brand(companyId: number, entityId?: number | null): Promise<Brand> {
+    const group = await this.groupBrand(companyId);
+    if (!entityId) return group;
+    const entity = await this.prisma.company_Entity.findFirst({ where: { id: entityId, companyId }, include: { city: true, state: true } });
+    if (!entity) return group;
+    const own = (entity.brand ?? {}) as Partial<Brand>;
+    const filled = (value: unknown) => (typeof value === 'string' ? value.trim() !== '' : Array.isArray(value) ? value.length > 0 : value !== null && value !== undefined);
+    const pick = <K extends keyof Brand>(key: K, fallback: Brand[K]): Brand[K] => (filled(own[key]) ? (own[key] as Brand[K]) : fallback);
+    const address = [entity.address, entity.addressNumber, entity.neighborhood, entity.city ? `${entity.city.name}${entity.state ? `/${entity.state.uf}` : ''}` : null].filter(Boolean).join(', ');
+    const registrations = [entity.stateRegistration ? `IE ${entity.stateRegistration}` : '', entity.municipalRegistration ? `IM ${entity.municipalRegistration}` : ''].filter(Boolean).join(' · ');
+    const multi = (await this.prisma.company_Entity.count({ where: { companyId } })) > 1;
+    return {
+      ...group,
+      logoUrl: safeImageUrl(own.logoUrl) ?? safeImageUrl(entity.logoUrl) ?? group.logoUrl,
+      color: validColor(own.color ?? entity.color ?? group.color),
+      tagline: pick('tagline', group.tagline), about: pick('about', group.about),
+      highlights: pick('highlights', group.highlights), differentials: pick('differentials', group.differentials), testimonials: pick('testimonials', group.testimonials),
+      phone: pick('phone', entity.phone || group.phone), email: pick('email', entity.email || group.email), website: pick('website', group.website),
+      address: pick('address', address || group.address),
+      // inscrições e dados bancários são do CNPJ: com mais de um no grupo, os do grupo não valem para ele
+      registrations: pick('registrations', registrations || (multi ? '' : group.registrations)),
+      payment: pick('payment', multi ? '' : group.payment),
+      serviceEmail: pick('serviceEmail', group.serviceEmail), trainingEmail: pick('trainingEmail', group.trainingEmail),
+    };
+  }
+
+  /** Identidade do grupo (Comercial → Identidade), completada pelo cadastro da empresa. */
+  private async groupBrand(companyId: number): Promise<Brand> {
     const [settings, company] = await Promise.all([
       this.prisma.commercial_Settings.findUnique({ where: { companyId } }),
       this.prisma.company.findUnique({ where: { id: companyId }, select: {
@@ -478,7 +509,7 @@ export class DocumentService {
     if (!/^[a-f0-9-]{20,40}$/i.test(String(key))) throw new NotFoundException('Proposta não encontrada');
     const row = await this.prisma.commercial_Proposal.findFirst({
       where: { publicKey: key, inactiveAt: null },
-      select: { id: true, companyId: true, number: true, title: true, status: true, validUntil: true, frozenHtml: true, frozenHash: true, viewedAt: true,
+      select: { id: true, companyId: true, entityId: true, number: true, title: true, status: true, validUntil: true, frozenHtml: true, frozenHash: true, viewedAt: true,
         contactEmail: true, rootId: true, decidedAt: true, total: true, sellerId: true, acceptCodeHash: true, acceptCodeExpiresAt: true, acceptCodeAttempts: true },
     });
     if (!row || !row.frozenHtml) throw new NotFoundException('Proposta não encontrada');
@@ -521,8 +552,10 @@ export class DocumentService {
       row = { ...row, status: 'visualizada' };
     }
     const [company, brand, seller] = await Promise.all([
-      this.prisma.company.findUnique({ where: { id: row.companyId }, select: { comercial_name: true } }),
-      this.brand(row.companyId),
+      row.entityId
+        ? this.prisma.company_Entity.findUnique({ where: { id: row.entityId }, select: { tradeName: true } }).then((e) => ({ comercial_name: e?.tradeName ?? '' }))
+        : this.prisma.company.findUnique({ where: { id: row.companyId }, select: { comercial_name: true } }),
+      this.brand(row.companyId, row.entityId),
       row.sellerId ? this.prisma.user.findUnique({ where: { id: row.sellerId }, select: { name: true } }) : null,
     ]);
     const open = row.status === 'visualizada';

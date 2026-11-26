@@ -2,6 +2,9 @@
 model CompanyGateWays {
   id        Int      @id @default(autoincrement())
   companyId Int
+  // CNPJ do grupo (preenchido pelo banco quando vem vazio)
+  entityId Int?
+  entity   Company_Entity? @relation(fields: [entityId], references: [id])
   company   Company  @relation(fields: [companyId], references: [id])
   gateway   gateways
   payload   Json?    @map("payload") @db.JsonB // Dados do payload do gateway

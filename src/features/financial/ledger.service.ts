@@ -34,6 +34,9 @@ export class LedgerService {
   /** Tudo o que filtra, menos a visão (os cartões mostram todas as faixas do mesmo recorte). */
   private async payableBase(companyId: number, query: Query): Promise<Prisma.Financial_PayableWhereInput> {
     const and: Prisma.Financial_PayableWhereInput[] = [{ companyId }];
+    // CNPJ do grupo (vazio = todos: o consolidado)
+    const entities = ints(query.entityId);
+    if (entities.length) and.push({ entityId: { in: entities } });
     const q = String(query.q ?? '').trim();
     if (q) {
       const or: Prisma.Financial_PayableWhereInput[] = [
@@ -116,6 +119,7 @@ export class LedgerService {
     chartAccount: { select: { id: true, code: true, name: true } },
     costCenter: { select: { id: true, name: true } },
     bankAccount: { select: { id: true, name: true, type: true } },
+    entity: { select: { id: true, tradeName: true, color: true } },
     recurrence: { select: { id: true, inactiveAt: true, endDate: true } },
   } satisfies Prisma.Financial_PayableInclude;
 
@@ -197,6 +201,8 @@ export class LedgerService {
 
   private async receivableBase(companyId: number, query: Query): Promise<Prisma.FinancialRecordsWhereInput> {
     const and: Prisma.FinancialRecordsWhereInput[] = [{ companyId }];
+    const entities = ints(query.entityId);
+    if (entities.length) and.push({ entityId: { in: entities } });
     const q = String(query.q ?? '').trim();
     if (q) {
       const or: Prisma.FinancialRecordsWhereInput[] = [
@@ -291,6 +297,7 @@ export class LedgerService {
       contacts: { where: { inactiveAt: null, OR: [{ defaultFinancial: true }, { defaultFiscal: true }] },
         select: { id: true, name: true, email: true, phone: true, defaultFinancial: true, defaultFiscal: true } } } },
     subscription: { select: { id: true, name: true, email: true, phone: true } },
+    entity: { select: { id: true, tradeName: true, color: true } },
     seller: { select: { id: true, name: true } },
     chartAccount: { select: { id: true, code: true, name: true } },
     costCenter: { select: { id: true, name: true } },

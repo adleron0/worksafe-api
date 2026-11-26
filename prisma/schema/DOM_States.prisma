@@ -10,4 +10,5 @@ model DOM_States {
   customers Customer[]
   trainees  Trainee[]
   companies Company[]
+  entities Company_Entity[]
 }

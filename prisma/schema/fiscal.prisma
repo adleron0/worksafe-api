@@ -31,10 +31,13 @@ enum FiscalProviderKind {
   externa // emitida fora do sistema: só o registro (número e arquivo)
 }
 
-// Configuração fiscal da empresa emissora (uma por empresa)
+// Configuração fiscal de cada CNPJ do grupo (uma por CNPJ)
 model Fiscal_Settings {
   id                  Int               @id @default(autoincrement())
-  companyId           Int               @unique
+  companyId           Int
+  // CNPJ do grupo (preenchido pelo banco quando vem vazio)
+  entityId Int?
+  entity   Company_Entity? @relation(fields: [entityId], references: [id])
   environment         FiscalEnvironment @default(restrita)
   municipalRegistration String?         @db.VarChar(15)
   // 1 não optante, 2 MEI, 3 ME/EPP (TSOpSimpNac)
@@ -77,12 +80,18 @@ model Fiscal_Settings {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([entityId])
+  @@index([companyId])
 }
 
 // Serviço fiscal: o que vai no grupo "serviço" da nota
 model Fiscal_ServiceCode {
   id          Int     @id @default(autoincrement())
   companyId   Int
+  // CNPJ do grupo (nulo = vale para todos os CNPJs)
+  entityId Int?
+  entity   Company_Entity? @relation(fields: [entityId], references: [id])
   name        String  @db.VarChar(120) // como a equipe chama ("Treinamento NR-35")
   // código de tributação nacional (6 dígitos, Anexo B)
   nationalCode String @db.VarChar(6)
@@ -110,6 +119,9 @@ model Fiscal_ServiceCode {
 model Fiscal_Invoice {
   id          Int                 @id @default(autoincrement())
   companyId   Int
+  // CNPJ do grupo (preenchido pelo banco quando vem vazio)
+  entityId Int?
+  entity   Company_Entity? @relation(fields: [entityId], references: [id])
   status      FiscalInvoiceStatus @default(rascunho)
   provider    FiscalProviderKind  @default(sefin)
   environment FiscalEnvironment   @default(restrita)
@@ -178,7 +190,7 @@ model Fiscal_Invoice {
   links  Fiscal_InvoiceLink[]
   events Fiscal_InvoiceEvent[]
 
-  @@unique([companyId, environment, dpsSeries, dpsNumber])
+  @@unique([companyId, entityId, environment, dpsSeries, dpsNumber])
   @@index([companyId, status])
   @@index([companyId, competence])
   @@index([customerId])
@@ -227,6 +239,9 @@ model Fiscal_InvoiceEvent {
 model Fiscal_ReceivedInvoice {
   id             Int       @id @default(autoincrement())
   companyId      Int
+  // CNPJ do grupo (preenchido pelo banco quando vem vazio)
+  entityId Int?
+  entity   Company_Entity? @relation(fields: [entityId], references: [id])
   nsu            Int
   accessKey      String    @db.VarChar(50)
   number         String?   @db.VarChar(20)

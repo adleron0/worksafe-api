@@ -14,6 +14,9 @@ enum ServiceOrderStatus {
 model Service_Order {
   id        Int    @id @default(autoincrement())
   companyId Int
+  // CNPJ do grupo (preenchido pelo banco quando vem vazio)
+  entityId Int?
+  entity   Company_Entity? @relation(fields: [entityId], references: [id])
   // OS-2026-0001
   number    String @db.VarChar(30)
   year      Int

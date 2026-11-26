@@ -26,23 +26,30 @@ export class FiscalController {
   constructor(private readonly settings: FiscalSettingsService, private readonly invoices: FiscalInvoiceService, private readonly origins: InvoiceOriginService, private readonly received_: FiscalReceivedService) {}
 
   // configuração
+  // configuração: uma por CNPJ do grupo (?entityId=; sem ele, o CNPJ padrão)
   @Permissions('view_nfse') @Get('settings')
-  getSettings(@Req() req: Request) { return this.settings.get(actorOf(req).companyId); }
+  async getSettings(@Req() req: Request, @Query('entityId') entityId?: string) {
+    const companyId = actorOf(req).companyId;
+    return this.settings.get(companyId, entityId ? await this.settings.entityOf(companyId, entityId) : undefined);
+  }
+
+  @Permissions('view_nfse') @Get('settings/overview')
+  overview(@Req() req: Request) { return this.settings.overview(actorOf(req).companyId); }
 
   @Permissions('config_fiscal') @Put('settings')
-  updateSettings(@Req() req: Request, @Body() body: Json) { return this.settings.update(actorOf(req), body ?? {}); }
+  updateSettings(@Req() req: Request, @Body() body: Json, @Query('entityId') entityId?: string) { return this.settings.update(actorOf(req), body ?? {}, entityId); }
 
   @Permissions('config_fiscal') @Post('settings/certificate') @HttpCode(200)
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 60_000, files: 1 } }))
-  certificate(@Req() req: Request, @UploadedFile() file: Express.Multer.File, @Body() body: Json) {
-    return this.settings.saveCertificate(actorOf(req), file?.buffer, body?.password);
+  certificate(@Req() req: Request, @UploadedFile() file: Express.Multer.File, @Body() body: Json, @Query('entityId') entityId?: string) {
+    return this.settings.saveCertificate(actorOf(req), file?.buffer, body?.password, entityId ?? body?.entityId);
   }
 
   @Permissions('config_fiscal') @Delete('settings/certificate')
-  removeCertificate(@Req() req: Request) { return this.settings.removeCertificate(actorOf(req)); }
+  removeCertificate(@Req() req: Request, @Query('entityId') entityId?: string) { return this.settings.removeCertificate(actorOf(req), entityId); }
 
   @Permissions('config_fiscal') @Post('settings/test') @HttpCode(200)
-  test(@Req() req: Request) { return this.settings.testConnection(actorOf(req).companyId); }
+  test(@Req() req: Request, @Query('entityId') entityId?: string) { return this.settings.testConnection(actorOf(req).companyId, entityId); }
 
   // tabelas oficiais
   @Permissions('view_nfse') @Get('catalog/services')
@@ -59,7 +66,9 @@ export class FiscalController {
 
   // serviços fiscais
   @Permissions('view_nfse') @Get('service-codes')
-  serviceCodes(@Req() req: Request, @Query('all') all?: string) { return this.settings.listServiceCodes(actorOf(req).companyId, all === '1'); }
+  serviceCodes(@Req() req: Request, @Query('all') all?: string, @Query('entityId') entityId?: string) {
+    return this.settings.listServiceCodes(actorOf(req).companyId, all === '1', Number(entityId) > 0 ? Number(entityId) : undefined);
+  }
 
   @Permissions('config_fiscal') @Post('service-codes')
   createServiceCode(@Req() req: Request, @Body() body: Json) { return this.settings.createServiceCode(actorOf(req), body ?? {}); }
@@ -82,7 +91,7 @@ export class FiscalController {
   received(@Req() req: Request, @Query() query: Json) { return this.received_.list(actorOf(req).companyId, query ?? {}); }
 
   @Permissions('view_nfse') @Post('received/sync') @HttpCode(200)
-  syncReceived(@Req() req: Request) { return this.received_.sync(actorOf(req).companyId); }
+  syncReceived(@Req() req: Request, @Body() body: Json) { return this.received_.sync(actorOf(req).companyId, body?.entityId || undefined); }
 
   @Permissions('create_financeiro') @Post('received/:id/payable') @HttpCode(200)
   receivedPayable(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.received_.createPayable(actorOf(req), id, body ?? {}); }
@@ -97,8 +106,8 @@ export class FiscalController {
   }
 
   @Permissions('view_nfse') @Get('export')
-  async export(@Req() req: Request, @Res() res: Response, @Query('month') month: string) {
-    const { body, fileName } = await this.received_.accountantPackage(actorOf(req).companyId, month);
+  async export(@Req() req: Request, @Res() res: Response, @Query('month') month: string, @Query('entityId') entityId?: string) {
+    const { body, fileName } = await this.received_.accountantPackage(actorOf(req).companyId, month, entityId || undefined);
     sendFile(res, body, fileName, 'application/zip', true);
   }
 

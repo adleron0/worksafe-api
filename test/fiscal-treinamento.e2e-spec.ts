@@ -123,7 +123,7 @@ describe('Área fiscal — nota da inscrição (e2e)', () => {
     const novo = await subscribe('Novo Aluno', '11144477735');
     const semCpf = await subscribe('Sem CPF', '123');
     nock(SEFIN).post('/nfse').reply(201, { chaveAcesso: key(3), nfseXmlGZipB64: packXml(nfse(key(3), '92')) });
-    const row = await testDb().fiscal_Settings.findUniqueOrThrow({ where: { companyId: company.id } });
+    const row = await testDb().fiscal_Settings.findFirstOrThrow({ where: { companyId: company.id } });
     const tried = await job.runCompany(company.id, row.autoEmitTrainingSince, userId);
     expect(tried).toBe(2);
     const rec = await testDb().financialRecords.findFirstOrThrow({ where: { subscriptionId: novo.id } });
