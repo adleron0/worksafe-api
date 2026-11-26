@@ -3,6 +3,7 @@ import { PrivateStorageModule } from 'src/common/storage/module';
 import { EmailModule } from 'src/features/email/email.module';
 import { CommercialModule } from 'src/features/commercial/module';
 import { InvoiceOriginService } from './invoice.origin';
+import { FiscalTrainingJob } from './training.job';
 import { FiscalController } from './fiscal.controller';
 import { FiscalInvoiceService } from './invoice.service';
 import { FiscalSettingsService } from './settings.service';
@@ -11,7 +12,7 @@ import { FiscalSettingsService } from './settings.service';
 @Module({
   imports: [PrivateStorageModule, EmailModule, CommercialModule],
   controllers: [FiscalController],
-  providers: [FiscalSettingsService, FiscalInvoiceService, InvoiceOriginService],
-  exports: [FiscalSettingsService, FiscalInvoiceService],
+  providers: [FiscalSettingsService, FiscalInvoiceService, InvoiceOriginService, FiscalTrainingJob],
+  exports: [FiscalSettingsService, FiscalInvoiceService, FiscalTrainingJob],
 })
 export class FiscalModule {}

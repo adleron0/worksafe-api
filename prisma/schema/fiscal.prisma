@@ -61,6 +61,9 @@ model Fiscal_Settings {
   certificateUpdatedAt DateTime?
   // envia o PDF e o XML ao contato fiscal do cliente quando a nota é autorizada
   autoSendEmail       Boolean           @default(true)
+  // emite sozinho a nota da inscrição paga em turma aberta (só pagamentos depois de ligar)
+  autoEmitTraining    Boolean           @default(false)
+  autoEmitTrainingSince DateTime?
   // modelo padrão da discriminação (variáveis entre chaves)
   defaultNotes        String?           @db.Text
   updatedByUserId     Int?

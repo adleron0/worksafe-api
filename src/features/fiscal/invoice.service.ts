@@ -260,7 +260,7 @@ export class FiscalInvoiceService {
     const place = built.placeOfService ? cityOfIbge(built.placeOfService) : null;
     return {
       ...rest, placeLabel: place ? `${place.name}/${place.uf}` : null, reference: extra.reference, order: extra.order, canEmit: built.errors.length === 0,
-      origin: origin ? { ...origin.origin, amount: origin.amount, label: `${origin.contract.number} · ${origin.label}` } : null,
+      origin: origin ? { ...origin.origin, amount: origin.amount, label: origin.contract ? `${origin.contract.number} · ${origin.label}` : origin.label } : null,
     };
   }
 
@@ -283,7 +283,7 @@ export class FiscalInvoiceService {
       federalRetentions: Object.fromEntries(FEDERAL_TAXES.map((t) => [t, built.calc.federal[t].value])) as Prisma.InputJsonValue,
       netValue: built.calc.net,
       receivable: (built.receivable ?? Prisma.JsonNull) as Prisma.InputJsonValue,
-      origin: (built.origin ? { ...built.origin.origin, label: `${built.origin.contract.number} · ${built.origin.label}` } : Prisma.JsonNull) as Prisma.InputJsonValue,
+      origin: (built.origin ? { ...built.origin.origin, label: built.origin.contract ? `${built.origin.contract.number} · ${built.origin.label}` : built.origin.label } : Prisma.JsonNull) as Prisma.InputJsonValue,
       environment: built.environment,
     };
   }
@@ -544,8 +544,12 @@ export class FiscalInvoiceService {
     const extra = ((row.service as unknown as { extra?: ExtraData }).extra ?? {}) as ExtraData;
     try {
       const billed = await this.origins.bill(actor, row, extra.calc?.lines ?? []);
+      const kind = (row.origin as { kind?: string } | null)?.kind;
       await this.prisma.$transaction(async (tx) => {
-        if (billed.recordIds.length) {
+        if (kind === 'subscriptions') {
+          // inscrição: o pagamento já existe; a nota só se liga a ele
+          await tx.financialRecords.updateMany({ where: { id: { in: billed.recordIds }, companyId: actor.companyId }, data: { fiscalInvoiceId: id } });
+        } else if (billed.recordIds.length) {
           await tx.financialRecords.updateMany({ where: { id: { in: billed.recordIds }, companyId: actor.companyId }, data: { fiscalInvoiceId: id, invoiceIssuedAt: row.issuedAt } });
           await tx.financial_Retention.updateMany({ where: { financialRecordId: { in: billed.recordIds } }, data: { fiscalInvoiceId: id } });
           const records = await tx.financialRecords.findMany({ where: { id: { in: billed.recordIds } }, select: { id: true, contractInstallmentId: true, measurementId: true } });
@@ -614,7 +618,9 @@ export class FiscalInvoiceService {
     if (reason.length < 15) throw new BadRequestException('Explique o motivo do cancelamento (pelo menos 15 letras)');
     const reasonCode = ([1, 2, 9].includes(Number(body.reasonCode)) ? Number(body.reasonCode) : 9) as 1 | 2 | 9;
     const records = await this.prisma.financialRecords.findMany({ where: { companyId: actor.companyId, fiscalInvoiceId: id, inactiveAt: null, status: { not: 'cancelled' } }, select: { id: true, status: true, paidAt: true } });
-    if (records.some((r) => r.status === 'received' || r.paidAt)) {
+    // nota de inscrição já paga: cancelar a nota não mexe no pagamento, só solta a nota dele
+    const detachOnly = (row.origin as { kind?: string } | null)?.kind === 'subscriptions';
+    if (!detachOnly && records.some((r) => r.status === 'received' || r.paidAt)) {
       throw new BadRequestException('Esta nota tem conta a receber já recebida. Em vez de cancelar, substitua a nota por uma corrigida.');
     }
 
@@ -648,7 +654,9 @@ export class FiscalInvoiceService {
     await this.prisma.$transaction(async (tx) => {
       await tx.fiscal_Invoice.update({ where: { id }, data: { status: 'cancelada', cancelReason: reason, cancelledAt: new Date(), cancelledByUserId: actor.userId } });
       await tx.fiscal_InvoiceEvent.create({ data: { invoiceId: id, kind: 'cancelada', detail: { motivo: reason, codigo: reasonCode, ...eventInfo } as Prisma.InputJsonValue, xmlKey: eventKey, userId: actor.userId } });
-      if (cancelReceivables && records.length && !originLinks.length) {
+      if (detachOnly && records.length) {
+        await tx.financialRecords.updateMany({ where: { id: { in: records.map((r) => r.id) } }, data: { fiscalInvoiceId: null, invoiceNumber: null, invoiceIssuedAt: null } });
+      } else if (cancelReceivables && records.length && !originLinks.length) {
         await tx.financialRecords.updateMany({ where: { id: { in: records.map((r) => r.id) } }, data: { status: 'cancelled', inactiveAt: new Date() } });
       }
     });

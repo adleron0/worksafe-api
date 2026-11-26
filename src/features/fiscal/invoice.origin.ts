@@ -16,7 +16,7 @@ import type { CalcLine } from './invoice.calc';
  * receber, caução, comissão e retenções saem do faturamento que já existe).
  */
 
-export type OriginKind = 'installments' | 'measurement' | 'rental' | 'contract';
+export type OriginKind = 'installments' | 'measurement' | 'rental' | 'contract' | 'subscriptions';
 export type ContractMode = 'total' | 'saldo' | 'livre';
 
 export interface InvoiceOrigin {
@@ -25,6 +25,8 @@ export interface InvoiceOrigin {
   installmentIds?: number[];
   measurementId?: number;
   rentalId?: number;
+  // inscrições pagas de turma aberta (uma pessoa física ou várias da mesma empresa)
+  subscriptionIds?: number[];
   // nota do contrato: inteiro, o saldo que falta notar ou um valor livre (adiantamento, aditivo)
   mode?: ContractMode;
   amount?: number;
@@ -36,10 +38,11 @@ export interface ResolvedOrigin {
   origin: InvoiceOrigin;
   amount: number; // valor da nota (bruto, antes da caução)
   label: string;
-  customerId: number;
-  links: Array<{ contractId: number; installmentId?: number; measurementId?: number; amount: number }>;
+  customerId: number | null; // nulo = pessoa física (inscrição paga pelo próprio aluno)
+  subscriber?: { name: string; cpf: string; email: string | null; phone: string | null; traineeId: number | null; address: { street: string; number: string; complement: string | null; district: string; cep: string; cityName: string | null; uf: string | null } | null };
+  links: Array<{ contractId?: number; installmentId?: number; measurementId?: number; subscriptionId?: number; amount: number }>;
   balance?: number; // saldo a notar do contrato (nota do contrato)
-  contract: { id: number; number: string; title: string; customerOrderNumber: string | null; proposalNumber: string | null; retentionRates: unknown };
+  contract: { id: number; number: string; title: string; customerOrderNumber: string | null; proposalNumber: string | null; retentionRates: unknown } | null;
 }
 
 interface Actor { userId: number; companyId: number }
@@ -51,15 +54,16 @@ export function originOf(raw: unknown): InvoiceOrigin | null {
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
   const kind = String(o.kind ?? '') as OriginKind;
-  if (!['installments', 'measurement', 'rental', 'contract'].includes(kind)) return null;
+  if (!['installments', 'measurement', 'rental', 'contract', 'subscriptions'].includes(kind)) return null;
   const contractId = Number(o.contractId) || 0;
-  if (!contractId) return null;
+  if (!contractId && kind !== 'subscriptions') return null;
   return {
     kind,
     contractId,
     installmentIds: kind === 'installments' ? [...new Set((Array.isArray(o.installmentIds) ? o.installmentIds : String(o.installmentIds ?? '').split(',')).map(Number).filter((n) => n > 0))] : undefined,
     measurementId: kind === 'measurement' ? Number(o.measurementId) || undefined : undefined,
     rentalId: kind === 'rental' ? Number(o.rentalId) || undefined : undefined,
+    subscriptionIds: kind === 'subscriptions' ? [...new Set((Array.isArray(o.subscriptionIds) ? o.subscriptionIds : String(o.subscriptionIds ?? '').split(',')).map(Number).filter((n) => n > 0))] : undefined,
     mode: kind === 'contract' ? ((['total', 'saldo', 'livre'].includes(String(o.mode)) ? String(o.mode) : 'saldo') as ContractMode) : undefined,
     amount: kind === 'contract' && o.amount !== undefined && o.amount !== null && o.amount !== '' ? Number(o.amount) : undefined,
     dueDate: dateOnly(o.dueDate),
@@ -120,6 +124,7 @@ export class InvoiceOriginService {
 
   /** Confere a origem (existe, ainda não faturada, sem outra nota em andamento) e calcula o valor da nota. */
   async resolve(companyId: number, origin: InvoiceOrigin, ignoreInvoiceId?: number): Promise<ResolvedOrigin> {
+    if (origin.kind === 'subscriptions') return this.resolveSubscriptions(companyId, origin, ignoreInvoiceId);
     const contract = await this.prisma.commercial_Contract.findFirst({
       where: { id: origin.contractId, companyId },
       include: { installments: true },
@@ -184,17 +189,94 @@ export class InvoiceOriginService {
     return { origin, amount, label: `${rental.number}: ${lines.map((l) => l.description).join('; ')}`.slice(0, 400), customerId: contract.customerId, contract: head, links: [{ contractId: contract.id, amount }] };
   }
 
+  /**
+   * Inscrições pagas de turma aberta: uma pessoa física ou várias da mesma
+   * empresa. A nota cobre o que já foi pago (as contas a receber da inscrição);
+   * vaga paga por contrato tem a nota pelo contrato.
+   */
+  private async resolveSubscriptions(companyId: number, origin: InvoiceOrigin, ignoreInvoiceId?: number): Promise<ResolvedOrigin> {
+    const ids = origin.subscriptionIds ?? [];
+    if (!ids.length) throw new BadRequestException('Escolha as inscrições da nota');
+    const subs = await this.prisma.courseClassSubscription.findMany({
+      where: { id: { in: ids }, OR: [{ companyId }, { class: { companyId } }] },
+      include: { class: { select: { name: true, course: { select: { name: true } } } }, financialRecords: { where: { inactiveAt: null, status: { notIn: ['cancelled', 'declined', 'chargeback'] } }, select: { id: true, value: true, status: true, fiscalInvoiceId: true } } },
+    });
+    if (subs.length !== ids.length) throw new NotFoundException('Inscrição não encontrada');
+    for (const sub of subs) {
+      if (sub.contractId) throw new ConflictException(`A inscrição de ${sub.name} é paga pelo contrato: emita a nota pelo contrato.`);
+      if (!sub.financialRecords.some((r) => r.status === 'received')) throw new ConflictException(`A inscrição de ${sub.name} ainda não foi paga.`);
+      if (sub.financialRecords.some((r) => r.fiscalInvoiceId)) throw new ConflictException(`A inscrição de ${sub.name} já tem nota.`);
+      const other = await this.prisma.fiscal_InvoiceLink.findFirst({ where: { subscriptionId: sub.id, invoice: { companyId, status: { in: [...ACTIVE] }, ...(ignoreInvoiceId ? { id: { not: ignoreInvoiceId } } : {}) } }, include: { invoice: { select: { id: true, number: true } } } });
+      if (other) throw new ConflictException(`A inscrição de ${sub.name} já tem uma nota em andamento (nota ${other.invoice.number ?? `rascunho ${other.invoice.id}`})`);
+    }
+    const customers = [...new Set(subs.map((s) => s.customerId ?? 0))];
+    if (subs.length > 1 && (customers.length > 1 || !customers[0])) throw new BadRequestException('Várias inscrições numa nota só quando são da mesma empresa.');
+    const customerId = customers[0] || null;
+    const amountOf = (sub: (typeof subs)[number]) => round2(sub.financialRecords.reduce((s, r) => s + Number(r.value ?? 0), 0));
+    const amount = round2(subs.reduce((s, sub) => s + amountOf(sub), 0));
+    const first = subs[0];
+    const classes = [...new Set(subs.map((s) => `${s.class?.course?.name ?? 'Treinamento'}${s.class?.name ? ` (${s.class.name})` : ''}`))].join('; ');
+    const label = subs.length === 1 ? `inscrição de ${first.name} — ${classes}` : `${subs.length} inscrições — ${classes}`;
+    return {
+      origin, amount, label, customerId, contract: null,
+      links: subs.map((sub) => ({ subscriptionId: sub.id, amount: amountOf(sub) })),
+      subscriber: customerId ? undefined : {
+        name: first.name, cpf: first.cpf, email: first.email || null, phone: first.phone || null, traineeId: first.traineeId,
+        address: first.address ? { street: first.address, number: first.addressNumber ?? '', complement: first.addressComplement, district: first.neighborhood ?? '', cep: String(first.zipCode ?? '').replace(/\D/g, ''), cityName: first.city, uf: first.state ? first.state.slice(0, 2).toUpperCase() : null } : null,
+      },
+    };
+  }
+
+  /** Inscrições pagas de turma aberta que ainda não têm nota (a fila de "notas a emitir" do treinamento). */
+  async pendingTraining(companyId: number, query: { since?: Date | null; limit?: number } = {}) {
+    const records = await this.prisma.financialRecords.findMany({
+      where: {
+        companyId, subscriptionId: { not: null }, status: 'received', inactiveAt: null, fiscalInvoiceId: null,
+        paidAt: { gte: query.since ?? new Date(Date.now() - 180 * 86400000) },
+        subscription: { contractId: null },
+      },
+      select: { subscriptionId: true, value: true, paidAt: true },
+      orderBy: { paidAt: 'desc' },
+      take: query.limit ?? 500,
+    });
+    const ids = [...new Set(records.map((r) => r.subscriptionId!))];
+    if (!ids.length) return [];
+    const subs = await this.prisma.courseClassSubscription.findMany({
+      where: { id: { in: ids } },
+      include: {
+        class: { select: { id: true, name: true, course: { select: { name: true } } } },
+        customer: { select: { id: true, name: true } },
+        financialRecords: { where: { inactiveAt: null, status: { notIn: ['cancelled', 'declined', 'chargeback'] } }, select: { value: true, fiscalInvoiceId: true } },
+      },
+    });
+    const links = await this.prisma.fiscal_InvoiceLink.findMany({ where: { subscriptionId: { in: ids }, invoice: { companyId, status: { in: [...ACTIVE] } } }, select: { subscriptionId: true, invoiceId: true, invoice: { select: { status: true } } } });
+    const linkOf = new Map(links.map((l) => [l.subscriptionId!, l]));
+    const paidAt = new Map<number, Date | null>();
+    for (const r of records) if (!paidAt.has(r.subscriptionId!)) paidAt.set(r.subscriptionId!, r.paidAt);
+    return subs
+      .filter((s) => s.financialRecords.every((r) => !r.fiscalInvoiceId))
+      .map((s) => ({
+        subscriptionId: s.id, name: s.name, cpf: s.cpf, email: s.email,
+        classId: s.class?.id ?? null, className: s.class?.name ?? null, courseName: s.class?.course?.name ?? null,
+        customer: s.customer, value: round2(s.financialRecords.reduce((acc, r) => acc + Number(r.value ?? 0), 0)),
+        paidAt: paidAt.get(s.id) ?? null,
+        invoice: linkOf.get(s.id) ? { id: linkOf.get(s.id)!.invoiceId, status: linkOf.get(s.id)!.invoice.status } : null,
+      }))
+      .sort((a, b) => (b.paidAt?.getTime() ?? 0) - (a.paidAt?.getTime() ?? 0));
+  }
+
   /** Corpo do formulário da nota já preenchido a partir da origem (a tela abre a nota nova assim). */
   async suggest(companyId: number, query: Record<string, unknown>) {
     const origin = originOf(query);
     if (!origin) throw new BadRequestException('Origem da nota inválida');
     const resolved = await this.resolve(companyId, origin);
-    const rates = ratesOf(resolved.contract.retentionRates) as Partial<Record<string, number>>;
+    if (origin.kind === 'subscriptions') return this.suggestSubscriptions(companyId, resolved);
+    const rates = ratesOf(resolved.contract!.retentionRates) as Partial<Record<string, number>>;
     const services = await this.prisma.fiscal_ServiceCode.findMany({ where: { companyId, inactiveAt: null }, orderBy: [{ isDefault: 'desc' }, { id: 'asc' }] });
     // locação: o serviço fiscal de locação (99.04.01) se existir
     const service = origin.kind === 'rental' ? services.find((s) => s.nationalCode === '990401') ?? services[0] : services[0];
     if (origin.kind === 'contract' && origin.mode === 'livre') resolved.amount = resolved.balance ?? resolved.amount;
-    const c = resolved.contract;
+    const c = resolved.contract!;
     return {
       takerKind: 'cliente',
       customerId: resolved.customerId,
@@ -212,11 +294,40 @@ export class InvoiceOriginService {
     };
   }
 
+  private async suggestSubscriptions(companyId: number, resolved: ResolvedOrigin) {
+    const services = await this.prisma.fiscal_ServiceCode.findMany({ where: { companyId, inactiveAt: null }, orderBy: [{ isDefault: 'desc' }, { id: 'asc' }] });
+    // treinamento: o serviço de instrução/treinamento (08.02) se existir
+    const service = services.find((s) => s.nationalCode.startsWith('0802')) ?? services[0];
+    const p = resolved.subscriber;
+    return {
+      takerKind: resolved.customerId ? 'cliente' : 'avulso',
+      customerId: resolved.customerId,
+      taker: p ? { document: String(p.cpf).replace(/\D/g, ''), name: p.name, email: p.email, phone: p.phone, address: p.address } : undefined,
+      serviceCodeId: service?.id ?? null,
+      grossValue: resolved.amount,
+      competence: todayBr(),
+      issWithheld: false,
+      issRate: null,
+      retentions: {},
+      reference: null,
+      order: null,
+      description: `Treinamento: ${resolved.label}.`,
+      origin: resolved.origin,
+      originLabel: resolved.label,
+    };
+  }
+
   /** Fatura a origem com o número da nota autorizada. Devolve as contas a receber criadas. */
   async bill(actor: Actor, invoice: { id: number; number: string | null; issuedAt: Date | null; origin: unknown }, lines: CalcLine[]): Promise<{ recordIds: number[]; measurementId?: number }> {
     const origin = originOf(invoice.origin);
     // nota do contrato não fatura nada agora: as parcelas usam o saldo dela ao serem faturadas
     if (!origin || origin.kind === 'contract') return { recordIds: [] };
+    // inscrição já paga: a nota só se liga às contas a receber que existem
+    if (origin.kind === 'subscriptions') {
+      const records = await this.prisma.financialRecords.findMany({ where: { subscriptionId: { in: origin.subscriptionIds ?? [] }, inactiveAt: null, status: { notIn: ['cancelled', 'declined', 'chargeback'] } }, select: { id: true } });
+      await this.prisma.financialRecords.updateMany({ where: { id: { in: records.map((r) => r.id) } }, data: { invoiceNumber: invoice.number, invoiceIssuedAt: invoice.issuedAt } });
+      return { recordIds: records.map((r) => r.id) };
+    }
     const issued = invoice.issuedAt ? new Date(invoice.issuedAt.getTime() - 3 * 3600 * 1000).toISOString().slice(0, 10) : todayBr();
     const common = {
       invoiceNumber: invoice.number ?? `NFS-e ${invoice.id}`,

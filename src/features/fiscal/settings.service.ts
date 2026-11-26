@@ -9,7 +9,7 @@ import { SefinClient, SefinTransportError } from './sefin.client';
 
 export interface FiscalActor { userId: number; companyId: number }
 
-const SETTINGS_FIELDS = ['environment', 'municipalRegistration', 'simplesNacional', 'simplesRegime', 'specialRegime', 'simplesTotalRate', 'pisCofinsCst', 'dpsSeries', 'nextDpsNumber', 'nextDpsNumberTest', 'autoSendEmail', 'defaultNotes'] as const;
+const SETTINGS_FIELDS = ['environment', 'municipalRegistration', 'simplesNacional', 'simplesRegime', 'specialRegime', 'simplesTotalRate', 'pisCofinsCst', 'dpsSeries', 'nextDpsNumber', 'nextDpsNumberTest', 'autoSendEmail', 'autoEmitTraining', 'defaultNotes'] as const;
 const CST_VALUES = new Set(['00', '01', '02', '03', '04', '05', '06', '07', '08', '09', '49', '50', '51', '52', '53', '54', '55', '56', '60', '61', '62', '63', '64', '65', '66', '67', '70', '71', '72', '73', '74', '75', '98', '99']);
 
 /** Empresa emissora como a nota precisa dela. */
@@ -152,6 +152,12 @@ export class FiscalSettingsService {
         }
         case 'autoSendEmail':
           data.autoSendEmail = !!value;
+          break;
+        case 'autoEmitTraining':
+          data.autoEmitTraining = !!value;
+          // só os pagamentos de agora em diante: ligar não emite o que já estava pago
+          if (value && !current.autoEmitTraining) data.autoEmitTrainingSince = new Date();
+          if (!value) data.autoEmitTrainingSince = null;
           break;
         case 'defaultNotes':
           data.defaultNotes = clean(value) ? String(value).slice(0, 4000) : null;
