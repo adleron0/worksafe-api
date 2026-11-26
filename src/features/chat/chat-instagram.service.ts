@@ -72,8 +72,9 @@ export class ChatInstagramService implements OnModuleInit, OnModuleDestroy {
     const reason = connector.status === 'connected' ? null : connector.lastError || 'A conexão com o Instagram expirou. Conecte de novo em Bots → Conectores.';
     if (existing) {
       if (!existing.active) return null;
-      if (existing.status !== status || existing.phone !== connector.username) {
-        return this.prisma.chat_Channel.update({ where: { id: existing.id }, data: { status, statusReason: reason, statusAt: new Date(), phone: connector.username, profileName: connector.name ?? connector.username } });
+      const owner = connector.connectedByUserId && existing.termsAcceptedByUserId !== connector.connectedByUserId ? { termsAcceptedByUserId: connector.connectedByUserId, termsAcceptedAt: new Date(), termsVersion: 'instagram' } : {};
+      if (existing.status !== status || existing.phone !== connector.username || Object.keys(owner).length) {
+        return this.prisma.chat_Channel.update({ where: { id: existing.id }, data: { status, statusReason: reason, statusAt: new Date(), phone: connector.username, profileName: connector.name ?? connector.username, ...owner } });
       }
       return existing;
     }
@@ -81,6 +82,8 @@ export class ChatInstagramService implements OnModuleInit, OnModuleDestroy {
       data: {
         companyId, type: 'instagram', provider: 'meta', name: 'Instagram', color: '#E52127', status, statusReason: reason, statusAt: new Date(),
         connectedAt: new Date(), phone: connector.username, profileName: connector.name ?? connector.username, botMode: 'desligado', historyDays: 0,
+        // o bot do canal age com as permissões de quem conectou a conta
+        termsAcceptedByUserId: connector.connectedByUserId ?? null, termsAcceptedAt: connector.connectedByUserId ? new Date() : null, termsVersion: connector.connectedByUserId ? 'instagram' : null,
       },
     });
     if (connector.connectedByUserId) await this.prisma.chat_ChannelMember.create({ data: { channelId: channel.id, userId: connector.connectedByUserId } }).catch(() => undefined);
@@ -190,10 +193,11 @@ export class ChatInstagramService implements OnModuleInit, OnModuleDestroy {
     return last ? new Date(last.sentAt.getTime() + IG_WINDOW_MS) : null;
   }
 
-  async sendText(actor: { companyId: number; userId: number }, igsid: string, text: string, channel?: { settings: unknown } | null) {
+  /** Resposta pela caixa: de uma pessoa ou do bot do canal (botId). */
+  async sendText(actor: { companyId: number; userId: number; botId?: number | null }, igsid: string, text: string, channel?: { settings: unknown } | null) {
     const clean = String(text ?? '').trim();
-    const signer = channel ? await signerOf(this.prisma, channel, { userId: actor.userId }) : null;
-    const sent = await this.instagram.reply({ companyId: actor.companyId, userId: actor.userId }, igsid, signText(clean, signer, 'instagram'));
+    const signer = channel ? await signerOf(this.prisma, channel, { userId: actor.userId, botId: actor.botId }) : null;
+    const sent = await this.instagram.reply({ companyId: actor.companyId, userId: actor.userId, botId: actor.botId ?? null }, igsid, signText(clean, signer, 'instagram'));
     const message = await this.mirrored(sent.id);
     // na caixa a mensagem fica sem a assinatura (quem enviou já aparece no balão)
     if (message && signer && message.text !== clean) return this.prisma.chat_Message.update({ where: { id: message.id }, data: { text: clean } });

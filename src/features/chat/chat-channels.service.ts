@@ -154,8 +154,6 @@ export class ChatChannelsService {
   async update(actor: ChatActor, id: number, body: Record<string, unknown>) {
     const current = await this.load(actor.companyId, id);
     const data = this.clean(body, true);
-    // no Instagram o bot só sugere (a Nina já responde sozinha pelos Conectores)
-    if (current.type === 'instagram' && data.botMode && !['desligado', 'sugere'].includes(String(data.botMode))) throw new BadRequestException('No Instagram o bot só sugere respostas. Para responder sozinho, use Bots → Conectores.');
     await this.assertBot(actor.companyId, data.defaultBotId);
     await this.prisma.chat_Channel.update({ where: { id }, data: data as any });
     if (body.memberIds !== undefined) await this.saveMembers(actor.companyId, id, body.memberIds);

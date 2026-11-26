@@ -43,7 +43,6 @@ describe('Conversas fase 6: saúde e métricas (e2e)', () => {
     const queue = app.get(ChatSendService, { strict: false });
     sendQueue = () => queue.tick();
     metricsService = app.get(ChatMetricsService, { strict: false });
-    app.get(InstagramMessagesService, { strict: false }).autoDelayMs = 0;
     nock.disableNetConnect();
     nock.enableNetConnect(/127\.0\.0\.1|localhost/);
   });

@@ -6,7 +6,6 @@ import * as nock from 'nock';
 import * as request from 'supertest';
 import { encryptPayload } from 'src/utils/crypto';
 import { InstagramMessagesService } from 'src/features/ai/connectors/instagram-messages.service';
-import { spNow } from 'src/features/ai/connectors/instagram-settings';
 import { FakeProvider } from 'src/features/ai/providers/fake.provider';
 import { ToolCatalogService } from 'src/features/ai/tools/tool-catalog.service';
 import { ToolContext } from 'src/features/ai/tools/tool.types';
@@ -37,7 +36,6 @@ describe('Instagram: limites, Direct e comentários (e2e)', () => {
     jwt = app.get(JwtService);
     catalog = app.get(ToolCatalogService, { strict: false });
     messages = app.get(InstagramMessagesService, { strict: false });
-    messages.autoDelayMs = 0;
     nock.disableNetConnect();
     nock.enableNetConnect(/127\.0\.0\.1|localhost/);
   });
@@ -132,7 +130,6 @@ describe('Instagram: limites, Direct e comentários (e2e)', () => {
     await bad({ post: { limitePorDia: 60 }, story: { limitePorDia: 50 } }, /no máximo 100 publicações/);
     await bad({ responder_mensagens: { horario: { inicio: '8h' } } }, /HH:MM/);
     await bad({ responder_mensagens: { horario: { inicio: '19:00' } } }, /início precisa ser antes do fim/);
-    await bad({ responder_mensagens: { mode: 'automatico', instrucoes: '' } }, /escreva as instruções/);
     await bad({ ler_mensagens: { enabled: 'sim' } }, /sim ou não/);
     await bad({ whatsapp: {} }, /Ação desconhecida/);
     await bad([1], /objeto/);
@@ -308,54 +305,15 @@ describe('Instagram: limites, Direct e comentários (e2e)', () => {
 
   // ---------------------------------------------------------------- resposta automática
 
-  it('resposta automática: a Nina responde dentro do horário e deixa para humano o que não sabe', async () => {
+  it('o Direct não responde mais sozinho pelos Conectores (agora é o bot das Conversas)', async () => {
     const { company, db } = await cenario();
     await grant(['instagram_mensagens_bots', 'usar_bot_marketing', 'list_classes']);
-    await settings(company.id, { responder_mensagens: { mode: 'automatico', horario: { inicio: '00:00', fim: '23:59', diasUteis: false }, instrucoes: 'Pode responder dúvidas sobre datas de turmas.' } }).expect(200);
-
-    nock(FB).post('/1784/messages', (body) => body.recipient.id === '555').query(true).reply(200, { recipient_id: '555', message_id: 'auto1' });
-    FakeProvider.script([
-      () => ({ toolCalls: [{ name: 'instagram_responder_mensagem', input: { id: '555', texto: 'Olá! A próxima turma começa dia 10/12.' } }] }),
-      () => ({ text: 'Respondi o cliente.' }),
-    ]);
+    await settings(company.id, { responder_mensagens: { mode: 'automatico' } }).expect(200);
+    FakeProvider.script([]);
     await webhook(dm('m1', 'Quando é a próxima turma?')).expect(200);
     await messages.idle();
-    const request0 = FakeProvider.requests[0];
-    expect(request0.messages[0]).toMatchObject({ role: 'user' });
-    expect(JSON.stringify(request0.messages[0])).toContain('Pode responder dúvidas sobre datas de turmas.');
-    const tools = request0.tools.map((tool) => tool.name);
-    expect(tools).toContain('instagram_responder_mensagem');
-    expect(tools).toContain('listar_turmas');
-    expect(tools).not.toContain('instagram_agendar_post'); // na automática, nada de cartões
-    const inbound = await db.ai_SocialMessage.findUniqueOrThrow({ where: { externalId: 'm1' } });
-    expect(inbound.status).toBe('auto_replied');
-    expect(inbound.note).toMatch(/respondeu: Olá! A próxima turma/);
-    const bot = await db.ai_Bot.findFirstOrThrow({ where: { companyId: company.id, key: 'marketing' } });
-    expect(await db.ai_SocialMessage.findUniqueOrThrow({ where: { externalId: 'auto1' } })).toMatchObject({ direction: 'out', repliedByBotId: bot.id, origin: 'system' });
-    expect(await db.ai_PendingAction.count()).toBe(0);
-
-    // assunto fora das instruções: não responde e registra o motivo
-    FakeProvider.script([() => ({ text: 'PASSAR PARA HUMANO: pediu orçamento de serviço.' })]);
-    await webhook(dm('m2', 'Quanto custa fazer a linha de vida do meu galpão?')).expect(200);
-    await messages.idle();
-    expect(await db.ai_SocialMessage.findUniqueOrThrow({ where: { externalId: 'm2' } })).toMatchObject({ status: 'auto_skipped', note: 'Deixado para humano: pediu orçamento de serviço.' });
-
-    // fora do horário: só guarda
-    const hour = Number(spNow().time.slice(0, 2));
-    const horario = hour <= 20 ? { inicio: `${String(hour + 2).padStart(2, '0')}:00`, fim: '23:59' } : { inicio: '00:00', fim: '20:00' };
-    await settings(company.id, { responder_mensagens: { horario } }).expect(200);
-    FakeProvider.script([]);
-    await webhook(dm('m3', 'Oi?')).expect(200);
-    await messages.idle();
     expect(FakeProvider.requests).toHaveLength(0);
-    expect(await db.ai_SocialMessage.findUniqueOrThrow({ where: { externalId: 'm3' } })).toMatchObject({ status: 'auto_skipped', note: expect.stringMatching(/^Fora do horário/) });
-
-    // modo confirmar: nem chama a IA
-    await settings(company.id, { responder_mensagens: { mode: 'confirmar' } }).expect(200);
-    await webhook(dm('m4', 'Alô')).expect(200);
-    await messages.idle();
-    expect(FakeProvider.requests).toHaveLength(0);
-    expect((await db.ai_SocialMessage.findUniqueOrThrow({ where: { externalId: 'm4' } })).status).toBe('received');
+    expect((await db.ai_SocialMessage.findUniqueOrThrow({ where: { externalId: 'm1' } })).status).toBe('received');
   });
 
   // ---------------------------------------------------------------- comentários

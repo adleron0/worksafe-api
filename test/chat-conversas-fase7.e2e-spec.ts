@@ -48,7 +48,6 @@ describe('Conversas fase 7: extras (e2e)', () => {
     catalog = app.get(ToolCatalogService, { strict: false });
     process.env.GROQ_API_KEY = 'gsk-teste';
     delete process.env.OPENAI_API_KEY;
-    app.get(InstagramMessagesService, { strict: false }).autoDelayMs = 0;
     nock.disableNetConnect();
     nock.enableNetConnect(/127\.0\.0\.1|localhost/);
   });

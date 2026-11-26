@@ -50,7 +50,6 @@ describe('Conversas fase 5: bots (e2e)', () => {
     bots = app.get(ChatBotService, { strict: false });
     bots.delayMs = 0;
     botDefaults = app.get(BotService, { strict: false });
-    app.get(InstagramMessagesService, { strict: false }).autoDelayMs = 0;
     nock.disableNetConnect();
     nock.enableNetConnect(/127\.0\.0\.1|localhost/);
   });
@@ -244,6 +243,67 @@ describe('Conversas fase 5: bots (e2e)', () => {
 
     // sem permissão de responder, não passa para bot
     await api().post(`/chat/conversations/${conv.id}/bot`).set(auth(company.id, ['view_conversas', 'todas_conversas'])).send({ botId: bot.id }).expect(403);
+  });
+
+  // ---------------------------------------------------------------- Instagram
+
+  const sign = (raw: string) => `sha256=${createHmac('sha256', SECRET).update(raw).digest('hex')}`;
+  const igWebhook = (body: unknown) => {
+    const raw = JSON.stringify(body);
+    return api().post('/ai/connectors/instagram/webhook').set('Content-Type', 'application/json').set('X-Hub-Signature-256', sign(raw)).send(raw);
+  };
+  const dm = (mid: string, text: string) => ({
+    object: 'instagram',
+    entry: [{ id: '1784', time: Date.now(), messaging: [{ sender: { id: '777' }, recipient: { id: '1784' }, timestamp: Date.now(), message: { mid, text } }] }],
+  });
+
+  it('Instagram: o bot do canal atende e faz triagem no Direct (a Nina dos Conectores não responde mais)', async () => {
+    const { company, db } = await cenario();
+    await grant(['responder_conversas', 'usar_bot_comercial', 'instagram_mensagens_bots']);
+    await botDefaults.ensureDefaults(company.id);
+    const bot = await db.ai_Bot.findFirstOrThrow({ where: { companyId: company.id, key: 'comercial' } });
+    await db.ai_Connector.create({ data: { companyId: company.id, provider: 'instagram', accountId: '1784', username: 'worksafebrasil', accountType: 'BUSINESS', tokenEncrypted: encryptPayload('chave-do-sistema'), connectedByUserId: userId, settings: { responder_mensagens: { mode: 'automatico' } } } });
+    const ig = (await api().get('/chat/channels').set(auth(company.id)).expect(200)).body.find((c: any) => c.type === 'instagram');
+    // quem conectou a conta é o dono do bot do canal
+    expect((await db.chat_Channel.findUniqueOrThrow({ where: { id: ig.id } })).termsAcceptedByUserId).toBe(userId);
+    await api().put(`/chat/channels/${ig.id}`).set(auth(company.id)).send({ botMode: 'atende', defaultBotId: bot.id }).expect(200);
+
+    // atende: responde pelo Direct na hora, assinado com o nome do bot
+    let replied = '';
+    nock(FB).post('/1784/messages', (body) => { replied = body.message?.text ?? ''; return body.recipient.id === '777'; }).query(true).reply(200, { recipient_id: '777', message_id: 'ig-bot-1' });
+    FakeProvider.script([
+      () => ({ toolCalls: [{ name: 'conversa_responder', input: { texto: 'Temos sim! A próxima turma é dia 10.' } }] }),
+      () => ({ text: 'Respondi.' }),
+    ]);
+    await igWebhook(dm('ig-in-1', 'Vocês têm curso de NR-35?')).expect(200);
+    await bridge.idle();
+    await bots.idle();
+    expect(FakeProvider.requests).toHaveLength(2);
+    expect(JSON.stringify(FakeProvider.requests[0].messages[0])).toContain('Direct do Instagram');
+    expect(replied).toMatch(/Temos sim! A próxima turma é dia 10\.$/);
+    const conv = await db.chat_Conversation.findFirstOrThrow({ where: { channelId: ig.id } });
+    expect(conv.botId).toBe(bot.id);
+    expect(await db.chat_Message.findFirstOrThrow({ where: { conversationId: conv.id, direction: 'out' } })).toMatchObject({ externalId: 'ig:ig-bot-1', sentByBotId: bot.id, origin: 'bot', text: 'Temos sim! A próxima turma é dia 10.' });
+    expect(await db.ai_SocialMessage.findUniqueOrThrow({ where: { externalId: 'ig-bot-1' } })).toMatchObject({ direction: 'out', repliedByBotId: bot.id });
+    // a resposta automática antiga (Conectores) não age
+    expect((await db.ai_SocialMessage.findUniqueOrThrow({ where: { externalId: 'ig-in-1' } })).status).toBe('received');
+
+    // passa para a equipe com setor e resumo
+    FakeProvider.script([
+      () => ({ toolCalls: [{ name: 'conversa_encaminhar', input: { setor: 'treinamentos', resumo: 'Quer inscrever 5 pessoas.' } }] }),
+      () => ({ text: 'Passei.' }),
+    ]);
+    await igWebhook(dm('ig-in-2', 'Quero inscrever 5 pessoas da minha empresa')).expect(200);
+    await bridge.idle();
+    await bots.idle();
+    expect(await db.chat_Conversation.findUniqueOrThrow({ where: { id: conv.id } })).toMatchObject({ botId: null, sector: 'treinamentos' });
+
+    // sem a permissão do Direct para quem conectou, o bot não responde e avisa
+    await db.userPermission.deleteMany({ where: { userId, permission: { name: 'instagram_mensagens_bots' } } });
+    await flushCache();
+    await api().post(`/chat/conversations/${conv.id}/bot`).set(auth(company.id)).send({ botId: bot.id }).expect(200);
+    await bots.idle();
+    expect((await db.chat_Message.findFirstOrThrow({ where: { conversationId: conv.id, direction: 'note' }, orderBy: { id: 'desc' } })).text).toMatch(/permissão de responder mensagens do Direct/);
   });
 
   it('fora do horário: o bot assume no lugar da mensagem fixa; sem o dono do número com acesso, não age', async () => {

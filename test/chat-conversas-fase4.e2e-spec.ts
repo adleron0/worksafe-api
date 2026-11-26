@@ -42,7 +42,6 @@ describe('Conversas fase 4: ações comerciais (e2e)', () => {
     bridge = app.get(ChatInstagramService, { strict: false });
     const queue = app.get(ChatSendService, { strict: false });
     sendQueue = () => queue.tick();
-    app.get(InstagramMessagesService, { strict: false }).autoDelayMs = 0;
     nock.disableNetConnect();
     nock.enableNetConnect(/127\.0\.0\.1|localhost/);
   });

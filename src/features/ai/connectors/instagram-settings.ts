@@ -7,8 +7,9 @@ import { BadRequestException } from '@nestjs/common';
  * - mode: 'confirmar' (cartão de confirmação) ou 'automatico' (sai direto);
  * - limitePorDia: teto do dia (fuso de Brasília). A Meta aceita no máximo 100
  *   publicações (posts + stories) por 24 horas.
- * - responder_mensagens tem também o horário em que o bot pode responder
- *   sozinho e as instruções (assuntos que ele resolve; o resto fica para humano).
+ * - responder_mensagens tem também o horário em que a ferramenta do bot/MCP
+ *   envia sem cartão. Quem responde o Direct sozinho é o bot do canal
+ *   Instagram nas Conversas (modo sugere/triagem/atende, como no WhatsApp).
  */
 
 export type InstagramMode = 'confirmar' | 'automatico';
@@ -120,9 +121,6 @@ export function validateInstagramSettings(current: InstagramSettings, input: unk
   }
   if (next.post.limitePorDia + next.story.limitePorDia > META_PUBLISH_CAP) {
     throw new BadRequestException(`A Meta aceita no máximo ${META_PUBLISH_CAP} publicações por dia: a soma dos limites de posts e stories passa disso`);
-  }
-  if (next.responder_mensagens.mode === 'automatico' && !next.responder_mensagens.instrucoes) {
-    throw new BadRequestException('Para responder no automático, escreva as instruções: quais assuntos o bot pode responder sozinho');
   }
   return next;
 }
