@@ -5,6 +5,7 @@ import { EvolutionProvider, ProviderError } from './providers/evolution.provider
 import { ChatEventsService } from './chat-events.service';
 import { ChatInstagramService } from './chat-instagram.service';
 import { ChatMedia, ChatMediaService } from './chat-media.service';
+import { TAG_COLORS } from './chat-library.service';
 import { Prisma } from '@prisma/client';
 import { BOT_MODES, phoneDigits, SECTORS, TERMS, TERMS_VERSION, normalizeSettings, spDayStart } from './chat.settings';
 
@@ -32,7 +33,7 @@ export class ChatChannelsService {
       this.prisma.ai_Bot.findMany({ where: { companyId, active: true } as any, select: { id: true, name: true, persona: true, role: true, avatar: true, key: true }, orderBy: { name: 'asc' } }).catch(() => []),
       this.prisma.user.findMany({ where: { companyId, active: true } as any, select: { id: true, name: true, imageUrl: true } as any, orderBy: { name: 'asc' } }).catch(() => []),
     ]);
-    return { sectors: SECTORS, botModes: BOT_MODES, terms: TERMS, defaults: normalizeSettings({}), bots, users, serverReady: this.provider.ready() };
+    return { sectors: SECTORS, botModes: BOT_MODES, terms: TERMS, defaults: normalizeSettings({}), bots, users, serverReady: this.provider.ready(), tagColors: TAG_COLORS };
   }
 
   private async load(companyId: number, id: number) {

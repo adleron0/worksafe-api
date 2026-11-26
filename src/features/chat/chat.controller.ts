@@ -11,6 +11,7 @@ import { ChatConversationsService } from './chat-conversations.service';
 import { ChatInboundService } from './chat-inbound.service';
 import { ChatEventsService } from './chat-events.service';
 import { ChatCustomerService } from './chat-customer.service';
+import { ChatLibraryService } from './chat-library.service';
 import { MAX_OUT } from './chat-media.service';
 
 type Json = Record<string, any>;
@@ -29,6 +30,7 @@ export class ChatController {
     private readonly inbound: ChatInboundService,
     private readonly events: ChatEventsService,
     private readonly customerSearch: ChatCustomerService,
+    private readonly library: ChatLibraryService,
   ) {}
 
   private seeing(req: Request) {
@@ -131,6 +133,38 @@ export class ChatController {
   retryMedia(@Param('id', ParseIntPipe) id: number, @Param('messageId', ParseIntPipe) messageId: number, @Req() req: Request) {
     return this.conversations.retryMedia(this.seeing(req), id, messageId);
   }
+
+  // ---------------------------------------------------------------- respostas rápidas e etiquetas
+
+  @Get('quick-replies')
+  replies(@Req() req: Request) { return this.library.replies(this.seeing(req)); }
+
+  @Post('quick-replies')
+  createReply(@Req() req: Request, @Body() body: Json) { return this.library.createReply(this.seeing(req), body ?? {}); }
+
+  @Put('quick-replies/:id')
+  updateReply(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.library.updateReply(this.seeing(req), id, body ?? {}); }
+
+  @Delete('quick-replies/:id')
+  removeReply(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.library.removeReply(this.seeing(req), id); }
+
+  @Post('quick-replies/:id/used') @HttpCode(200)
+  usedReply(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.library.used(this.seeing(req), id); }
+
+  @Get('tags')
+  tags(@Req() req: Request) { return this.library.tags(this.seeing(req)); }
+
+  @Post('tags')
+  createTag(@Req() req: Request, @Body() body: Json) { return this.library.createTag(this.seeing(req), body ?? {}); }
+
+  @Put('tags/:id')
+  updateTag(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.library.updateTag(this.seeing(req), id, body ?? {}); }
+
+  @Delete('tags/:id')
+  removeTag(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.library.removeTag(this.seeing(req), id); }
+
+  @Put('conversations/:id/tags')
+  setTags(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.conversations.setTags(this.seeing(req), id, body?.tagIds); }
 
   @Patch('conversations/:id/contact')
   contact(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.conversations.updateContact(this.seeing(req), id, body ?? {}); }
