@@ -31,6 +31,11 @@ export interface TeamPort {
 export interface ChatPort {
   reply(ctx: import('./tool.types').ToolContext, text: string): Promise<{ message: string }>;
   route(ctx: import('./tool.types').ToolContext, input: { setor?: string; resumo?: string; motivo?: string }): Promise<{ message: string }>;
+  /** MCP / área de Bots: conversas que a pessoa enxerga, ler uma e mandar mensagem (com confirmação). */
+  list?(ctx: import('./tool.types').ToolContext, input: { caixa?: string; busca?: string; limite?: number }): Promise<unknown>;
+  read?(ctx: import('./tool.types').ToolContext, conversationId: number, limit: number): Promise<unknown>;
+  check?(ctx: import('./tool.types').ToolContext, conversationId: number): Promise<{ contato: string; numero: string }>;
+  send?(ctx: import('./tool.types').ToolContext, conversationId: number, text: string): Promise<{ message: string }>;
 }
 
 @Injectable()

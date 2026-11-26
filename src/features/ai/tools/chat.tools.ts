@@ -63,3 +63,69 @@ export const CHAT_TOOLS: ToolDefinition[] = [
     },
   },
 ];
+
+/**
+ * Conversas pelo MCP (Claude do dono) e na área de Bots: listar e ler as
+ * conversas que a pessoa enxerga e preparar uma mensagem — que só sai depois
+ * de confirmada em Bots → Ações pendentes. Os bots que atendem clientes não
+ * recebem estas (nunca leem a conversa de outro cliente).
+ */
+const VIEW = ['view_conversas', 'todas_conversas', 'canais_conversas'];
+
+export const CHAT_MCP_TOOLS: ToolDefinition[] = [
+  {
+    name: 'conversas_listar',
+    title: 'Consultando as conversas',
+    description: 'Lista as conversas de WhatsApp/Instagram que a pessoa vê na caixa de entrada: contato, cliente, número, setor, quem atende, não lidas e a última mensagem. Caixas: abertas (padrão), minhas, sem_dono, nao_lidas, resolvidas. Busca por nome ou telefone.',
+    inputSchema: obj({
+      caixa: str('Qual caixa', { enum: ['abertas', 'minhas', 'sem_dono', 'nao_lidas', 'resolvidas'] }),
+      busca: str('Nome, telefone ou texto para filtrar'),
+      limite: { type: 'number', description: 'Quantas conversas (até 50; padrão 20)' },
+    }),
+    permissions: [],
+    anyPermissions: VIEW,
+    risk: 'read',
+    run: async (ctx, input, deps) => {
+      if (!deps.chat?.list) throw new ToolRefusal('Conversas indisponíveis agora.');
+      return deps.chat.list(ctx, input);
+    },
+  },
+  {
+    name: 'conversas_ler',
+    title: 'Lendo a conversa',
+    description: 'Lê as últimas mensagens de uma conversa (id da lista): quem escreveu, quando e o texto (áudios aparecem transcritos quando houver). Notas internas da equipe também aparecem.',
+    inputSchema: obj({ conversa: { type: 'number', description: 'Id da conversa' }, limite: { type: 'number', description: 'Quantas mensagens (até 60; padrão 30)' } }, ['conversa']),
+    permissions: [],
+    anyPermissions: VIEW,
+    risk: 'read',
+    run: async (ctx, input, deps) => {
+      if (!deps.chat?.read) throw new ToolRefusal('Conversas indisponíveis agora.');
+      const id = Number(input.conversa);
+      if (!(id > 0)) throw new ToolRefusal('Informe o id da conversa (veja em conversas_listar).');
+      return deps.chat.read(ctx, id, Number(input.limite) || 30);
+    },
+  },
+  {
+    name: 'conversas_enviar_mensagem',
+    title: 'Preparando mensagem ao cliente',
+    description: 'Prepara uma mensagem para o cliente numa conversa existente (id da lista). Não sai na hora: a pessoa confirma em Bots → Ações pendentes, e depois a mensagem entra na fila do número, com o ritmo e os limites dele. Não serve para começar conversa com quem nunca escreveu.',
+    inputSchema: obj({ conversa: { type: 'number', description: 'Id da conversa' }, texto: str('A mensagem para o cliente') }, ['conversa', 'texto']),
+    permissions: ['responder_conversas'],
+    anyPermissions: VIEW,
+    risk: 'sensitive',
+    prepare: async (ctx, input, deps) => {
+      if (!deps.chat?.check) throw new ToolRefusal('Conversas indisponíveis agora.');
+      const id = Number(input.conversa);
+      const texto = String(input.texto ?? '').trim();
+      if (!(id > 0)) throw new ToolRefusal('Informe o id da conversa (veja em conversas_listar).');
+      if (!texto) throw new ToolRefusal('Escreva a mensagem.');
+      if (texto.length > 2000) throw new ToolRefusal('Mensagem longa demais: resuma.');
+      const who = await deps.chat.check(ctx, id);
+      return { summary: `Mandar mensagem para ${who.contato}`, details: [{ label: 'Para', value: `${who.contato} (${who.numero})` }, { label: 'Mensagem', value: texto }], payload: { conversa: id, texto } };
+    },
+    execute: async (ctx, payload, deps) => {
+      if (!deps.chat?.send) throw new ToolRefusal('Conversas indisponíveis agora.');
+      return deps.chat.send(ctx, Number(payload.conversa), String(payload.texto));
+    },
+  },
+];

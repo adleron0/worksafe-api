@@ -8,6 +8,7 @@ import { ChatChannelsService } from './chat-channels.service';
 import { previewOf } from './chat.settings';
 import { hasLink, hasShortener, normalizeSettings, signText, spDayStart, textHash } from './chat.settings';
 import { signerOf } from './chat-signature';
+import { CloudConfig, CloudProvider, cloudConfigOf } from './providers/cloud.provider';
 
 const MAX_TEXT = 4000;
 const REPEAT_LIMIT = 5;
@@ -33,6 +34,7 @@ export class ChatSendService implements OnModuleInit, OnModuleDestroy {
     private readonly channels: ChatChannelsService,
     private readonly events: ChatEventsService,
     private readonly media: ChatMediaService,
+    private readonly cloud: CloudProvider,
   ) {}
 
   private changed(message: { companyId: number; channelId: number; conversationId: number }, kind: 'message' | 'status' = 'status') {
@@ -153,7 +155,8 @@ export class ChatSendService implements OnModuleInit, OnModuleDestroy {
       await this.fail(next, 'Número bloqueado ou removido: envio cancelado.');
       return true;
     }
-    if (channel.status !== 'conectado' || !channel.instanceName) {
+    const cloud = channel.provider === 'cloud' ? cloudConfigOf(channel) : null;
+    if (channel.status !== 'conectado' || (!channel.instanceName && !cloud)) {
       await this.prisma.chat_Message.update({ where: { id: next.id }, data: { scheduledAt: new Date(Date.now() + 30000) } });
       return false;
     }
@@ -181,7 +184,8 @@ export class ChatSendService implements OnModuleInit, OnModuleDestroy {
     try {
       const to = contact.externalId.endsWith('@s.whatsapp.net') ? contact.externalId.split('@')[0] : contact.externalId;
       const signer = ['system', 'bot'].includes(next.origin) ? await signerOf(this.prisma, channel, { userId: next.sentByUserId, botId: next.sentByBotId }) : null;
-      const { externalId } = await this.deliver(channel.instanceName, to, { ...next, text: signText(next.text, signer, 'whatsapp') }, typing);
+      const signed = { ...next, text: signText(next.text, signer, 'whatsapp') };
+      const { externalId } = cloud ? await this.deliverCloud(cloud, to, signed) : await this.deliver(channel.instanceName!, to, signed, typing);
       const known = externalId ? await this.prisma.chat_Message.findUnique({ where: { externalId } }) : null;
       if (known && known.id !== next.id) {
         // o eco do webhook chegou antes da resposta: junta as duas
@@ -206,6 +210,21 @@ export class ChatSendService implements OnModuleInit, OnModuleDestroy {
     if (message.type === 'audio' && media.ptt) return this.provider.sendAudio(instance, to, base64, typing);
     const mediatype = message.type === 'image' ? 'image' : message.type === 'video' ? 'video' : 'document';
     return this.provider.sendMedia(instance, to, { mediatype, mimetype: media.mimetype || 'application/octet-stream', base64, fileName: media.fileName ?? (mediatype === 'document' ? 'arquivo' : null), caption: message.text }, typing);
+  }
+
+  /**
+   * WhatsApp oficial: mensagem livre só até 24 h depois da última do cliente
+   * (fora disso a Meta exige modelo aprovado, que o sistema ainda não manda).
+   */
+  private async deliverCloud(cfg: CloudConfig, to: string, message: Chat_Message) {
+    const last = await this.prisma.chat_Message.findFirst({ where: { conversationId: message.conversationId, direction: 'in' }, orderBy: { id: 'desc' }, select: { sentAt: true } });
+    if (!last || Date.now() - last.sentAt.getTime() > 24 * 3600000) throw new ProviderError('WhatsApp oficial: passaram mais de 24 h desde a última mensagem do cliente. A Meta só deixa mandar modelo aprovado; peça para o cliente escrever ou use outro número.');
+    if (message.type === 'text') return this.cloud.sendText(cfg, to, message.text);
+    const media = (message.media as ChatMedia | null) ?? {};
+    if (!media.key) throw new BadRequestException('O arquivo desta mensagem não foi encontrado.');
+    const buffer = await this.media.read(media.key);
+    const type = message.type === 'image' || message.type === 'video' || message.type === 'audio' ? message.type : 'document';
+    return this.cloud.sendMedia(cfg, to, { type, buffer, mimetype: media.mimetype || 'application/octet-stream', fileName: media.fileName ?? (type === 'document' ? 'arquivo' : null), caption: message.text });
   }
 
   private async fail(message: Chat_Message, error: string) {

@@ -35,6 +35,8 @@ model Chat_Channel {
   termsAcceptedByUserId Int?
   termsAcceptedIp       String?   @db.VarChar(64)
   historyDays           Int       @default(30)
+  /// WhatsApp oficial (Cloud API): id do número, conta, token e segredo do app, criptografados
+  cloudConfig           String?   @db.Text
   active                Boolean   @default(true)
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt

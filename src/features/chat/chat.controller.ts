@@ -16,6 +16,8 @@ import { ChatActionsService } from './chat-actions.service';
 import { ChatBotService } from './chat-bot.service';
 import { MAX_OUT } from './chat-media.service';
 import { ChatMetricsService } from './chat-metrics.service';
+import { ChatCloudService } from './chat-cloud.service';
+import { ChatTranscribeService } from './chat-transcribe.service';
 
 type Json = Record<string, any>;
 
@@ -30,6 +32,8 @@ export class ChatController {
   constructor(
     private readonly channels: ChatChannelsService,
     private readonly metricsService: ChatMetricsService,
+    private readonly cloud: ChatCloudService,
+    private readonly transcriber: ChatTranscribeService,
     private readonly conversations: ChatConversationsService,
     private readonly inbound: ChatInboundService,
     private readonly events: ChatEventsService,
@@ -90,6 +94,13 @@ export class ChatController {
   @Permissions('canais_conversas') @Post('channels/:id/connect') @HttpCode(200)
   connect(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.channels.connect(actorOf(req), id, body ?? {}, clientIpOf(req)); }
 
+  /** WhatsApp oficial (Cloud API): credenciais da Meta e dados do webhook. */
+  @Permissions('canais_conversas') @Post('channels/:id/cloud') @HttpCode(200)
+  connectCloud(@Param('id', ParseIntPipe) id: number, @Body() body: Record<string, unknown>, @Req() req: Request) { return this.cloud.connect(actorOf(req), id, body ?? {}); }
+
+  @Permissions('canais_conversas') @Get('channels/:id/cloud')
+  cloudInfo(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.cloud.webhookInfo(actorOf(req), id); }
+
   @Permissions('canais_conversas') @Get('channels/:id/qr')
   qr(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.channels.qr(actorOf(req), id); }
 
@@ -139,6 +150,11 @@ export class ChatController {
   @Post('conversations/:id/messages/:messageId/retry') @HttpCode(200)
   retry(@Param('id', ParseIntPipe) id: number, @Param('messageId', ParseIntPipe) messageId: number, @Req() req: Request) {
     return this.conversations.retry(this.seeing(req), id, messageId);
+  }
+
+  @Post('conversations/:id/messages/:messageId/transcribe') @HttpCode(200)
+  async transcribe(@Param('id', ParseIntPipe) id: number, @Param('messageId', ParseIntPipe) messageId: number, @Req() req: Request) {
+    return this.transcriber.request(await this.conversations.messageOf(this.seeing(req), id, messageId));
   }
 
   @Post('conversations/:id/messages/:messageId/media') @HttpCode(200)
@@ -272,5 +288,17 @@ export class ChatController {
     const channel = await this.channels.channelForWebhook(channelId, secret);
     if (!channel) throw new ForbiddenException('Webhook inválido');
     return { ok: true, ...(await this.inbound.handle(channel, body ?? {})) };
+  }
+
+  /** Webhook do WhatsApp oficial: verificação (GET) e eventos (POST, corpo bruto para a assinatura). */
+  @Public() @SkipThrottle() @Get('webhook/cloud/:channelId')
+  async cloudVerify(@Param('channelId', ParseIntPipe) channelId: number, @Query() query: Json, @Res() res: Response) {
+    res.status(200).type('text/plain').send(await this.cloud.verify(channelId, query));
+  }
+
+  @Public() @SkipThrottle() @Post('webhook/cloud/:channelId') @HttpCode(200)
+  async cloudWebhook(@Param('channelId', ParseIntPipe) channelId: number, @Req() req: Request) {
+    const raw = Buffer.isBuffer(req.body) ? req.body : undefined;
+    return { ok: true, ...(await this.cloud.receive(channelId, raw, req.headers['x-hub-signature-256'])) };
   }
 }

@@ -13,7 +13,7 @@ export interface ChatHours { enabled: boolean; dias: number[]; inicio: string; f
 export interface ChatSignature { enabled: boolean; formato: 'primeiro' | 'completo' }
 /** O que o bot do número pode fazer: instruções da empresa e se assume fora do horário. */
 export interface ChatBotSettings { instrucoes: string; foraDoHorario: boolean; limitePorConversa: number }
-export interface ChatSettings { limites: ChatLimits; intervalo: ChatInterval; horario: ChatHours; assinatura: ChatSignature; bot: ChatBotSettings }
+export interface ChatSettings { limites: ChatLimits; intervalo: ChatInterval; horario: ChatHours; assinatura: ChatSignature; bot: ChatBotSettings; /** áudios do cliente viram texto (Groq/OpenAI) */ transcrever: boolean }
 
 export const DEFAULT_LIMITS: ChatLimits = { novosPorDia: 10, porMinuto: 12, porHora: 200, porDia: 1000 };
 export const MAX_LIMITS: ChatLimits = { novosPorDia: 30, porMinuto: 20, porHora: 300, porDia: 1500 };
@@ -70,6 +70,7 @@ export function normalizeSettings(raw: unknown): ChatSettings {
     },
     assinatura: { enabled: a.enabled !== false, formato: a.formato === 'completo' ? 'completo' : 'primeiro' },
     bot: { instrucoes: String(b.instrucoes ?? '').slice(0, 4000), foraDoHorario: b.foraDoHorario === true, limitePorConversa: int(b.limitePorConversa, 20, 1, 60) },
+    transcrever: src.transcrever !== false,
   };
 }
 

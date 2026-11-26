@@ -11,4 +11,6 @@ export const INSTAGRAM_WEBHOOK_PATH = '/ai/connectors/instagram/webhook';
  */
 export function mountInstagramWebhookBody(app: INestApplication): void {
   app.use(INSTAGRAM_WEBHOOK_PATH, express.raw({ type: () => true, limit: '2mb' }));
+  // WhatsApp oficial (Conversas): mesma assinatura da Meta, por número
+  app.use('/chat/webhook/cloud', express.raw({ type: () => true, limit: '5mb' }));
 }

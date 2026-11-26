@@ -5,6 +5,8 @@ import { PrivateStorageService } from 'src/common/storage/private-storage.servic
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ChatEventsService } from './chat-events.service';
 import { EvolutionProvider } from './providers/evolution.provider';
+import { CloudProvider, cloudConfigOf } from './providers/cloud.provider';
+import { chatHooks } from './chat.hooks';
 
 /**
  * Fotos, áudios, vídeos e documentos das conversas.
@@ -34,6 +36,10 @@ export interface ChatMedia {
   /** só do WhatsApp: a mensagem original (com a chave da mídia) até baixar */
   raw?: { key: Record<string, unknown>; message?: Record<string, unknown> } | null;
   state?: string;
+  /** áudio transcrito: texto, situação (pending | ok | failed) e quem transcreveu */
+  transcript?: string | null;
+  transcriptState?: string | null;
+  transcriptBy?: string | null;
   /** só do Instagram: link original (expira) até baixar */
   sourceUrl?: string | null;
   [extra: string]: unknown;
@@ -68,6 +74,7 @@ export class ChatMediaService {
     private readonly prisma: PrismaService,
     private readonly storage: PrivateStorageService,
     private readonly provider: EvolutionProvider,
+    private readonly cloud: CloudProvider,
     private readonly events: ChatEventsService,
   ) {}
 
@@ -120,8 +127,15 @@ export class ChatMediaService {
   /** WhatsApp: baixa pelo Evolution em segundo plano. */
   fetchWhatsApp(messageId: number) {
     this.track(this.run(messageId, async (message, channel) => {
-      if (!channel.instanceName || !message.externalId) throw new Error('sem conexão');
       const raw = (message.media as ChatMedia | null)?.raw;
+      const cloud = channel.provider === 'cloud' ? cloudConfigOf(channel) : null;
+      if (cloud) {
+        const inner = Object.values((raw?.message ?? {}) as Record<string, { cloudId?: string }>).find((v) => v && typeof v === 'object' && v.cloudId);
+        if (!inner?.cloudId) throw new Error('a Meta não mandou o id do arquivo');
+        const got = await this.cloud.download(cloud, inner.cloudId);
+        return { body: got.body, mimetype: got.mimetype, fileName: null };
+      }
+      if (!channel.instanceName || !message.externalId) throw new Error('sem conexão');
       const got = await this.provider.mediaBase64(channel.instanceName, raw?.key ? raw : { key: { id: message.externalId } });
       if (!got) throw new Error('o WhatsApp não entregou a mídia');
       return { body: Buffer.from(got.base64, 'base64'), mimetype: got.mimetype, fileName: got.fileName };
@@ -159,6 +173,7 @@ export class ChatMediaService {
     }
     await this.prisma.chat_Message.update({ where: { id: messageId }, data: { media: next as any } });
     this.events.emit({ companyId: message.companyId, kind: 'message', channelId: message.channelId, conversationId: message.conversationId, assignedUserId: message.conversation.assignedUserId });
+    if (next.state === 'ok' && message.type === 'audio') chatHooks.audioReady?.(messageId);
   }
 
   /** "Tentar de novo" na tela, para mídia que não baixou. */

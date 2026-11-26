@@ -56,7 +56,7 @@ export class ChatBotService implements OnModuleInit {
   onModuleInit() {
     chatHooks.botInbound = (conversationId, messageId) => this.onInbound(conversationId, messageId);
     chatHooks.botHumanReply = (conversationId) => this.track(this.onHumanReply(conversationId, null));
-    this.deps.chat = { reply: (ctx, text) => this.toolReply(ctx, text), route: (ctx, input) => this.toolRoute(ctx, input) };
+    this.deps.chat = Object.assign(this.deps.chat ?? {}, { reply: (ctx: ToolContext, text: string) => this.toolReply(ctx, text), route: (ctx: ToolContext, input: { setor?: string; resumo?: string; motivo?: string }) => this.toolRoute(ctx, input) });
   }
 
   /** Para os testes: espera o que estiver rodando. */
@@ -123,6 +123,7 @@ export class ChatBotService implements OnModuleInit {
     // pela ordem de gravação: o horário do WhatsApp vem em segundos e pode "voltar" um pouco
     const last = await this.prisma.chat_Message.findFirst({ where: { conversationId, direction: { in: ['in', 'out'] } }, orderBy: { id: 'desc' }, select: { id: true, direction: true } });
     if (!last || last.id !== messageId || last.direction !== 'in') return;
+    await this.waitTranscript(messageId);
     const decision = await this.modeOf(conversation);
     if (!decision) return;
     if (decision.mode === 'sugere') {
@@ -149,15 +150,29 @@ export class ChatBotService implements OnModuleInit {
   }
 
   private readTools(bot: Ai_Bot) {
-    return ((bot.tools as string[]) ?? []).filter((name) => this.catalog.get(name)?.risk === 'read' && !TEAM_TOOLS.includes(name));
+    return ((bot.tools as string[]) ?? []).filter((name) => this.catalog.get(name)?.risk === 'read' && !TEAM_TOOLS.includes(name) && !name.startsWith('conversas_')); // nunca ler outras conversas para um cliente
+  }
+
+  /** Áudio do cliente: espera (até ~25 s) baixar e virar texto, para o bot entender. */
+  private async waitTranscript(messageId: number) {
+    for (let i = 0; i < (this.delayMs ? 25 : 0); i++) {
+      const row = await this.prisma.chat_Message.findUnique({ where: { id: messageId }, select: { type: true, media: true } });
+      const media = (row?.media ?? {}) as { state?: string; transcriptState?: string | null };
+      if (row?.type !== 'audio' || (media.state !== 'pending' && media.transcriptState !== 'pending')) return;
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
   }
 
   private async transcript(conversation: Conversation) {
     const rows = (await this.prisma.chat_Message.findMany({
       where: { conversationId: conversation.id, direction: { in: ['in', 'out'] } }, orderBy: { sentAt: 'desc' }, take: HISTORY,
-      select: { direction: true, type: true, text: true, sentAt: true, sentByBotId: true },
+      select: { direction: true, type: true, text: true, sentAt: true, sentByBotId: true, media: true },
     })).reverse();
-    return rows.map((r) => `- ${r.direction === 'in' ? 'cliente' : r.sentByBotId ? 'você (bot)' : 'empresa'} (${brTime(r.sentAt)}): ${previewOf(r.type, r.text)}`.slice(0, 600)).join('\n');
+    const said = (r: (typeof rows)[number]) => {
+      const heard = r.type === 'audio' ? (r.media as { transcript?: string | null } | null)?.transcript : null;
+      return heard ? `[áudio] "${heard}"` : previewOf(r.type, r.text);
+    };
+    return rows.map((r) => `- ${r.direction === 'in' ? 'cliente' : r.sentByBotId ? 'você (bot)' : 'empresa'} (${brTime(r.sentAt)}): ${said(r)}`.slice(0, 900)).join('\n');
   }
 
   private async customerLine(conversation: Conversation) {

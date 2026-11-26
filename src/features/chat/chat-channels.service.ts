@@ -43,7 +43,7 @@ export class ChatChannelsService {
   }
 
   private view(channel: Awaited<ReturnType<ChatChannelsService['load']>>, stats?: { sentToday: number; newToday: number; open: number; unread: number }) {
-    const { webhookTokenHash, termsAcceptedIp, members, settings, ...rest } = channel as any;
+    const { webhookTokenHash, termsAcceptedIp, members, settings, cloudConfig, ...rest } = channel as any;
     return { ...rest, settings: normalizeSettings(settings), memberIds: (members ?? []).map((m: { userId: number }) => m.userId), termsOk: channel.termsVersion === TERMS_VERSION, stats };
   }
 
@@ -183,6 +183,8 @@ export class ChatChannelsService {
   async connect(actor: ChatActor, id: number, body: { acceptTerms?: unknown; phone?: unknown }, ip: string | null) {
     const channel = await this.load(actor.companyId, id);
     this.notInstagram(channel);
+    if (channel.provider === 'cloud' && channel.status === 'conectado') throw new BadRequestException('Este número está ligado pelo WhatsApp oficial. Desconecte primeiro para usar o QR code.');
+    if (channel.provider === 'cloud') await this.prisma.chat_Channel.update({ where: { id }, data: { provider: 'evolution' } });
     if (channel.termsVersion !== TERMS_VERSION) {
       if (body.acceptTerms !== true) throw new BadRequestException('Para conectar, aceite o termo de uso do WhatsApp não oficial.');
       await this.prisma.chat_Channel.update({ where: { id }, data: { termsVersion: TERMS_VERSION, termsAcceptedAt: new Date(), termsAcceptedByUserId: actor.userId, termsAcceptedIp: ip?.slice(0, 64) ?? null } });

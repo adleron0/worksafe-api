@@ -10,4 +10,6 @@ export const chatHooks: {
   /** mensagem nova do cliente / resposta de uma pessoa: o bot da conversa decide (registrado pelo ChatBotService) */
   botInbound: ((conversationId: number, messageId: number) => void) | null;
   botHumanReply: ((conversationId: number) => void) | null;
-} = { instagramMessage: null, botInbound: null, botHumanReply: null };
+  /** áudio baixado: a transcrição decide se roda (registrado pelo ChatTranscribeService) */
+  audioReady?: ((messageId: number) => void) | null;
+} = { instagramMessage: null, botInbound: null, botHumanReply: null, audioReady: null };

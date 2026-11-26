@@ -27,6 +27,6 @@ import { MemoryService } from './memory/memory.service';
 @Module({
   imports: [ScheduleModule.forRoot(), EmailModule, UploadModule, CommercialModule, OperationsModule, HrModule, FinancialModule, PrivateStorageModule],
   providers: [ProviderKeyStore, ProviderRegistry, ToolDeps, ToolCatalogService, BotService, UsageService, AgentService, McpOAuthService, NotifyService, ReportService, ImageIntakeService, InternalApiService, InstagramService, InstagramMessagesService, MemoryService],
-  exports: [ProviderRegistry, ToolDeps, ToolCatalogService, BotService, UsageService, AgentService, McpOAuthService, NotifyService, ReportService, ImageIntakeService, InternalApiService, InstagramService, InstagramMessagesService, MemoryService],
+  exports: [ProviderRegistry, ProviderKeyStore, ToolDeps, ToolCatalogService, BotService, UsageService, AgentService, McpOAuthService, NotifyService, ReportService, ImageIntakeService, InternalApiService, InstagramService, InstagramMessagesService, MemoryService],
 })
 export class BotsAiModule {}
