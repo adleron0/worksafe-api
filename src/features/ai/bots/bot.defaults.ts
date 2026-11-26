@@ -58,7 +58,7 @@ export const BOT_DEFAULTS: BotDefault[] = [
     description: 'Indicadores, pendências e resumos de todas as áreas. Só consulta.',
     icon: 'chart-line',
     strong: false,
-    tools: ['minha_esteira', 'listar_propostas', 'listar_acompanhamentos', 'listar_os', 'resultado_obras', 'quem_esta_livre', 'documentos_vencendo', 'listar_turmas', 'fin_resumo', 'fin_contas_a_receber', 'fin_contas_a_pagar', 'fin_fluxo_de_caixa', 'fin_dre', 'listar_pedidos_de_compra', 'itens_para_repor', 'equipamentos_vencendo', 'mapa_alocacao', 'certificados_vencendo', 'avanco_da_obra', 'a_faturar', 'estatisticas_diario', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa'],
+    tools: ['minha_esteira', 'listar_propostas', 'listar_acompanhamentos', 'listar_os', 'resultado_obras', 'quem_esta_livre', 'documentos_vencendo', 'listar_turmas', 'fin_resumo', 'fin_contas_a_receber', 'fin_contas_a_pagar', 'fin_fluxo_de_caixa', 'fin_dre', 'listar_pedidos_de_compra', 'itens_para_repor', 'equipamentos_vencendo', 'mapa_alocacao', 'certificados_vencendo', 'avanco_da_obra', 'a_faturar', 'estatisticas_diario', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa', 'notas_fiscais', 'notas_a_emitir', 'saldo_notas_contrato'],
     instructions: `Você é o Bot de Gestão. Ajuda a direção a enxergar a empresa: funil comercial, obras em andamento e seu resultado, caixa (a receber e a pagar), turmas e pendências.
 - Você só consulta: não cria nem altera nada. Se pedirem uma ação, passe a conversa para o colega da área com passar_para_colega (Comercial, Operação, RH e Departamento Pessoal, Suprimentos, Treinamentos, Marketing, Financeiro).
 - Em resumos, comece pelo que pede atenção (atrasos, vencidos, margens baixas) e termine com números gerais.`,
@@ -77,7 +77,7 @@ export const BOT_DEFAULTS: BotDefault[] = [
     description: 'Clientes, propostas e acompanhamento. Monta rascunhos e prepara envios.',
     icon: 'handshake',
     strong: true,
-    tools: ['minha_esteira', 'buscar_clientes', 'listar_propostas', 'ver_proposta', 'opcoes_proposta', 'simular_proposta', 'listar_acompanhamentos', 'criar_rascunho_proposta', 'registrar_acompanhamento', 'enviar_proposta', 'mudar_situacao_proposta', 'certificados_vencendo', 'vagas_empresas_turma', 'os_da_proposta', 'avanco_da_obra', 'informar_pedido_do_cliente', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa'],
+    tools: ['minha_esteira', 'buscar_clientes', 'listar_propostas', 'ver_proposta', 'opcoes_proposta', 'simular_proposta', 'listar_acompanhamentos', 'criar_rascunho_proposta', 'registrar_acompanhamento', 'enviar_proposta', 'mudar_situacao_proposta', 'certificados_vencendo', 'vagas_empresas_turma', 'os_da_proposta', 'avanco_da_obra', 'informar_pedido_do_cliente', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa', 'notas_a_emitir', 'notas_fiscais', 'simular_nota_fiscal', 'saldo_notas_contrato'],
     instructions: `Você é o Bot Comercial. Ajuda a montar propostas de serviço e de treinamento, acompanhar clientes e não deixar retorno passar.
 - Para montar uma proposta: ache o cliente (buscar_clientes), veja profissionais e cursos (opcoes_proposta), simule (simular_proposta) e mostre o valor antes de criar o rascunho.
 - Mão de obra: um item por função, com quantidade de pessoas, dias e horas por dia. Locação e materiais: custo unitário em reais.
@@ -99,7 +99,7 @@ export const BOT_DEFAULTS: BotDefault[] = [
     description: 'Ordens de serviço, diário de obra (RDO) e escala da equipe nas obras.',
     icon: 'hard-hat',
     strong: true,
-    tools: ['minha_esteira', 'listar_os', 'ver_os', 'resultado_obras', 'quem_esta_livre', 'escalar_equipe_os', 'mover_os', 'listar_rdos', 'ver_rdo', 'rdos_pendentes', 'resumo_diario_de_obra', 'devolver_rdo', 'cobrar_rdo', 'os_da_proposta', 'informar_pedido_do_cliente', 'avanco_da_obra', 'estatisticas_diario', 'atualizar_os', 'registrar_medicao', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa'],
+    tools: ['minha_esteira', 'listar_os', 'ver_os', 'resultado_obras', 'quem_esta_livre', 'escalar_equipe_os', 'mover_os', 'listar_rdos', 'ver_rdo', 'rdos_pendentes', 'resumo_diario_de_obra', 'devolver_rdo', 'cobrar_rdo', 'os_da_proposta', 'informar_pedido_do_cliente', 'avanco_da_obra', 'estatisticas_diario', 'atualizar_os', 'registrar_medicao', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa', 'notas_a_emitir', 'notas_fiscais', 'saldo_notas_contrato'],
     instructions: `Você é o Bot de Operação. Ajuda a planejar as obras, montar a escala e acompanhar o diário de obra.
 - Cadastro, documentos, férias e afastamentos dos funcionários são do colega de RH e Departamento Pessoal; estoque, compras, EPI e equipamentos são do colega de Suprimentos. Para isso, use pedir_ao_colega ou passar_para_colega.
 - Para escalar: veja a OS (ver_os), quem está livre no período (quem_esta_livre) e só então inclua na equipe (escalar_equipe_os). Mostre os avisos de documento e conflito.
@@ -170,7 +170,7 @@ export const BOT_DEFAULTS: BotDefault[] = [
     description: 'Turmas, vagas, alunos e inscrições. Inscreve alunos (inclusive os que já pagaram) e abre turmas novas.',
     icon: 'graduation-cap',
     strong: false,
-    tools: ['minha_esteira', 'listar_turmas', 'listar_inscritos', 'buscar_aluno', 'cadastrar_aluno', 'inscrever_na_turma', 'vincular_empresa_inscricao', 'buscar_clientes', 'nova_turma_rascunho', 'publicar_turma', 'link_para_enviar_imagens', 'imagens_do_envio', 'enviar_imagem_por_url', 'definir_imagem', 'certificados_vencendo', 'listar_cursos', 'instrutores_disponiveis', 'lista_de_presenca', 'vagas_empresas_turma', 'registrar_presenca', 'registrar_resultado_prova', 'emitir_certificados', 'reenviar_certificado', 'cancelar_inscricao', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa'],
+    tools: ['minha_esteira', 'listar_turmas', 'listar_inscritos', 'buscar_aluno', 'cadastrar_aluno', 'inscrever_na_turma', 'vincular_empresa_inscricao', 'buscar_clientes', 'nova_turma_rascunho', 'publicar_turma', 'link_para_enviar_imagens', 'imagens_do_envio', 'enviar_imagem_por_url', 'definir_imagem', 'certificados_vencendo', 'listar_cursos', 'instrutores_disponiveis', 'lista_de_presenca', 'vagas_empresas_turma', 'registrar_presenca', 'registrar_resultado_prova', 'emitir_certificados', 'reenviar_certificado', 'cancelar_inscricao', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa', 'notas_a_emitir', 'rascunho_nota_fiscal'],
     instructions: `Você é o Bot de Treinamentos. Ajuda a acompanhar turmas, vagas e inscrições e a abrir turmas novas.
 - Turma nova: copie a turma anterior do mesmo curso (nova_turma_rascunho) com as novas datas. Ela nasce fechada; publicar é outra ação, com confirmação.
 - Ao falar de vagas, compare inscritos confirmados com o limite e o quórum mínimo.
@@ -224,7 +224,7 @@ export const BOT_DEFAULTS: BotDefault[] = [
       'fin_salvar_conta_do_plano', 'fin_mover_conta_do_plano', 'fin_ativar_inativar', 'fin_salvar_centro_de_custo', 'fin_salvar_fornecedor', 'fin_salvar_conta_bancaria',
       'fin_salvar_recorrencia', 'fin_encerrar_recorrencia', 'fin_definir_classificacao_padrao',
       'fin_dar_baixa', 'fin_estornar_baixa', 'fin_transferir_entre_contas', 'fin_excluir_lancamentos', 'listar_pedidos_de_compra', 'minha_esteira', 'a_faturar', 'avanco_da_obra', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa',
-      'fin_situacao_inicial', 'fin_ler_extrato', 'fin_ver_rascunho_extrato', 'fin_sugerir_classificacao_extrato', 'fin_lancar_extrato'],
+      'fin_situacao_inicial', 'fin_ler_extrato', 'fin_ver_rascunho_extrato', 'fin_sugerir_classificacao_extrato', 'fin_lancar_extrato', 'notas_fiscais', 'ver_nota_fiscal', 'notas_a_emitir', 'saldo_notas_contrato', 'simular_nota_fiscal', 'rascunho_nota_fiscal', 'emitir_nota_fiscal', 'cancelar_nota_fiscal', 'rascunho_substituicao_nota', 'reenviar_nota_fiscal'],
     instructions: `Você é o Bot Financeiro. Cuida do que entra e do que sai: contas a pagar e a receber, categorização pelo plano de contas e centros de custo, fornecedores, contas bancárias, recorrências e relatórios (fluxo de caixa e DRE).
 - Antes de categorizar ou cadastrar, consulte o plano de contas e os cadastros para usar os ids certos. Despesa vai em conta de despesa; receita em conta de receita.
 - Fornecedor que não existe: cadastre (fin_salvar_fornecedor) antes de lançar a despesa.
@@ -232,7 +232,8 @@ export const BOT_DEFAULTS: BotDefault[] = [
 - Em relatórios, comece pelo que pede atenção (vencidos, saldo negativo, margem caindo) e mostre os totais em tabela curta.
 - Nunca invente valores ou datas: pergunte o que faltar.
 ${ORGANIZE}
-- O que já pode ser faturado (parcelas por avanço da obra e medições): a_faturar.`,
+- O que já pode ser faturado (parcelas por avanço da obra e medições): a_faturar.
+- Notas fiscais (NFS-e): notas_a_emitir mostra o que já pode ter nota (parcelas e boletins liberados, inscrições pagas); simular_nota_fiscal antes de propor. Emitir, cancelar e reenviar são ações com confirmação: o cartão mostra tomador, valor, retenções e o ambiente. Nunca diga que a nota saiu antes da pessoa confirmar. Para preparar várias notas do mês, crie rascunhos (rascunho_nota_fiscal).`,
     shortcuts: [
       { label: 'Organizar o financeiro', prompt: 'Quero organizar o financeiro da empresa a partir dos extratos. Por onde começamos?' },
       { label: 'Resumo financeiro', prompt: 'Como está o financeiro hoje? Saldos, vencidos e o que vence na semana.' },

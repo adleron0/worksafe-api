@@ -250,7 +250,7 @@ export const WORKS_TOOLS: ToolDefinition[] = [
   {
     name: 'a_faturar',
     title: 'Vendo o que está a faturar',
-    description: 'Fila "A faturar" do Financeiro: parcelas das vendas e boletins de medição por etapa — liberada (já pode emitir a nota), aguardando (o que falta: conclusão, % da obra, aprovação do boletim), faturada e recebida. Padrão: só as liberadas. Traz valor, caução, vencimento sugerido e pedido do cliente. Faturar (emitir a nota) é pela tela.',
+    description: 'Fila "A faturar" do Financeiro: parcelas das vendas e boletins de medição por etapa — liberada (já pode emitir a nota), aguardando (o que falta: conclusão, % da obra, aprovação do boletim), faturada e recebida. Padrão: só as liberadas. Traz valor, caução, vencimento sugerido e pedido do cliente. Para emitir a NFS-e de uma linha liberada use emitir_nota_fiscal (origem parcela ou boletim); notas_a_emitir já traz como pedir.',
     inputSchema: obj({
       etapa: str('Etapa (padrão liberada)', { enum: [...BILLING_STAGES, 'todas'] }), tipo: str('Tipo de venda', { enum: ['servico', 'treinamento', 'locacao'] }),
       busca: str('Venda, cliente, título ou pedido do cliente'),
