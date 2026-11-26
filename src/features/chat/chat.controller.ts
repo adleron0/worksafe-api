@@ -13,6 +13,7 @@ import { ChatEventsService } from './chat-events.service';
 import { ChatCustomerService } from './chat-customer.service';
 import { ChatLibraryService } from './chat-library.service';
 import { ChatActionsService } from './chat-actions.service';
+import { ChatBotService } from './chat-bot.service';
 import { MAX_OUT } from './chat-media.service';
 
 type Json = Record<string, any>;
@@ -33,6 +34,7 @@ export class ChatController {
     private readonly customerSearch: ChatCustomerService,
     private readonly library: ChatLibraryService,
     private readonly actions: ChatActionsService,
+    private readonly bots: ChatBotService,
   ) {}
 
   private seeing(req: Request) {
@@ -179,6 +181,36 @@ export class ChatController {
 
   @Post('conversations/:id/hide') @HttpCode(200)
   hide(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.conversations.hide(this.seeing(req), id); }
+
+  // ---------------------------------------------------------------- bots
+
+  /** Pedir agora um rascunho de resposta ao bot. */
+  @Post('conversations/:id/suggestion')
+  async askSuggestion(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) {
+    const actor = this.seeing(req);
+    return this.bots.ask(actor, await this.conversations.loadFor(actor, id), body?.botId);
+  }
+
+  @Post('conversations/:id/suggestion/:suggestionId/discard') @HttpCode(200)
+  async discardSuggestion(@Param('id', ParseIntPipe) id: number, @Param('suggestionId', ParseIntPipe) suggestionId: number, @Req() req: Request) {
+    const actor = this.seeing(req);
+    await this.conversations.loadFor(actor, id);
+    return this.bots.discard(actor, id, suggestionId);
+  }
+
+  /** Passar a conversa para um bot (ele atende só nela). */
+  @Post('conversations/:id/bot') @HttpCode(200)
+  async handToBot(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) {
+    const actor = this.seeing(req);
+    return this.bots.handTo(actor, await this.conversations.loadFor(actor, id), body?.botId);
+  }
+
+  /** Retomar do bot. */
+  @Delete('conversations/:id/bot')
+  async takeBack(@Param('id', ParseIntPipe) id: number, @Req() req: Request) {
+    const actor = this.seeing(req);
+    return this.bots.takeBack(actor, await this.conversations.loadFor(actor, id));
+  }
 
   // ---------------------------------------------------------------- ações comerciais
 

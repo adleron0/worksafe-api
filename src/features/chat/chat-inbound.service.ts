@@ -5,6 +5,7 @@ import { ChatChannelsService } from './chat-channels.service';
 import { isOptOut, normalizeSettings, outOfHours, phoneDigits, previewOf } from './chat.settings';
 import { ChatSendService } from './chat-send.service';
 import { ChatEventsService } from './chat-events.service';
+import { ChatBotService } from './chat-bot.service';
 import { ChatMediaService, MEDIA_TYPES } from './chat-media.service';
 
 type Json = Record<string, any>;
@@ -49,6 +50,7 @@ export class ChatInboundService {
     private readonly send: ChatSendService,
     private readonly events: ChatEventsService,
     private readonly media: ChatMediaService,
+    private readonly bot: ChatBotService,
   ) {}
 
   async handle(channel: Chat_Channel, body: Json) {
@@ -187,6 +189,7 @@ export class ChatInboundService {
         },
       });
       if (hasFile) this.media.fetchWhatsApp(created.id);
+      if (fromMe) await this.bot.onHumanReply(conversation.id, null); // respondeu pelo celular
       this.events.emit({
         companyId: channel.companyId, kind: 'message', channelId: channel.id, conversationId: conversation.id, assignedUserId: conversation.assignedUserId,
         inbound: !fromMe, contactName: contact.name || contact.pushName || contact.phone, preview: previewOf(type, text),
@@ -197,7 +200,10 @@ export class ChatInboundService {
           where: { id: contact.id },
           data: { ...(contact.firstInboundAt ? {} : { firstInboundAt: sentAt }), ...(optOut && !contact.optOut ? { optOut: true, optOutAt: new Date() } : {}) },
         });
-        if (!optOut && !contact.optOut) await this.outOfHoursReply(channel, conversation.id, contact.id);
+        if (!optOut && !contact.optOut) {
+          await this.outOfHoursReply(channel, conversation.id, contact.id);
+          this.bot.onInbound(conversation.id, created.id);
+        }
         if (optOut && !contact.optOut) {
           await this.prisma.chat_Message.create({
             data: { companyId: channel.companyId, channelId: channel.id, conversationId: conversation.id, direction: 'note', type: 'text', status: 'sent', origin: 'system', text: 'O cliente pediu para não receber mais mensagens. Os envios para este contato foram travados.' },
@@ -273,6 +279,7 @@ export class ChatInboundService {
     const settings = normalizeSettings(channel.settings);
     const text = settings.horario.mensagemFora.trim();
     if (!text || !outOfHours(settings)) return;
+    if (settings.bot.foraDoHorario && channel.defaultBotId) return; // o bot assume fora do horário
     const recent = await this.prisma.chat_Message.count({ where: { conversationId, origin: 'auto', sentAt: { gte: new Date(Date.now() - 12 * 3600000) } } });
     if (recent) return;
     const contact = await this.prisma.chat_Contact.findUniqueOrThrow({ where: { id: contactId } });

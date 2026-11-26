@@ -11,7 +11,9 @@ export interface ChatInterval { min: number; max: number }
 export interface ChatHours { enabled: boolean; dias: number[]; inicio: string; fim: string; mensagemFora: string }
 /** Nome de quem respondeu na frente de cada mensagem enviada pelo sistema. */
 export interface ChatSignature { enabled: boolean; formato: 'primeiro' | 'completo' }
-export interface ChatSettings { limites: ChatLimits; intervalo: ChatInterval; horario: ChatHours; assinatura: ChatSignature }
+/** O que o bot do número pode fazer: instruções da empresa e se assume fora do horário. */
+export interface ChatBotSettings { instrucoes: string; foraDoHorario: boolean; limitePorConversa: number }
+export interface ChatSettings { limites: ChatLimits; intervalo: ChatInterval; horario: ChatHours; assinatura: ChatSignature; bot: ChatBotSettings }
 
 export const DEFAULT_LIMITS: ChatLimits = { novosPorDia: 10, porMinuto: 12, porHora: 200, porDia: 1000 };
 export const MAX_LIMITS: ChatLimits = { novosPorDia: 30, porMinuto: 20, porHora: 300, porDia: 1500 };
@@ -48,6 +50,7 @@ export function normalizeSettings(raw: unknown): ChatSettings {
   const i = src.intervalo ?? {};
   const h = src.horario ?? {};
   const a = src.assinatura ?? {};
+  const b = src.bot ?? {};
   const min = int(i.min, DEFAULT_INTERVAL.min, 2, 30);
   const dias = Array.isArray(h.dias) ? [...new Set(h.dias.map(Number).filter((d: number) => d >= 0 && d <= 6))].sort() as number[] : DEFAULT_HOURS.dias;
   return {
@@ -66,6 +69,7 @@ export function normalizeSettings(raw: unknown): ChatSettings {
       mensagemFora: String(h.mensagemFora ?? '').slice(0, 1000),
     },
     assinatura: { enabled: a.enabled !== false, formato: a.formato === 'completo' ? 'completo' : 'primeiro' },
+    bot: { instrucoes: String(b.instrucoes ?? '').slice(0, 4000), foraDoHorario: b.foraDoHorario === true, limitePorConversa: int(b.limitePorConversa, 20, 1, 60) },
   };
 }
 

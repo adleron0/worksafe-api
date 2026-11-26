@@ -197,3 +197,28 @@ model Chat_ConversationTag {
   @@id([conversationId, tagId])
   @@index([tagId])
 }
+
+/// Rascunhos que o bot escreve no modo "sugere resposta" (e quando alguém
+/// pede uma sugestão). Guarda o que a pessoa fez com ele, para medir o
+/// aproveitamento e decidir quando liberar triagem/atende.
+model Chat_BotSuggestion {
+  id              Int       @id @default(autoincrement())
+  companyId       Int
+  channelId       Int
+  conversationId  Int
+  botId           Int
+  /// mensagem do cliente que ela responde
+  forMessageId    Int?
+  text            String    @db.Text
+  /// pendente | enviada | editada | descartada | ignorada | antiga
+  status          String    @default("pendente") @db.VarChar(20)
+  /// texto que saiu de fato (quando editada)
+  finalText       String?   @db.Text
+  decidedAt       DateTime?
+  decidedByUserId Int?
+  costUsd         Decimal   @default(0) @db.Decimal(12, 6)
+  createdAt       DateTime  @default(now())
+
+  @@index([conversationId, status])
+  @@index([channelId, createdAt])
+}

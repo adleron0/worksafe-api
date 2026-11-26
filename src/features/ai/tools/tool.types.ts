@@ -25,6 +25,8 @@ export interface ToolContext {
   delegated?: boolean;
   /** Resposta automática do Direct: o bot só pode responder a esta conversa (id do cliente). */
   instagramConversation?: string;
+  /** Atendimento das Conversas (triagem/atende): o bot só fala nesta conversa (Chat_Conversation.id). */
+  chatConversation?: number;
 }
 
 /** O que a ferramenta sensível mostra no cartão de confirmação. */

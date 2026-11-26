@@ -13,6 +13,7 @@ import { ChatMedia, ChatMediaService } from './chat-media.service';
 import { signerOf } from './chat-signature';
 import { ChatCustomerService } from './chat-customer.service';
 import { ChatLibraryService } from './chat-library.service';
+import { ChatBotService } from './chat-bot.service';
 
 const PAGE = 60;
 
@@ -30,6 +31,7 @@ export class ChatConversationsService {
     private readonly channels: ChatChannelsService,
     private readonly customerCards: ChatCustomerService,
     private readonly library: ChatLibraryService,
+    private readonly bot: ChatBotService,
   ) {}
 
   private static TAGS = { tags: { where: { tag: { inactiveAt: null } }, select: { tag: { select: { id: true, name: true, color: true } } }, orderBy: { createdAt: 'asc' as const } } };
@@ -154,8 +156,12 @@ export class ChatConversationsService {
     const links = await Promise.all(messages.map((m) => this.media.link(m.media as ChatMedia | null)));
     return {
       ...this.row({ ...conversation }, customers, users),
-      channel: { id: channel.id, name: channel.name, color: channel.color, type: channel.type, status: channel.status, phone: channel.phone, sector: channel.sector, botMode: channel.botMode },
+      channel: { id: channel.id, name: channel.name, color: channel.color, type: channel.type, status: channel.status, phone: channel.phone, sector: channel.sector, botMode: channel.botMode, defaultBotId: channel.defaultBotId },
       replyUntil: instagram ? await this.instagram.replyUntil(id) : null,
+      /** bot no controle desta conversa (passar para bot / atende) */
+      bot: conversation.botId ? await this.prisma.ai_Bot.findUnique({ where: { id: conversation.botId }, select: { id: true, name: true, persona: true, avatar: true } }) : null,
+      /** rascunho do bot esperando alguém enviar, editar ou descartar */
+      suggestion: before ? null : await this.bot.pending(id),
       /** como as mensagens desta pessoa saem assinadas neste número (null = sem assinatura) */
       signature: await signerOf(this.prisma, conversation.channel, { userId: actor.userId }),
       messages: messages.map((m, i) => {
@@ -173,7 +179,7 @@ export class ChatConversationsService {
     if (!actor.permissions.includes('responder_conversas')) throw new ForbiddenException('Você não tem permissão para responder clientes.');
   }
 
-  async sendText(actor: ChatActor, id: number, body: { text?: unknown; confirmedNew?: unknown }) {
+  async sendText(actor: ChatActor, id: number, body: { text?: unknown; confirmedNew?: unknown; suggestionId?: unknown }) {
     this.assertReply(actor);
     const conversation = await this.load(actor, id);
     let messageId: number;
@@ -184,6 +190,8 @@ export class ChatConversationsService {
     } else {
       messageId = (await this.send.enqueue({ channel: conversation.channel, conversationId: id, contact: conversation.contact, text: String(body.text ?? ''), userId: actor.userId, confirmedNew: body.confirmedNew === true })).id;
     }
+    await this.bot.used(actor, id, body.suggestionId, String(body.text ?? ''));
+    await this.bot.onHumanReply(id, actor.userId);
     await this.claim(actor, conversation);
     return this.prisma.chat_Message.findUnique({ where: { id: messageId } });
   }
@@ -216,6 +224,7 @@ export class ChatConversationsService {
     } else {
       messageId = (await this.send.enqueue({ channel: conversation.channel, conversationId: id, contact: conversation.contact, text: type === 'audio' ? '' : caption, type, media, userId: actor.userId, confirmedNew: body.confirmedNew === true || body.confirmedNew === 'true' })).id;
     }
+    await this.bot.onHumanReply(id, actor.userId);
     await this.claim(actor, conversation);
     return this.prisma.chat_Message.findUnique({ where: { id: messageId } });
   }

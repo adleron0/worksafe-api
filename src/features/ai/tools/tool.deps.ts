@@ -27,8 +27,15 @@ export interface TeamPort {
   handOff(ctx: import('./tool.types').ToolContext, input: Record<string, any>): Promise<unknown>;
 }
 
+/** Atendimento das Conversas (preenchido pelo ChatBotService ao iniciar). */
+export interface ChatPort {
+  reply(ctx: import('./tool.types').ToolContext, text: string): Promise<{ message: string }>;
+  route(ctx: import('./tool.types').ToolContext, input: { setor?: string; resumo?: string; motivo?: string }): Promise<{ message: string }>;
+}
+
 @Injectable()
 export class ToolDeps {
+  chat?: ChatPort;
   team?: TeamPort;
   /** Memória de longo prazo (preenchido pelo MemoryService ao iniciar). */
   memory?: import('../memory/memory.service').MemoryPort;

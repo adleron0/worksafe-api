@@ -171,6 +171,8 @@ export class ChatInstagramService implements OnModuleInit, OnModuleDestroy {
       },
     });
     if (media?.state === 'pending' && media.sourceUrl) this.media.fetchUrl(message.id);
+    if (!opts.quiet && origin === 'webhook') chatHooks.botInbound?.(conversation.id, message.id);
+    if (!opts.quiet && !inbound && origin === 'phone') chatHooks.botHumanReply?.(conversation.id);
     if (!opts.quiet) {
       this.events.emit({
         companyId: row.companyId, kind: 'message', channelId: channel.id, conversationId: conversation.id, assignedUserId: conversation.assignedUserId,

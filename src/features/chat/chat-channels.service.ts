@@ -77,14 +77,30 @@ export class ChatChannelsService {
       include: { members: { select: { userId: true } } },
       orderBy: { id: 'asc' },
     });
-    const stats = await this.stats(channels.map((c) => c.id));
-    return channels.map((c) => this.view(c, stats.get(c.id)));
+    const [stats, bots] = await Promise.all([this.stats(channels.map((c) => c.id)), this.botStats(actor.companyId, channels.map((c) => c.id))]);
+    return channels.map((c) => ({ ...this.view(c, stats.get(c.id)), botStats: bots.get(c.id) ?? null }));
   }
 
   async get(actor: ChatActor, id: number) {
     const channel = await this.load(actor.companyId, id);
-    const stats = await this.stats([id]);
-    return this.view(channel, stats.get(id));
+    const [stats, bots] = await Promise.all([this.stats([id]), this.botStats(actor.companyId, [id])]);
+    return { ...this.view(channel, stats.get(id)), botStats: bots.get(id) ?? null };
+  }
+
+  /** Aproveitamento dos rascunhos do bot (30 dias): enviados como estavam, editados, descartados. */
+  private async botStats(companyId: number, ids: number[]) {
+    const out = new Map<number, { total: number; enviada: number; editada: number; descartada: number; ignorada: number }>();
+    if (!ids.length) return out;
+    const rows = await this.prisma.chat_BotSuggestion.groupBy({
+      by: ['channelId', 'status'], where: { companyId, channelId: { in: ids }, createdAt: { gte: new Date(Date.now() - 30 * 86400000) }, status: { notIn: ['pendente', 'antiga'] } }, _count: { _all: true },
+    });
+    for (const r of rows) {
+      const entry = out.get(r.channelId) ?? { total: 0, enviada: 0, editada: 0, descartada: 0, ignorada: 0 };
+      if (r.status in entry) (entry as any)[r.status] += r._count._all;
+      entry.total += r._count._all;
+      out.set(r.channelId, entry);
+    }
+    return out;
   }
 
   private clean(body: Record<string, unknown>, partial: boolean) {
@@ -136,8 +152,10 @@ export class ChatChannelsService {
   }
 
   async update(actor: ChatActor, id: number, body: Record<string, unknown>) {
-    await this.load(actor.companyId, id);
+    const current = await this.load(actor.companyId, id);
     const data = this.clean(body, true);
+    // no Instagram o bot só sugere (a Nina já responde sozinha pelos Conectores)
+    if (current.type === 'instagram' && data.botMode && !['desligado', 'sugere'].includes(String(data.botMode))) throw new BadRequestException('No Instagram o bot só sugere respostas. Para responder sozinho, use Bots → Conectores.');
     await this.assertBot(actor.companyId, data.defaultBotId);
     await this.prisma.chat_Channel.update({ where: { id }, data: data as any });
     if (body.memberIds !== undefined) await this.saveMembers(actor.companyId, id, body.memberIds);

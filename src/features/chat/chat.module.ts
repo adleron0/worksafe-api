@@ -3,6 +3,7 @@ import { PrivateStorageModule } from 'src/common/storage/module';
 import { BotsAiModule } from 'src/features/ai/ai.module';
 import { CommercialModule } from 'src/features/commercial/module';
 import { ChatActionsService } from './chat-actions.service';
+import { ChatBotService } from './chat-bot.service';
 import { ChatController } from './chat.controller';
 import { ChatChannelsService } from './chat-channels.service';
 import { ChatConversationsService } from './chat-conversations.service';
@@ -19,7 +20,7 @@ import { EvolutionProvider } from './providers/evolution.provider';
 @Module({
   imports: [PrivateStorageModule, BotsAiModule, CommercialModule],
   controllers: [ChatController],
-  providers: [EvolutionProvider, ChatEventsService, ChatActionsService, ChatCustomerService, ChatLibraryService, ChatMediaService, ChatInstagramService, ChatChannelsService, ChatInboundService, ChatSendService, ChatConversationsService],
+  providers: [EvolutionProvider, ChatEventsService, ChatBotService, ChatActionsService, ChatCustomerService, ChatLibraryService, ChatMediaService, ChatInstagramService, ChatChannelsService, ChatInboundService, ChatSendService, ChatConversationsService],
   exports: [ChatChannelsService, ChatConversationsService, ChatSendService, ChatEventsService],
 })
 export class ChatModule {}
