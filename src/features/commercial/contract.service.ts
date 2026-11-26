@@ -1,3 +1,4 @@
+import { entityFilter } from 'src/features/company-entity/entity.field';
 import { rentalsFromContract } from 'src/features/stock/rental.service';
 import { SellerWalletService } from './wallet.service';
 import { MeasurementService, commissionFor } from './measurement.service';
@@ -165,6 +166,7 @@ export class ContractService {
     const scope: Prisma.Commercial_ContractWhereInput = {
       companyId: actor.companyId, inactiveAt: null, ...(own ? { proposalId: { in: own } } : {}),
       ...(Number(query.customerId) > 0 ? { customerId: Number(query.customerId) } : {}),
+      ...entityFilter(query.entityId),
       ...(term ? { OR: [
         { number: { contains: term, mode: 'insensitive' } }, { title: { contains: term, mode: 'insensitive' } },
         { customer: { name: { contains: term, mode: 'insensitive' } } }, { customer: { corporateName: { contains: term, mode: 'insensitive' } } },
@@ -174,7 +176,7 @@ export class ContractService {
     const [rows, total, groups] = await Promise.all([
       this.prisma.commercial_Contract.findMany({
         where, orderBy: [{ acceptedAt: 'desc' }, { id: 'desc' }], skip: page * limit, take: limit,
-        select: { id: true, number: true, kind: true, status: true, title: true, value: true, acceptedAt: true, proposalId: true, customer: { select: { id: true, name: true } },
+        select: { id: true, number: true, kind: true, entityId: true, status: true, title: true, value: true, acceptedAt: true, proposalId: true, customer: { select: { id: true, name: true } },
           _count: { select: { installments: true } } },
       }),
       this.prisma.commercial_Contract.count({ where }),

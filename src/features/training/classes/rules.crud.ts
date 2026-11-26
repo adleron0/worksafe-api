@@ -1,3 +1,4 @@
+import { ENTITY_SELECT, entityHook } from 'src/features/company-entity/entity.field';
 import { CrudError, EntityRules, composeHooks } from '@adleron/crud-core';
 import { imageUpload, parseJsonFields, syncActiveFlag } from 'src/common/crud/hooks';
 import { ClassGatewayValidator } from 'src/payments/application/class-gateway-validator.service';
@@ -42,6 +43,28 @@ const gatewayCompatibility = {
       paymentMethods: pick(data, existing, 'paymentMethods'),
       dividedIn: pick(data, existing, 'dividedIn'),
     });
+    return undefined;
+  },
+};
+
+/**
+ * A conta de pagamento (Asaas) da turma tem de ser do mesmo CNPJ da turma: o
+ * dinheiro da inscrição entra na conta de quem emite a nota.
+ */
+const classGatewayEntity = {
+  preWrite: async ({ op, data, existing, scopeId, deps }: any) => {
+    if (op !== 'create' && op !== 'update') return undefined;
+    const gatewayId = Number(pick(data, existing, 'companyGatewayId'));
+    if (!gatewayId) return undefined;
+    let entityId = Number(pick(data, existing, 'entityId')) || null;
+    if (!entityId) {
+      const courseId = Number(pick(data, existing, 'courseId'));
+      entityId = courseId ? (await deps.prisma.course.findFirst({ where: { id: courseId }, select: { entityId: true } }))?.entityId ?? null : null;
+    }
+    const gateway = await deps.prisma.companyGateWays.findFirst({ where: { id: gatewayId, companyId: Number(scopeId) }, select: { entityId: true } });
+    if (entityId && gateway?.entityId && gateway.entityId !== entityId) {
+      throw new CrudError('VALIDATION_FAILED', 'Esta conta de pagamento é de outro CNPJ do grupo: escolha a conta do CNPJ da turma', 'companyGatewayId');
+    }
     return undefined;
   },
 };
@@ -103,10 +126,11 @@ export const classEntity: EntityRules = {
   permissions: { create: 'create_classes', update: 'update_classes', archive: 'inactive_classes', restore: 'activate_classes', },
   // O site (worksafe-site) escolhe a empresa pelo domínio: company.lp_domain.
   filterable: ['id', 'company.lp_domain', 'name', 'courseId', 'customerId', 'certificateId', 'classCode', 'openClass', 'periodClass', 'initialDate', 'finalDate',
-    'allowSubscriptions', 'allowCheckout', 'hasOnlineCourse', 'onlineCourseModelId', 'createdAt', 'course.name'],
+    'allowSubscriptions', 'allowCheckout', 'hasOnlineCourse', 'onlineCourseModelId', 'createdAt', 'course.name', 'entityId'],
   sortable: ['id', 'name', 'initialDate', 'finalDate', 'price', 'createdAt'],
-  includable: ['instructors', 'course', 'certificate', 'customer', 'onlineCourseModel', '_count'],
+  includable: ['instructors', 'course', 'certificate', 'customer', 'onlineCourseModel', '_count', 'entity'],
   includes: {
+    entity: ENTITY_SELECT,
     instructors: { include: { instructor: { select: { id: true, name: true, imageUrl: true, active: true, curriculum: true, highlight: true, formation: true, formationCode: true } } } },
     course: { omit: { exam: true }, include: { reviews: {
       select: { generalRating: true, opinionRating: true, authorizationExposeReview: true,
@@ -119,5 +143,5 @@ export const classEntity: EntityRules = {
     preWrite: ({ op, data }) => op === 'update'
       ? { ...data, ...('price' in data && !data.price ? { price: null } : {}), ...('discountPrice' in data && !data.discountPrice ? { discountPrice: null } : {}) }
       : undefined,
-  }, gatewayCompatibility),
+  }, gatewayCompatibility, entityHook, classGatewayEntity),
 };

@@ -1,3 +1,4 @@
+import { gatewayScope } from 'src/payments/gateway-scope';
 import { classificationDefaults } from 'src/features/financial/classification';
 import {
   Injectable,
@@ -164,22 +165,19 @@ export class AsaasService {
 
   private async getToken(companyId: number): Promise<string> {
     try {
-      // Tenta recuperar do cache Redis primeiro
-      const cacheKey = `asaasToken:${companyId}`;
-      const cachedToken = await this.cacheService.get(cacheKey);
-
-      if (cachedToken) {
-        return cachedToken;
-      }
-
-      // Se não encontrou no cache, busca no banco de dados
-      const companyGateway = await this.prisma.selectFirst('companyGateWays', {
-        where: {
-          companyId,
-          gateway: 'asaas',
-          active: true,
-        },
-      });
+      // Conta Asaas da operação em andamento (cada CNPJ do grupo pode ter a sua)
+      const scope = gatewayScope.current();
+      if (scope?.token) return scope.token;
+      const scoped = scope?.companyGatewayId;
+      // A conta: a do escopo, ou a do CNPJ padrão do grupo. Lida do banco a cada
+      // vez (sem cache): com vários CNPJs, um cache por empresa misturaria as
+      // contas, e um por conta ficaria velho quando a chave fosse trocada.
+      const companyGateway = scoped
+        ? await this.prisma.companyGateWays.findFirst({ where: { id: scoped, companyId, gateway: 'asaas' } })
+        : await this.prisma.companyGateWays.findFirst({
+          where: { companyId, gateway: 'asaas', active: true },
+          orderBy: [{ entity: { isDefault: 'desc' } }, { createdAt: 'desc' }],
+        });
 
       if (!companyGateway || !companyGateway.payload) {
         throw new HttpException(
@@ -197,9 +195,6 @@ export class AsaasService {
           HttpStatus.NOT_FOUND,
         );
       }
-
-      // Armazena no cache para futuras requisições (TTL de 30 dias)
-      await this.cacheService.set(cacheKey, token, 2592000);
 
       return token;
     } catch (error) {

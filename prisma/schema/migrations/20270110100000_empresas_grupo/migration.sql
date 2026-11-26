@@ -280,3 +280,11 @@ SELECT DISTINCT x."profileId", perm."id" FROM (
 ) x CROSS JOIN "Permission" perm
 WHERE perm."name" = 'config_empresas_grupo'
 AND NOT EXISTS (SELECT 1 FROM "ProfilePermission" y WHERE y."profileId" = x."profileId" AND y."permissionId" = perm."id");
+
+-- ------------------------------------------------------------------ bots
+-- Otávio (financeiro) e a gestão consultam os CNPJs do grupo para filtrar e lançar por CNPJ
+UPDATE "Ai_Bot"
+SET "tools" = "tools" || '["empresas_do_grupo"]'::jsonb,
+    "instructions" = "instructions" || E'\n- O grupo tem mais de um CNPJ (ex.: Treinamentos e Serviços): empresas_do_grupo lista os CNPJs. Nas consultas e lançamentos financeiros e nas notas fiscais, use empresaId quando a pessoa falar de um CNPJ; sem ele, é o grupo todo (ou o CNPJ da origem).',
+    "updatedAt" = CURRENT_TIMESTAMP
+WHERE "key" IN ('financeiro', 'gestao') AND NOT ("tools" @> '["empresas_do_grupo"]'::jsonb);

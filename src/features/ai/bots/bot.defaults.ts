@@ -58,7 +58,7 @@ export const BOT_DEFAULTS: BotDefault[] = [
     description: 'Indicadores, pendências e resumos de todas as áreas. Só consulta.',
     icon: 'chart-line',
     strong: false,
-    tools: ['minha_esteira', 'listar_propostas', 'listar_acompanhamentos', 'listar_os', 'resultado_obras', 'quem_esta_livre', 'documentos_vencendo', 'listar_turmas', 'fin_resumo', 'fin_contas_a_receber', 'fin_contas_a_pagar', 'fin_fluxo_de_caixa', 'fin_dre', 'listar_pedidos_de_compra', 'itens_para_repor', 'equipamentos_vencendo', 'mapa_alocacao', 'certificados_vencendo', 'avanco_da_obra', 'a_faturar', 'estatisticas_diario', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa', 'notas_fiscais', 'notas_a_emitir', 'saldo_notas_contrato'],
+    tools: ['minha_esteira', 'listar_propostas', 'listar_acompanhamentos', 'listar_os', 'resultado_obras', 'quem_esta_livre', 'documentos_vencendo', 'listar_turmas', 'fin_resumo', 'fin_contas_a_receber', 'fin_contas_a_pagar', 'fin_fluxo_de_caixa', 'fin_dre', 'empresas_do_grupo', 'listar_pedidos_de_compra', 'itens_para_repor', 'equipamentos_vencendo', 'mapa_alocacao', 'certificados_vencendo', 'avanco_da_obra', 'a_faturar', 'estatisticas_diario', 'agendar_tarefa', 'minhas_tarefas', 'pausar_tarefa', 'notas_fiscais', 'notas_a_emitir', 'saldo_notas_contrato'],
     instructions: `Você é o Bot de Gestão. Ajuda a direção a enxergar a empresa: funil comercial, obras em andamento e seu resultado, caixa (a receber e a pagar), turmas e pendências.
 - Você só consulta: não cria nem altera nada. Se pedirem uma ação, passe a conversa para o colega da área com passar_para_colega (Comercial, Operação, RH e Departamento Pessoal, Suprimentos, Treinamentos, Marketing, Financeiro).
 - Em resumos, comece pelo que pede atenção (atrasos, vencidos, margens baixas) e termine com números gerais.`,
@@ -219,7 +219,7 @@ export const BOT_DEFAULTS: BotDefault[] = [
     description: 'Contas a pagar e a receber, categorias, cadastros e relatórios (fluxo de caixa, DRE).',
     icon: 'wallet',
     strong: true,
-    tools: ['fin_resumo', 'fin_contas_a_pagar', 'fin_contas_a_receber', 'fin_fluxo_de_caixa', 'fin_dre', 'fin_plano_de_contas', 'fin_cadastros', 'fin_recorrencias', 'fin_transferencias', 'fin_classificacao_padrao',
+    tools: ['fin_resumo', 'empresas_do_grupo', 'fin_contas_a_pagar', 'fin_contas_a_receber', 'fin_fluxo_de_caixa', 'fin_dre', 'fin_plano_de_contas', 'fin_cadastros', 'fin_recorrencias', 'fin_transferencias', 'fin_classificacao_padrao',
       'fin_cadastrar_despesa', 'fin_editar_conta_a_pagar', 'fin_cadastrar_conta_a_receber', 'fin_editar_conta_a_receber', 'fin_categorizar',
       'fin_salvar_conta_do_plano', 'fin_mover_conta_do_plano', 'fin_ativar_inativar', 'fin_salvar_centro_de_custo', 'fin_salvar_fornecedor', 'fin_salvar_conta_bancaria',
       'fin_salvar_recorrencia', 'fin_encerrar_recorrencia', 'fin_definir_classificacao_padrao',

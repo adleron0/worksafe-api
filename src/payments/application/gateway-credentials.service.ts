@@ -1,3 +1,4 @@
+import { gatewayScope } from 'src/payments/gateway-scope';
 import { Injectable } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { gateways } from '@prisma/client';
@@ -63,11 +64,15 @@ export class GatewayCredentialsService {
     try {
       await adapter.primeCredentials(companyId, payload);
 
-      const webhook = await adapter.configureWebhook(
+      // registra o webhook com a chave que está sendo salva (não com a de outro CNPJ do grupo)
+      const register = () => adapter.configureWebhook(
         companyId,
         currentWebhookId || payload.webhookId || null,
         webhookToken,
       );
+      const webhook = payload?.token
+        ? await gatewayScope.run({ companyGatewayId: 0, token: String(payload.token) }, register)
+        : await register();
 
       // Só grava o token se o gateway aceitou o registro com ele.
       if (webhook?.id) {

@@ -47,6 +47,10 @@ export function validCnpj(value: string) {
   return calc(12) === Number(c[12]) && calc(13) === Number(c[13]);
 }
 
+/** Tabelas com CNPJ do grupo preenchido pelo banco (gatilho ws_entity_fill). */
+const ENTITY_TABLES = ['Commercial_Contract', 'Commercial_Proposal', 'CompanyGateWays', 'Course', 'CourseClass', 'FinancialRecords', 'Financial_BankAccount',
+  'Financial_Payable', 'Financial_Recurrence', 'Fiscal_Invoice', 'Fiscal_ReceivedInvoice', 'Fiscal_Settings', 'Hr_Employee', 'Service_Order', 'Stock_Rental'];
+
 /** Tabelas que têm CNPJ do grupo, com o nome que a tela mostra. */
 const USAGE: Array<{ key: string; label: string; model: string }> = [
   { key: 'courses', label: 'Cursos', model: 'course' },
@@ -138,6 +142,10 @@ export class CompanyEntityService {
         phone: (c.financial_contact || c.representative_contact || '').slice(0, 30) || null,
       },
     }).catch(() => undefined); // outra requisição criou ao mesmo tempo
+    // o que já existia sem CNPJ (base nova) fica com este, como a migração fez na base antiga
+    for (const table of ENTITY_TABLES) {
+      await this.prisma.$executeRawUnsafe(`UPDATE "${table}" SET "entityId" = ws_entity_default("companyId", NULL) WHERE "entityId" IS NULL AND "companyId" = $1`, companyId);
+    }
   }
 
   /** entityId recebido de um formulário: número válido do grupo, ou undefined (não mexer). */
@@ -215,7 +223,9 @@ export class CompanyEntityService {
     const created = await this.prisma.$transaction(async (tx) => {
       const isDefault = count === 0 || !!body.isDefault;
       if (isDefault) await tx.company_Entity.updateMany({ where: { companyId: actor.companyId }, data: { isDefault: false } });
-      return tx.company_Entity.create({ data: { ...data, companyId: actor.companyId, isDefault }, include: this.include });
+      const created = await tx.company_Entity.create({ data: { ...data, companyId: actor.companyId, isDefault }, include: this.include });
+      await this.claimKinds(tx, actor.companyId, created.id, created.kinds);
+      return created;
     });
     return this.out(created);
   }
@@ -239,9 +249,25 @@ export class CompanyEntityService {
         await tx.company_Entity.updateMany({ where: { companyId: actor.companyId, id: { not: id } }, data: { isDefault: false } });
         data.isDefault = true;
       }
-      return tx.company_Entity.update({ where: { id }, data, include: this.include });
+      const saved = await tx.company_Entity.update({ where: { id }, data, include: this.include });
+      if ('kinds' in body) await this.claimKinds(tx, actor.companyId, id, saved.kinds);
+      return saved;
     });
     return this.out(updated);
+  }
+
+  /**
+   * Uma frente é de um CNPJ só: quem assume treinamento (por exemplo) tira a
+   * frente dos outros, e os registros novos dela passam a nascer nele. Os que
+   * já existem mudam só pelo "distribuir".
+   */
+  private async claimKinds(tx: Prisma.TransactionClient, companyId: number, id: number, kinds: string[]) {
+    if (!kinds.length) return;
+    const others = await tx.company_Entity.findMany({ where: { companyId, id: { not: id } }, select: { id: true, kinds: true } });
+    for (const o of others) {
+      const left = o.kinds.filter((k) => !kinds.includes(k));
+      if (left.length !== o.kinds.length) await tx.company_Entity.update({ where: { id: o.id }, data: { kinds: left } });
+    }
   }
 
   /** Quantos registros de cada tipo são deste CNPJ (a tela mostra antes de distribuir). */

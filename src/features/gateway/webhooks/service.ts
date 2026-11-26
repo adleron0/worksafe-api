@@ -1,3 +1,4 @@
+import { gatewayScope } from 'src/payments/gateway-scope';
 import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { timingSafeEqual } from 'crypto';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -51,6 +52,24 @@ export class WebhooksService {
         `[webhook] empresa ${companyId} sem gateway Asaas ativo — evento recusado.`,
       );
       return false;
+    }
+
+    // Vários CNPJs com conta Asaas própria: cada conta tem o seu token. O que
+    // bater diz de qual conta é o evento, e o processamento usa a chave dela.
+    if (received) {
+      const all = await this.prisma.companyGateWays.findMany({ where: { companyId, gateway: 'asaas', active: true } });
+      if (all.length > 1) {
+        for (const config of all) {
+          const token = (config.payload as any)?.webhookToken;
+          if (!token) continue;
+          const x = Buffer.from(received);
+          const y = Buffer.from(String(token));
+          if (x.length === y.length && timingSafeEqual(x, y)) {
+            gatewayScope.enter({ companyGatewayId: config.id });
+            return true;
+          }
+        }
+      }
     }
 
     const expected: string | undefined =

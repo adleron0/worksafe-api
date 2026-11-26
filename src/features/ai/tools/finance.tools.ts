@@ -60,12 +60,13 @@ const LEDGER_FILTERS = {
   contaId: int('Conta do plano de contas (inclui as filhas)'), centroId: int('Centro de custo'), contaBancariaId: int('Conta bancária'),
   formaPagamento: str('Forma de pagamento'), valorMin: num('Valor mínimo'), valorMax: num('Valor máximo'),
   pagina: int('Página, começando em 0'),
+  empresaId: int('Só deste CNPJ do grupo (empresas_do_grupo); vazio = o grupo todo'),
 };
 const ledgerQuery = (input: Record<string, any>) => ({
   q: input.busca, dueFrom: input.vencimentoDe, dueTo: input.vencimentoAte, paidFrom: input.pagamentoDe, paidTo: input.pagamentoAte,
   accrualFrom: input.competenciaDe, accrualTo: input.competenciaAte, chartAccountId: input.contaId, costCenterId: input.centroId,
   bankAccountId: input.contaBancariaId, paymentMethod: input.formaPagamento, minValue: input.valorMin, maxValue: input.valorMax,
-  page: input.pagina ?? 0, limit: 40, view: input.visao,
+  page: input.pagina ?? 0, limit: 40, view: input.visao, entityId: input.empresaId,
 });
 
 const PAYABLE_FIELDS = {
@@ -73,20 +74,24 @@ const PAYABLE_FIELDS = {
   fornecedorId: int('Fornecedor'), contaId: int('Conta do plano de contas (despesa)'), centroId: int('Centro de custo'),
   formaPagamento: str('Forma de pagamento', { enum: PAYABLE_METHODS }), documento: str('Número do documento (NF, boleto)'),
   observacoes: str('Observações'), osId: int('Ordem de serviço ligada'),
+  empresaId: int('CNPJ do grupo que paga (empresas_do_grupo); vazio = o da OS ou o padrão'),
 };
 const PAYABLE_MAP = {
   descricao: 'description', valor: 'value', vencimento: 'dueDate', competencia: 'accrualDate', fornecedorId: 'supplierId', contaId: 'chartAccountId',
   centroId: 'costCenterId', formaPagamento: 'paymentMethod', documento: 'documentNumber', observacoes: 'observations', osId: 'serviceOrderId',
+  empresaId: 'entityId',
 };
 const RECEIVABLE_FIELDS = {
   descricao: str('Descrição'), valor: num('Valor em reais'), vencimento: date('Vencimento'), competencia: str('Competência (AAAA-MM)'),
   clienteId: int('Cliente'), contaId: int('Conta do plano de contas (receita)'), centroId: int('Centro de custo'),
   formaPagamento: str('Forma de pagamento', { enum: ['pix', 'boleto', 'cartaoCredito', 'transferencia', 'dinheiro', 'outro'] }),
   notaFiscal: str('Número da nota fiscal'), observacoes: str('Observações'),
+  empresaId: int('CNPJ do grupo que recebe (empresas_do_grupo); vazio = o padrão'),
 };
 const RECEIVABLE_MAP = {
   descricao: 'description', valor: 'value', vencimento: 'dueDate', competencia: 'accrualDate', clienteId: 'customerId', contaId: 'chartAccountId',
   centroId: 'costCenterId', formaPagamento: 'paymentMethod', notaFiscal: 'invoiceNumber', observacoes: 'observations',
+  empresaId: 'entityId',
 };
 
 async function describePayables(ctx: ToolContext, deps: ToolDeps, list: number[]) {
@@ -110,6 +115,17 @@ const SETTLE_FIELDS = {
 
 export const FINANCE_TOOLS: ToolDefinition[] = [
   // ================================================================ consultas
+  {
+    name: 'empresas_do_grupo',
+    title: 'Vendo os CNPJs do grupo',
+    description: 'Os CNPJs do grupo (ex.: WorkSafe Treinamentos, WorkSafe Serviços): id, nome, CNPJ, frentes que atende (treinamento, servico, locacao) e qual é o padrão. Use o id como empresaId nas consultas e lançamentos por CNPJ.',
+    inputSchema: obj({}),
+    permissions: LIST, risk: 'read',
+    run: async (ctx, _input, deps) => {
+      const rows = (await api(deps).call(ctx, 'GET', 'company-entities')) as Array<Record<string, any>>;
+      return rows.map((e) => ({ id: e.id, nome: e.tradeName, razaoSocial: e.corporateName, cnpj: e.cnpj, frentes: e.kinds, padrao: e.isDefault }));
+    },
+  },
   {
     name: 'fin_resumo',
     title: 'Montando o resumo financeiro',
@@ -145,17 +161,17 @@ export const FINANCE_TOOLS: ToolDefinition[] = [
     name: 'fin_fluxo_de_caixa',
     title: 'Montando o fluxo de caixa',
     description: 'Relatório de fluxo de caixa no período (realizado e previsto): entradas, saídas e saldo, por dia, semana ou mês. Sem datas: do início do mês até 90 dias.',
-    inputSchema: obj({ de: date('Início'), ate: date('Fim'), agrupar: str('Agrupar por', { enum: ['dia', 'semana', 'mes'] }), contaBancariaId: int('Só desta conta bancária') }),
+    inputSchema: obj({ de: date('Início'), ate: date('Fim'), agrupar: str('Agrupar por', { enum: ['dia', 'semana', 'mes'] }), contaBancariaId: int('Só desta conta bancária'), empresaId: int('Só deste CNPJ do grupo (vazio = o grupo todo)') }),
     permissions: LIST, risk: 'read',
-    run: async (ctx, input, deps) => slim(await api(deps).call(ctx, 'GET', 'financial/reports/cash-flow', { query: { from: input.de, to: input.ate, group: ({ dia: 'day', semana: 'week', mes: 'month' } as Record<string, string>)[input.agrupar] ?? undefined, bankAccountId: input.contaBancariaId } })),
+    run: async (ctx, input, deps) => slim(await api(deps).call(ctx, 'GET', 'financial/reports/cash-flow', { query: { from: input.de, to: input.ate, group: ({ dia: 'day', semana: 'week', mes: 'month' } as Record<string, string>)[input.agrupar] ?? undefined, bankAccountId: input.contaBancariaId, entityId: input.empresaId } })),
   },
   {
     name: 'fin_dre',
     title: 'Montando a DRE',
     description: 'DRE (demonstração do resultado) do período: receita bruta, deduções, custos, despesas, resultado financeiro e lucro, pelo plano de contas.',
-    inputSchema: obj({ de: str('Mês inicial (AAAA-MM)'), ate: str('Mês final (AAAA-MM); no máximo 24 meses'), base: str('competencia (padrão) ou caixa', { enum: ['competencia', 'caixa'] }) }),
+    inputSchema: obj({ de: str('Mês inicial (AAAA-MM)'), ate: str('Mês final (AAAA-MM); no máximo 24 meses'), base: str('competencia (padrão) ou caixa', { enum: ['competencia', 'caixa'] }), empresaId: int('Só deste CNPJ do grupo (vazio = o consolidado do grupo)') }),
     permissions: LIST, risk: 'read',
-    run: async (ctx, input, deps) => slim(await api(deps).call(ctx, 'GET', 'financial/reports/dre', { query: { from: input.de, to: input.ate, basis: input.base } })),
+    run: async (ctx, input, deps) => slim(await api(deps).call(ctx, 'GET', 'financial/reports/dre', { query: { from: input.de, to: input.ate, basis: input.base, entityId: input.empresaId } })),
   },
   {
     name: 'fin_plano_de_contas',

@@ -1,3 +1,4 @@
+import { ENTITY_SELECT, entityHook } from 'src/features/company-entity/entity.field';
 import { CrudError, EntityRules, composeHooks } from '@adleron/crud-core';
 import { Request } from 'express';
 import { parseJsonFields, syncActiveFlag } from 'src/common/crud/hooks';
@@ -14,16 +15,19 @@ export const companyGatewayEntity: EntityRules = {
   expose: ['list', 'getById', 'create', 'update', 'archive', 'restore'], restorePermission: 'own',
   permissions: { list: 'list_integracoes', getById: 'list_integracoes', create: 'create_integracoes',
     update: 'update_integracoes', archive: 'inactive_integracoes', restore: 'activate_integracoes' },
-  filterable: ['gateway', 'createdAt'], sortable: ['id', 'gateway', 'createdAt'],
+  filterable: ['gateway', 'createdAt', 'entityId'], sortable: ['id', 'gateway', 'createdAt'],
+  includable: ['entity'],
+  includes: { entity: ENTITY_SELECT },
   neverWritable: ['active'], softDelete: { field: 'inactiveAt' },
-  hooks: composeHooks<Request>(syncActiveFlag, parseJsonFields('payload'), {
+  hooks: composeHooks<Request>(syncActiveFlag, parseJsonFields('payload'), entityHook, {
     preWrite: async ({ op, data, existing, scopeId, deps }) => {
       const prisma = deps.prisma as PrismaService;
       const companyId = Number(scopeId);
       if (op === 'create') {
-        // sem unique no schema: um gateway por empresa
-        const dup = await prisma.companyGateWays.findFirst({ where: { companyId, gateway: data.gateway as never }, select: { id: true } });
-        if (dup) throw new CrudError('CONFLICT', 'Gateway já configurado para esta empresa', 'gateway');
+        // sem unique no schema: um gateway de cada provedor por CNPJ do grupo (cada CNPJ tem a sua conta)
+        const entityId = data.entityId ? Number(data.entityId) : await prisma.company_Entity.findFirst({ where: { companyId, inactiveAt: null }, orderBy: [{ isDefault: 'desc' }, { id: 'asc' }], select: { id: true } }).then((e: any) => e?.id ?? null);
+        const dup = await prisma.companyGateWays.findFirst({ where: { companyId, gateway: data.gateway as never, ...(entityId ? { OR: [{ entityId }, { entityId: null }] } : {}) }, select: { id: true } });
+        if (dup) throw new CrudError('CONFLICT', 'Este CNPJ já tem esse gateway configurado', 'gateway');
         if (data.payload) {
           const credentials = deps.credentials as GatewayCredentialsService;
           return { ...data, payload: await credentials.configure({ gateway: data.gateway as never, payload: credentials.parsePayload(data.payload), companyId }) };

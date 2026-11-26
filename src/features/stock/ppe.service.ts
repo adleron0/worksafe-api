@@ -179,11 +179,13 @@ export class StockPpeService {
   /** Dados da ficha de EPI (o front imprime / gera o PDF). */
   async sheet(actor: StockActor, employeeId: number) {
     const data = await this.ofEmployee(actor, employeeId);
-    const [company, employee] = await Promise.all([
+    const [group, employee] = await Promise.all([
       this.prisma.company.findUnique({ where: { id: actor.companyId }, select: { comercial_name: true, corporate_name: true, cnpj: true } }),
-      this.prisma.hr_Employee.findUnique({ where: { id: employeeId }, select: { name: true, cpf: true, registration: true, admissionDate: true, roles: { where: { isPrimary: true }, select: { professional: { select: { name: true } } } } } }),
+      this.prisma.hr_Employee.findUnique({ where: { id: employeeId }, select: { entity: { select: { tradeName: true, corporateName: true, cnpj: true } }, name: true, cpf: true, registration: true, admissionDate: true, roles: { where: { isPrimary: true }, select: { professional: { select: { name: true } } } } } }),
     ]);
     const showCpf = can(actor, 'view_dados_pessoais_funcionarios');
+    // a ficha sai em nome do empregador (o CNPJ do grupo do funcionário)
+    const company = employee?.entity ? { comercial_name: employee.entity.tradeName, corporate_name: employee.entity.corporateName, cnpj: employee.entity.cnpj } : group;
     return {
       company: { name: company?.comercial_name ?? '', corporateName: company?.corporate_name ?? '', cnpj: company?.cnpj ?? '' },
       employee: { name: employee?.name ?? '', cpf: showCpf ? employee?.cpf ?? null : null, registration: employee?.registration ?? null, admissionDate: d(employee?.admissionDate), role: employee?.roles[0]?.professional.name ?? null },

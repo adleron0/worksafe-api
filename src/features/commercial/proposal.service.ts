@@ -1,3 +1,4 @@
+import { entityFilter } from 'src/features/company-entity/entity.field';
 import { CompanyEntityService } from 'src/features/company-entity/entity.service';
 import { DealEvents } from './deal.events';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
@@ -921,6 +922,7 @@ export class ProposalService {
       ...(Number(query.customerId) > 0 ? { customerId: Number(query.customerId) } : {}),
       ...(Number(query.sellerId) > 0 ? { sellerId: Number(query.sellerId) } : {}),
       ...(Number(query.dealId) > 0 ? { dealId: Number(query.dealId) } : {}),
+      ...entityFilter(query.entityId),
       ...(term ? { OR: [
         { number: { contains: term, mode: 'insensitive' } }, { title: { contains: term, mode: 'insensitive' } },
         { customer: { name: { contains: term, mode: 'insensitive' } } }, { customer: { corporateName: { contains: term, mode: 'insensitive' } } },
@@ -931,7 +933,7 @@ export class ProposalService {
     const [rows, total, groups] = await Promise.all([
       this.prisma.commercial_Proposal.findMany({
         where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: page * limit, take: limit,
-        select: { id: true, number: true, revision: true, kind: true, status: true, title: true, total: true, validUntil: true, createdAt: true, sentAt: true,
+        select: { id: true, number: true, revision: true, kind: true, entityId: true, status: true, title: true, total: true, validUntil: true, createdAt: true, sentAt: true,
           inactiveAt: true, sellerId: true, createdByUserId: true, dealId: true, customer: { select: { id: true, name: true } } },
       }),
       this.prisma.commercial_Proposal.count({ where }),

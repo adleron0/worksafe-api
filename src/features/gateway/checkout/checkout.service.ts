@@ -1,3 +1,4 @@
+import { gatewayScope } from 'src/payments/gateway-scope';
 import { SellerWalletService } from 'src/features/commercial/wallet.service';
 import { classificationDefaults } from 'src/features/financial/classification';
 import {
@@ -145,7 +146,10 @@ export class CheckoutService {
         await this.gatewayResolver.forCourseClass({
           companyGatewayId: subscription.courseClass.companyGatewayId,
           companyId,
+          entityId: subscription.courseClass.entityId,
         });
+      // daqui em diante, toda chamada ao provedor usa a conta escolhida (a do CNPJ da turma)
+      if (gateway?.id) gatewayScope.enter({ companyGatewayId: gateway.id });
 
       let financialRecordId: number;
 

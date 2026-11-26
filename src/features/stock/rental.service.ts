@@ -1,3 +1,4 @@
+import { entityFilter } from 'src/features/company-entity/entity.field';
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, Stock_Rental } from '@prisma/client';
 import { FlowDefinition, assertMove, listFlowEvents, recordFlowEvent } from 'src/common/flow/flow';
@@ -391,7 +392,7 @@ export class StockRentalService {
     const stageFilter = query.stage && query.stage in RENTAL_STAGE_LABEL ? (query.stage as RentalStage) : null;
     const status = stageFilter ? ({ a_entregar: 'reservada', ativa: 'ativa', a_devolver: 'ativa', atrasada: 'ativa' } as Record<string, string>)[stageFilter] ?? stageFilter : query.status;
     const where: Prisma.Stock_RentalWhereInput = {
-      companyId: actor.companyId, inactiveAt: null,
+      companyId: actor.companyId, inactiveAt: null, ...entityFilter(query.entityId),
       ...(status && status in RENTAL_FLOW.labels ? { status } : status === 'todas' ? {} : { status: { not: 'cancelada' } }),
       ...(term ? { OR: [{ number: { contains: term, mode: 'insensitive' } }, { customerId: { in: customerIds } }] } : {}),
     };

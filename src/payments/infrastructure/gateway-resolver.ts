@@ -56,10 +56,11 @@ export class GatewayResolver {
    * o escolheram de propósito; melhor falhar e ser corrigido.
    */
   async forCourseClass(
-    courseClass: { companyGatewayId?: number | null; companyId?: number | null },
+    courseClass: { companyGatewayId?: number | null; companyId?: number | null; entityId?: number | null },
   ): Promise<{ adapter: PaymentGatewayPort; record: any }> {
     if (!courseClass.companyGatewayId) {
-      return this.forCompany(courseClass.companyId);
+      // sem escolha na turma: a conta do CNPJ da turma (cada CNPJ tem a sua)
+      return this.forCompany(courseClass.companyId, courseClass.entityId);
     }
 
     const escolhido = await this.prisma.selectFirst('companyGateWays', {
@@ -93,11 +94,15 @@ export class GatewayResolver {
    */
   async forCompany(
     companyId: number,
+    entityId?: number | null,
   ): Promise<{ adapter: PaymentGatewayPort; record: any }> {
-    const active = await this.prisma.select('companyGateWays', {
+    const found = await this.prisma.select('companyGateWays', {
       where: { companyId, active: true },
       orderBy: { createdAt: 'desc' },
     });
+    // a do CNPJ pedido primeiro; depois as sem CNPJ; por último as de outro CNPJ
+    const rank = (g: any) => (entityId && g.entityId === entityId ? 0 : !g.entityId ? 1 : 2);
+    const active = [...(found ?? [])].sort((a: any, b: any) => rank(a) - rank(b));
 
     if (!active || active.length === 0) {
       throw new HttpException(

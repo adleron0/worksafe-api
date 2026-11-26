@@ -1,3 +1,4 @@
+import { entityField, entityFilter } from 'src/features/company-entity/entity.field';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Hr_Employee, Hr_EmployeeEvent, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -108,7 +109,7 @@ export class EmployeeService {
     const { status, until } = statusOn(row, row.events, day);
     const shown = this.shownStatus(actor, status);
     return {
-      id: row.id, name: row.name, registration: row.registration, phone: row.phone, contractType: row.contractType,
+      id: row.id, name: row.name, registration: row.registration, phone: row.phone, contractType: row.contractType, entityId: row.entityId,
       roles: row.roles.map((role) => ({ id: role.professional.id, name: role.professional.name, isPrimary: role.isPrimary })),
       primaryRole: row.roles.find((role) => role.isPrimary)?.professional.name ?? row.roles[0]?.professional.name ?? null,
       status: shown, statusLabel: STATUS_LABEL[shown], statusUntil: until,
@@ -131,6 +132,8 @@ export class EmployeeService {
       // inativos (cadastrados por engano) só aparecem quando pedidos
       inactiveAt: query.inactive === 'true' ? { not: null } : null,
       ...(professionalId ? { roles: { some: { professionalId } } } : {}),
+      // empregador (CNPJ do grupo)
+      ...entityFilter(query.entityId),
       ...(term ? { OR: [
         { name: { contains: term, mode: 'insensitive' } },
         { registration: { contains: term, mode: 'insensitive' } },
@@ -381,6 +384,11 @@ export class EmployeeService {
     }
     for (const [key, max] of [['phone', 30], ['registration', 30]] as const) if (key in body) data[key] = clean(body[key], max) || null;
     if ('notes' in body) data.notes = text(body.notes, 1000) || null;
+    // empregador: o CNPJ do grupo que registra a pessoa (pode trabalhar em obra ou turma de outro CNPJ)
+    if ('entityId' in body) {
+      const entityId = await entityField(this.prisma, actor.companyId, body.entityId, (message) => { throw new BadRequestException(message); }, current?.entityId);
+      if (entityId) data.entityId = entityId;
+    }
     if ('contractType' in body) {
       if (!CONTRACT_TYPES.some((type) => type.id === body.contractType)) throw new BadRequestException('Tipo de vínculo inválido');
       data.contractType = String(body.contractType);

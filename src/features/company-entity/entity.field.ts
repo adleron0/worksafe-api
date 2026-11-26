@@ -1,3 +1,4 @@
+import { CrudError } from '@adleron/crud-core';
 import { Prisma, PrismaClient } from '@prisma/client';
 
 type Db = Pick<PrismaClient, 'company_Entity'> | Prisma.TransactionClient;
@@ -25,3 +26,18 @@ export function entityFilter(value: unknown): { entityId: { in: number[] } } | R
 }
 
 export const ENTITY_SELECT = { select: { id: true, tradeName: true, color: true } } as const;
+
+/**
+ * Gancho do crud-core para o campo "Empresa": confere o CNPJ escolhido (do grupo
+ * e ativo). Vazio some do corpo: o banco preenche pela origem ou pelo padrão.
+ */
+export const entityHook = {
+  preWrite: async ({ op, data, existing, scopeId, deps }: any) => {
+    if ((op !== 'create' && op !== 'update') || !data || !('entityId' in data)) return undefined;
+    const id = await entityField(deps.prisma, Number(scopeId), data.entityId, (message, field) => { throw new CrudError('VALIDATION_FAILED', message, field); }, existing?.entityId);
+    const next = { ...data };
+    if (id) next.entityId = id;
+    else delete next.entityId;
+    return next;
+  },
+};

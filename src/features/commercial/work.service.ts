@@ -429,11 +429,21 @@ export class WorkMeasurementService {
   async report(actor: MeasurementActor, contractId: number, id: number) {
     await this.contractOf(actor.companyId, contractId);
     const row = await this.byId(actor.companyId, contractId, id);
+    const entityId = (await this.prisma.commercial_Contract.findUnique({ where: { id: row.contractId }, select: { entityId: true } }))?.entityId ?? null;
     const [company, brand] = await Promise.all([
-      this.prisma.company.findUnique({ where: { id: actor.companyId }, select: { comercial_name: true } }),
-      this.documents.brand(actor.companyId),
+      this.companyName(actor.companyId, entityId),
+      this.documents.brand(actor.companyId, entityId),
     ]);
     return { ...(await this.reportOf(actor.companyId, row)), publicKey: row.publicKey, company: { name: company?.comercial_name ?? '', logoUrl: brand.logoUrl, color: brand.color } };
+  }
+
+  /** Nome que o cliente vê: o do CNPJ do grupo do contrato (ou o da empresa). */
+  private async companyName(companyId: number, entityId: number | null) {
+    if (entityId) {
+      const e = await this.prisma.company_Entity.findUnique({ where: { id: entityId }, select: { tradeName: true } });
+      if (e) return { comercial_name: e.tradeName };
+    }
+    return this.prisma.company.findUnique({ where: { id: companyId }, select: { comercial_name: true } });
   }
 
   private async byKey(key: string) {
@@ -445,9 +455,10 @@ export class WorkMeasurementService {
   /** O que o cliente vê pelo link: o boletim, o relatório do período e se pode decidir. */
   async publicView(key: string) {
     const row = await this.byKey(key);
+    const entityId = (await this.prisma.commercial_Contract.findUnique({ where: { id: row.contractId }, select: { entityId: true } }))?.entityId ?? null;
     const [company, brand] = await Promise.all([
-      this.prisma.company.findUnique({ where: { id: row.companyId }, select: { comercial_name: true } }),
-      this.documents.brand(row.companyId),
+      this.companyName(row.companyId, entityId),
+      this.documents.brand(row.companyId, entityId),
     ]);
     const report = await this.reportOf(row.companyId, row);
     const { contract, ...rest } = report;

@@ -1,3 +1,4 @@
+import { entityFilter } from 'src/features/company-entity/entity.field';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, ServiceOrderStatus, Service_Order } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -206,6 +207,7 @@ export class ServiceOrderService {
     const scope: Prisma.Service_OrderWhereInput = {
       companyId: actor.companyId, inactiveAt: null, AND: [await ordersVisibleTo(this.prisma, actor)],
       ...(Number(query.responsibleUserId) > 0 ? { responsibleUserId: Number(query.responsibleUserId) } : {}),
+      ...entityFilter(query.entityId),
       ...(term ? { OR: [{ number: { contains: term, mode: 'insensitive' } }, { title: { contains: term, mode: 'insensitive' } }, { customerId: { in: customerIds } }] } : {}),
     };
     const status = STATUSES.includes(query.status as ServiceOrderStatus) ? (query.status as ServiceOrderStatus) : undefined;

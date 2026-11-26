@@ -45,7 +45,7 @@ export class OrderDocumentService {
 
   // ------------------------------------------------------------------ cabeçalho da empresa
 
-  private async companyOf(companyId: number) {
+  private async companyOf(companyId: number, entityId?: number | null) {
     const [company, settings] = await Promise.all([
       this.prisma.company.findUnique({ where: { id: companyId }, select: {
         comercial_name: true, corporate_name: true, cnpj: true, logoUrl: true, primary_color: true, representative_contact: true, representative_email: true,
@@ -55,12 +55,27 @@ export class OrderDocumentService {
     ]);
     const brand = (settings?.brand ?? {}) as Body;
     const domain = String(company?.system_domain ?? '').trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
-    return {
+    const group = {
       name: company?.comercial_name ?? '', corporateName: company?.corporate_name ?? '', cnpj: company?.cnpj ?? '',
       logoUrl: safeImageUrl(brand.logoUrl) ?? safeImageUrl(company?.logoUrl), color: validColor(brand.color ?? company?.primary_color ?? DEFAULT_COLOR),
       phone: brand.phone || company?.representative_contact || '', email: brand.email || company?.representative_email || '',
       address: brand.address || [company?.address, company?.addressNumber, company?.neighborhood].filter(Boolean).join(', '),
       registrations: brand.registrations || '', domain: domain || null,
+    };
+    // a OS sai em nome do CNPJ do grupo dela (nome, CNPJ, endereço, logo e cor próprios, se tiver)
+    const entity = entityId ? await this.prisma.company_Entity.findFirst({ where: { id: entityId, companyId }, include: { city: true, state: true } }) : null;
+    if (!entity) return group;
+    const own = (entity.brand ?? {}) as Body;
+    const multi = (await this.prisma.company_Entity.count({ where: { companyId } })) > 1;
+    const registrations = [entity.stateRegistration ? `IE ${entity.stateRegistration}` : '', entity.municipalRegistration ? `IM ${entity.municipalRegistration}` : ''].filter(Boolean).join(' · ');
+    return {
+      ...group,
+      name: entity.tradeName, corporateName: entity.corporateName, cnpj: entity.cnpj,
+      logoUrl: safeImageUrl(own.logoUrl) ?? safeImageUrl(entity.logoUrl) ?? group.logoUrl,
+      color: validColor(own.color ?? entity.color ?? group.color),
+      phone: own.phone || entity.phone || group.phone, email: own.email || entity.email || group.email,
+      address: own.address || [entity.address, entity.addressNumber, entity.neighborhood, entity.city ? `${entity.city.name}${entity.state ? `/${entity.state.uf}` : ''}` : null].filter(Boolean).join(', ') || group.address,
+      registrations: own.registrations || registrations || (multi ? '' : group.registrations),
     };
   }
 
@@ -101,7 +116,7 @@ export class OrderDocumentService {
   /** O conteúdo da folha da OS. `audience` decide o que entra: equipe (sistema) ou cliente (link aberto). */
   private async sheet(row: Service_Order, audience: 'equipe' | 'cliente', options: PublicOptions = DEFAULT_PUBLIC) {
     const [company, customer, contract, responsible, reports] = await Promise.all([
-      this.companyOf(row.companyId),
+      this.companyOf(row.companyId, row.entityId),
       this.prisma.customer.findUnique({ where: { id: row.customerId }, select: { name: true, corporateName: true, cnpj: true } }),
       this.prisma.commercial_Contract.findUnique({ where: { id: row.contractId }, select: { customerOrderNumber: true, customerOrderDate: true } }),
       row.responsibleUserId ? this.prisma.user.findUnique({ where: { id: row.responsibleUserId }, select: { name: true, phone: true } }) : null,
@@ -150,7 +165,7 @@ export class OrderDocumentService {
     void reports;
     const [me, company] = await Promise.all([
       actor.userId ? this.prisma.user.findUnique({ where: { id: actor.userId }, select: { name: true } }) : null,
-      this.companyOf(row.companyId),
+      this.companyOf(row.companyId, row.entityId),
     ]);
     return {
       ...sheet, withValues, canSeeValues: actor.canSeeValues,
@@ -163,8 +178,8 @@ export class OrderDocumentService {
 
   // ------------------------------------------------------------------ link do cliente
 
-  private async publicState(row: Pick<Service_Order, 'companyId' | 'publicEnabled' | 'publicKey' | 'publicOptions'>) {
-    const company = await this.companyOf(row.companyId);
+  private async publicState(row: Pick<Service_Order, 'companyId' | 'entityId' | 'publicEnabled' | 'publicKey' | 'publicOptions'>) {
+    const company = await this.companyOf(row.companyId, row.entityId);
     return {
       enabled: row.publicEnabled, key: row.publicKey, options: optionsOf(row.publicOptions),
       url: row.publicKey && company.domain ? `https://${company.domain}/acompanhar/${row.publicKey}` : null, path: row.publicKey ? `/acompanhar/${row.publicKey}` : null,
