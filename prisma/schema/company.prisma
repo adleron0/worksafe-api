@@ -29,6 +29,10 @@ model Company {
   email_conection        Json?
   lp_domain              String?     @db.VarChar(255)
   system_domain          String?     @db.VarChar(255)
+  /// domínio do Google Workspace da empresa (ex.: worksafebrasil.com.br): quem entra com o Google desse domínio é da casa
+  google_domain          String?     @unique @db.VarChar(255)
+  /// liga o "Entrar com Google"; com ele ligado, e-mail do domínio não entra mais por senha
+  google_login_enabled   Boolean     @default(false)
   websiteUrl             String?     @db.VarChar(255)
   /// Meta mensal de faturamento, mostrada no resumo da tela inicial (null = sem meta)
   monthlyRevenueGoal     Decimal?    @db.Decimal(12, 2)
@@ -37,6 +41,8 @@ model Company {
   linkedinUrl            String?     @db.VarChar(255)
 
   users                           User[] // Relacionamento com a tabela User
+  accessRequests                  AccessRequest[]
+  externalInvites                 ExternalInvite[]
   Area                            Area[] // Relacionamento com a tabela Area
   products                        CompanyProduct[] // Relacionamento com a tabela Product
   severity                        Confinus_DOM_SeverityDefinition[] // Relacionamento com a tabela Severity

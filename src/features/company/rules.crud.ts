@@ -19,8 +19,9 @@ export const companyEntity: EntityRules = {
   includable: ['state', 'city', 'products'],
   includes: { products: { include: { product: true } } },
   // Dados financeiros e SMTP nunca saem na vitrine (o admin da empresa vê).
-  publicMaskedFields: ['id', 'financial_email', 'financial_contact', 'email_conection'],
-  neverWritable: ['active', 'cnpj'],
+  publicMaskedFields: ['id', 'financial_email', 'financial_contact', 'email_conection', 'google_domain', 'google_login_enabled'],
+  // login com Google só pela rota /access-settings (com validação e log)
+  neverWritable: ['active', 'cnpj', 'google_domain', 'google_login_enabled'],
   softDelete: { field: 'inactiveAt' },
   hooks: composeHooks(
     syncActiveFlag,

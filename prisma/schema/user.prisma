@@ -8,6 +8,10 @@ model User {
   imageUrl         String?                  @db.VarChar(255)
   phone            String                   @db.VarChar(255)
   cpf              String                   @db.VarChar(20)
+  /// identificador fixo da conta Google (claim `sub`); o vínculo é por ele, não pelo e-mail
+  googleSub        String?                  @unique @db.VarChar(64)
+  /// convidado externo: acesso vale até esta data (nulo = da casa)
+  externalUntil    DateTime?
   birthDate        DateTime?
   companyId        Int?
   company          Company?                 @relation(fields: [companyId], references: [id])
@@ -43,6 +47,10 @@ model User {
   splitTransactions SplitTransaction[] // Transações de split associadas ao seller
   blogPosts        Blog_Post[]         // Posts do blog criados pelo usuário
   blogVisitors     Blog_Visitor[]      // Visitantes vinculados a este usuário (mesmo email)
+  accessRequests   AccessRequest[]     @relation("AccessRequestUser")
+  accessDecisions  AccessRequest[]     @relation("AccessRequestDecider")
+  externalInvite   ExternalInvite?     @relation("ExternalInviteUser")
+  invitesSent      ExternalInvite[]    @relation("ExternalInviteBy")
 
   @@unique([email, companyId]) // Garante que o email seja único dentro da mesma empresa
   @@unique([id, companyId]) // Índice composto para id e companyId

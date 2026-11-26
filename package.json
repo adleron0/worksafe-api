@@ -50,6 +50,7 @@
     "@types/sanitize-html": "^2.16.2",
     "axios": "^1.7.6",
     "bcrypt": "^6.0.0",
+    "google-auth-library": "^10.9.1",
     "body-parser": "^2.2.0",
     "cache-manager": "^7.0.1",
     "canvas": "^3.2.3",

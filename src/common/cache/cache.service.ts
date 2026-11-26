@@ -130,6 +130,20 @@ export class CacheService implements OnModuleDestroy, OnModuleInit {
     }
   }
 
+  /**
+   * Lê e apaga numa operação só (uso único: state do OAuth, tickets).
+   * Duas requisições ao mesmo tempo nunca recebem o mesmo valor.
+   */
+  async take<T = any>(key: string): Promise<T | null> {
+    try {
+      const [[, value]] = (await this.redis.multi().get(key).del(key).exec()) as any;
+      return value ? JSON.parse(value) : null;
+    } catch (error) {
+      console.error(`Error taking cache key ${key}:`, error);
+      return null;
+    }
+  }
+
   async del(key: string): Promise<void> {
     try {
       await this.redis.del(key);

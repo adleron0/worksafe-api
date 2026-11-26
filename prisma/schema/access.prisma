@@ -1,0 +1,49 @@
+/// Pedido de perfil de quem entrou com o Google do domínio e ainda não tem perfil
+model AccessRequest {
+  id          Int       @id @default(autoincrement())
+  companyId   Int
+  company     Company   @relation(fields: [companyId], references: [id])
+  userId      Int
+  user        User      @relation("AccessRequestUser", fields: [userId], references: [id])
+  message     String?   @db.VarChar(500)
+  /// pending | approved | rejected
+  status      String    @default("pending") @db.VarChar(20)
+  profileId   Int?
+  decidedById Int?
+  decidedBy   User?     @relation("AccessRequestDecider", fields: [decidedById], references: [id])
+  decidedAt   DateTime?
+  reason      String?   @db.VarChar(500)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([companyId, status])
+  @@index([userId])
+}
+
+/// Convite de alguém de fora do domínio (Gmail ou outra empresa), com prazo
+model ExternalInvite {
+  id          Int       @id @default(autoincrement())
+  companyId   Int
+  company     Company   @relation(fields: [companyId], references: [id])
+  /// e-mail exato, minúsculo
+  email       String    @db.VarChar(255)
+  profileId   Int
+  reason      String?   @db.VarChar(500)
+  expiresAt   DateTime
+  invitedById Int
+  invitedBy   User      @relation("ExternalInviteBy", fields: [invitedById], references: [id])
+  /// preso na primeira entrada: depois disso vale o `sub`, não o e-mail
+  googleSub   String?   @db.VarChar(64)
+  userId      Int?      @unique
+  user        User?     @relation("ExternalInviteUser", fields: [userId], references: [id])
+  firstLoginAt DateTime?
+  /// aviso de vencimento já enviado para quem convidou
+  warnedAt    DateTime?
+  revokedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([companyId, email])
+}

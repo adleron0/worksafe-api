@@ -1,16 +1,38 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { UserService } from 'src/features/users/user/service';
 import { compare } from 'bcrypt';
 import { encryptPayload } from 'src/utils/crypto';
 import * as Zlib from 'zlib';
+import { randomBytes } from 'crypto';
 import { AuthCacheService } from 'src/common/cache/auth-cache.service';
 
 const accessTokenSecret = process.env.JWT_ACCESS_SECRET;
 const refreshTokenSecret = process.env.JWT_REFRESH_SECRET;
 const baseSetup = process.env.BASE_SETUP;
 const domain = process.env.PROD_DOMAIN;
+
+const PASSWORD_SESSION_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
+const GOOGLE_SESSION_MS = 12 * 60 * 60 * 1000; // 12 horas
+
+/** Atributos do cookie do refresh token: criar e apagar precisam ser iguais. */
+function refreshCookieBase() {
+  return {
+    httpOnly: true,
+    secure: true,
+    sameSite: (baseSetup === 'development' ? 'none' : 'lax') as 'none' | 'lax',
+    path: '/',
+    domain: baseSetup === 'development' ? 'localhost' : domain,
+  };
+}
+
+/** E-mail é do domínio Google da empresa? (comparação exata do que vem depois do @) */
+export function emailIsFromDomain(email: string, googleDomain?: string | null): boolean {
+  if (!email || !googleDomain) return false;
+  const at = email.lastIndexOf('@');
+  return at > 0 && email.slice(at + 1).trim().toLowerCase() === googleDomain.trim().toLowerCase();
+}
 
 @Injectable()
 export class AuthService {
@@ -23,6 +45,19 @@ export class AuthService {
 
   async login(user: any, response: any) {
     const { email, password, cnpj } = user;
+
+    // Com o Google ligado, e-mail do domínio da empresa só entra pelo Google:
+    // senão a senha antiga vira porta dos fundos. Decidido só pelo domínio do
+    // e-mail e pelo CNPJ, então não revela se a conta existe.
+    const company = await this.prisma.company.findUnique({
+      where: { cnpj: String(cnpj ?? '') },
+      select: { google_domain: true, google_login_enabled: true },
+    });
+    const googleOnly = 'E-mails da empresa entram pelo botão "Entrar com Google".';
+    if (company?.google_login_enabled && emailIsFromDomain(email, company.google_domain)) {
+      throw new ForbiddenException(googleOnly);
+    }
+
     const result = await this.usersService.findOneUser(email, cnpj);
 
     if (!result) {
@@ -36,6 +71,14 @@ export class AuthService {
     if (!result.active) {
       throw new UnauthorizedException('Acesso negado para este usuário!');
     }
+    // Decide pelo usuário, não só pelo texto do e-mail: conta ligada ao Google
+    // (com o Google ligado) e convidado nunca entram por senha.
+    if (result.externalUntil) {
+      throw new ForbiddenException('Convidados entram pelo botão "Entrar com Google".');
+    }
+    if (result.googleSub && company?.google_login_enabled) {
+      throw new ForbiddenException(googleOnly);
+    }
 
     // Verificar se o usuário tem uma profile associada
     if (!result.profile) {
@@ -47,105 +90,85 @@ export class AuthService {
       throw new UnauthorizedException('Empresa inativa!');
     }
 
-    // Obter os produtos da empresa
-    const products = result.company.products;
-    const productNames = products.map((p) => p.product.name);
+    return this.issueSession(result, response, { method: 'password' });
+  }
 
-    // Obter a Profile do usuário
-    const userProfile = result.profile;
-
-    // Obter as permissões individuais do usuário
-    const userPermissions =
-      result.permissions?.map((up) => up.permission.name) || [];
-
-    // Obter as permissões da Profile
+  /**
+   * Monta o payload do access token a partir do usuário (com perfil,
+   * permissões e produtos da empresa já carregados).
+   */
+  buildAccessPayload(user: any) {
+    const productNames = (user.company?.products ?? []).map((p) => p.product.name);
+    const userPermissions = user.permissions?.map((up) => up.permission.name) || [];
     const profilePermissions =
-      userProfile.permissions?.map((rp) => rp.permission.name) || [];
-
-    // Combinar as permissões e remover duplicadas
-    const allPermissions = [
-      ...new Set([...userPermissions, ...profilePermissions]),
-    ];
-
-    const compactPermissions = Zlib.deflateRawSync(
-      JSON.stringify(allPermissions),
-      {
-        level: 9,
-      },
-    ).toString('base64');
-
-    // Montar o payload do token
-    const payload = {
-      username: result.name,
-      imageUrl: result.imageUrl,
-      sub: result.id,
-      companyId: result.companyId,
+      user.profile?.permissions?.map((rp) => rp.permission.name) || [];
+    const allPermissions = [...new Set([...userPermissions, ...profilePermissions])];
+    const compactPermissions = Zlib.deflateRawSync(JSON.stringify(allPermissions), {
+      level: 9,
+    }).toString('base64');
+    return {
+      username: user.name,
+      imageUrl: user.imageUrl,
+      sub: user.id,
+      companyId: user.companyId,
       products: productNames,
-      profile: userProfile.name,
+      profile: user.profile.name,
       permissions: compactPermissions,
     };
+  }
 
-    // Gerar os tokens
-    const accessToken = this.getAccessToken({
-      data: encryptPayload(payload),
-    });
-    const refreshToken = this.getRefreshToken({ sub: result.id });
+  /**
+   * Abre a sessão: access token na resposta, refresh token em cookie httpOnly e
+   * linha na tabela Session. Quem entra pelo Google tem sessão curta (12 h):
+   * suspenso no Google, perde o acesso no mesmo dia.
+   */
+  async issueSession(
+    user: any,
+    response: any,
+    opts: { method: 'password' | 'google' },
+  ) {
+    const sessionMs = opts.method === 'google' ? GOOGLE_SESSION_MS : PASSWORD_SESSION_MS;
+    const accessToken = this.getAccessToken({ data: encryptPayload(this.buildAccessPayload(user)) });
+    const refreshToken = this.jwtService.sign(
+      // jti: dois logins no mesmo segundo gerariam o mesmo token (chave única)
+      { sub: user.id, jti: randomBytes(12).toString('base64url') },
+      { secret: refreshTokenSecret, expiresIn: Math.floor(sessionMs / 1000) },
+    );
 
-    // Salvar o refreshToken no banco de dados
     await this.prisma.session.create({
       data: {
-        userId: result.id,
+        userId: user.id,
         sessionToken: refreshToken,
-        expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 dias
+        expires: new Date(Date.now() + sessionMs),
       },
     });
 
-    // Enviar o refreshToken como HttpOnly cookie
     response.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: baseSetup === 'development' ? 'none' : 'Lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 dias
-      path: '/',
-      ...(baseSetup === 'development'
-        ? {
-            domain: 'localhost',
-          }
-        : {
-            domain: domain,
-          }),
+      ...refreshCookieBase(),
+      maxAge: sessionMs,
     });
 
-    // Salvar log de login
     await this.prisma.system_Logs.create({
       data: {
-        companyId: result.companyId,
-        userId: result.id,
-        action: 'login',
+        companyId: user.companyId,
+        userId: user.id,
+        action: opts.method === 'google' ? 'login_google' : 'login',
         entity: 'user',
-        entityId: result.id,
+        entityId: user.id,
         column: null,
         oldValue: null,
         newValue: null,
       },
     });
 
-    // Retornar apenas o accessToken na resposta
     return { accessToken };
   }
 
   getAccessToken(payload: any) {
     return this.jwtService.sign(payload, {
       secret: accessTokenSecret,
-      expiresIn: '60m',
-      // expiresIn: '1m',
-    });
-  }
-
-  getRefreshToken(payload: any) {
-    return this.jwtService.sign(payload, {
-      secret: refreshTokenSecret,
-      expiresIn: '7d',
+      // 15 min: um token vazado (XSS) vale pouco; o front renova sozinho
+      expiresIn: '15m',
     });
   }
 
@@ -170,12 +193,10 @@ export class AuthService {
     await this.authCache.invalidateUserCache(Number(verifyRefresh.sub));
 
     // Sobrescreve o cookie do refreshToken para removê-lo no lado do cliente
+    // Mesmo domain/sameSite da criação: sem o domain o navegador não apagava
     response.cookie('refreshToken', '', {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'Lax',
+      ...refreshCookieBase(),
       expires: new Date(0),
-      path: '/',
     });
   }
 
@@ -277,43 +298,12 @@ export class AuthService {
         throw new UnauthorizedException('Usuário sem permissão para acessar!');
       }
 
-      // Obter produtos da empresa
-      const products = user.company.products;
-      const productNames = products.map((p) => p.product.name);
+      // Convidado externo com prazo vencido perde o acesso na hora
+      if (user.externalUntil && new Date(user.externalUntil) <= new Date()) {
+        throw new UnauthorizedException('Acesso de convidado vencido.');
+      }
 
-      // Obter a Profile do usuário
-      const userProfile = user.profile;
-
-      // Obter as permissões individuais do usuário
-      const userPermissions =
-        user.permissions?.map((up) => up.permission.name) || [];
-
-      // Obter as permissões da profile
-      const profilePermissions =
-        userProfile.permissions?.map((rp) => rp.permission.name) || [];
-
-      // Combinar as permissões e remover duplicadas
-      const allPermissions = [
-        ...new Set([...userPermissions, ...profilePermissions]),
-      ];
-
-      const compactPermissions = Zlib.deflateRawSync(
-        JSON.stringify(allPermissions),
-        {
-          level: 9,
-        },
-      ).toString('base64');
-
-      // Montar o payload do token
-      const payload = {
-        username: user.name,
-        sub: user.id,
-        imageUrl: user.imageUrl,
-        companyId: user.companyId,
-        products: productNames,
-        profile: userProfile.name,
-        permissions: compactPermissions,
-      };
+      const payload = this.buildAccessPayload(user);
 
       // Gerar o novo accessToken
       const newAccessToken = this.getAccessToken({
