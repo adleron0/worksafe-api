@@ -231,7 +231,7 @@ export class ContractService {
     const value = Number(row.value);
     const classById = new Map(classRows.map((c) => [c.id, c]));
     return {
-      id: row.id, number: row.number, kind: row.kind, status: row.status, title: row.title, value, acceptedAt: row.acceptedAt,
+      id: row.id, number: row.number, kind: row.kind, entityId: row.entityId, status: row.status, title: row.title, value, acceptedAt: row.acceptedAt,
       startDate: iso(row.startDate), endDate: iso(row.endDate), notes: row.notes, statusNote: row.statusNote,
       customerOrder: customerOrderOf(row), serviceOrder: await this.orders.ofContract(row.id),
       customer: row.customer, proposal: proposal ? { id: proposal.id, number: proposal.number } : null,

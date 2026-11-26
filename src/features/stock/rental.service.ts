@@ -405,7 +405,7 @@ export class StockRentalService {
     ]);
     const customerOf = new Map(customers.map((c) => [c.id, c.name])), itemOf = new Map(items.map((i) => [i.id, i.name])), contractOf = new Map(contracts.map((c) => [c.id, c.number]));
     // a esteira conta por etapa (que depende das datas), não pela situação gravada
-    const open = await this.prisma.stock_Rental.findMany({ where: { companyId: actor.companyId, inactiveAt: null }, select: { status: true, expectedEnd: true } });
+    const open = await this.prisma.stock_Rental.findMany({ where: { companyId: actor.companyId, inactiveAt: null, ...entityFilter(query.entityId) }, select: { status: true, expectedEnd: true } });
     const summary: Record<string, number> = {};
     for (const r of open) { const stage = rentalStage(r); summary[stage] = (summary[stage] ?? 0) + 1; }
     return {
@@ -413,7 +413,7 @@ export class StockRentalService {
       rows: rows.map((r) => {
         const pending = r.contractId ? pendingLines(r) : [];
         return {
-          id: r.id, number: r.number, status: r.status, statusLabel: RENTAL_FLOW.labels[r.status as RentalStatus], stage: rentalStage(r), stageLabel: RENTAL_STAGE_LABEL[rentalStage(r)],
+          id: r.id, number: r.number, entityId: r.entityId, status: r.status, statusLabel: RENTAL_FLOW.labels[r.status as RentalStatus], stage: rentalStage(r), stageLabel: RENTAL_STAGE_LABEL[rentalStage(r)],
           customer: customerOf.get(r.customerId) ?? '', customerId: r.customerId, contract: r.contractId ? { id: r.contractId, number: contractOf.get(r.contractId) ?? '' } : null,
           startDate: d(r.startDate), expectedEnd: d(r.expectedEnd), returnedAt: d(r.returnedAt), period: r.period, billing: r.billing, late: this.late(r), fromContract: !!r.contractId,
           summary: r.lines.slice(0, 3).map((l) => `${round3(num(l.quantity))} ${itemOf.get(l.itemId) ?? ''}`).join(', ') + (r.lines.length > 3 ? ` e mais ${r.lines.length - 3}` : ''),
@@ -451,7 +451,7 @@ export class StockRentalService {
     const pending = pendingLines(row);
     const stage = rentalStage(row);
     return {
-      id: row.id, number: row.number, status: row.status, statusLabel: RENTAL_FLOW.labels[row.status as RentalStatus], nextStatuses: RENTAL_FLOW.moves[row.status as RentalStatus],
+      id: row.id, number: row.number, entityId: row.entityId, status: row.status, statusLabel: RENTAL_FLOW.labels[row.status as RentalStatus], nextStatuses: RENTAL_FLOW.moves[row.status as RentalStatus],
       stage, stageLabel: RENTAL_STAGE_LABEL[stage],
       customer, contract, serviceOrder: order, proposalId: row.proposalId, startDate: d(row.startDate), expectedEnd: d(row.expectedEnd), deliveredAt: d(row.deliveredAt), returnedAt: d(row.returnedAt),
       billing: row.billing, period: row.period, periodLabel: PERIODS[row.period as keyof typeof PERIODS], periods: row.periods, billedUntil: d(row.billedUntil), deliveryAddress: row.deliveryAddress,

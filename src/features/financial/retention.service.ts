@@ -266,7 +266,11 @@ export class RetentionService {
     const taxes = Array.isArray(body.taxes) ? (body.taxes as string[]).filter((t) => RETENTION_TAXES.includes(t as RetentionTax)) : [...RETENTION_TAXES];
     const undo = body.undo === true;
     const result = await this.prisma.financial_Retention.updateMany({
-      where: { companyId: actor.companyId, accrualDate: month, tax: { in: taxes }, declaredAt: undo ? { not: null } : null },
+      // com um CNPJ escolhido, só as retenções das contas a receber dele (cada CNPJ declara as suas)
+      where: {
+        companyId: actor.companyId, accrualDate: month, tax: { in: taxes }, declaredAt: undo ? { not: null } : null,
+        ...(Number(body.entityId) > 0 ? { financialRecord: { entityId: Number(body.entityId) } } : {}),
+      },
       data: undo ? { declaredAt: null, declaredByUserId: null } : { declaredAt: new Date(), declaredByUserId: actor.userId },
     });
     return { updated: result.count };

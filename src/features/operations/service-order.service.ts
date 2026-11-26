@@ -256,7 +256,7 @@ export class ServiceOrderService {
       rows: rows.map((row) => {
         const checklist = (row.checklist as unknown as ChecklistItem[]) ?? [];
         return {
-          id: row.id, number: row.number, status: row.status, title: row.title, customer: customerOf.get(row.customerId) ?? { id: row.customerId, name: '' },
+          id: row.id, number: row.number, entityId: row.entityId, status: row.status, title: row.title, customer: customerOf.get(row.customerId) ?? { id: row.customerId, name: '' },
           proposal: proposalOf.get(row.proposalId) ?? null, customerOrderNumber: orderNumberOf.get(row.contractId) ?? null,
           plannedStart: iso(row.plannedStart), plannedEnd: iso(row.plannedEnd), startedAt: iso(row.startedAt), finishedAt: iso(row.finishedAt),
           responsible: row.responsibleUserId ? userOf.get(row.responsibleUserId) ?? null : null, location: row.location,
@@ -279,7 +279,7 @@ export class ServiceOrderService {
     const users = userIds.length ? await this.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : [];
     const userName = new Map(users.map((user) => [user.id, user.name]));
     return {
-      id: row.id, number: row.number, status: row.status, statusLabel: SERVICE_ORDER_FLOW.labels[row.status], nextStatuses: SERVICE_ORDER_FLOW.moves[row.status],
+      id: row.id, number: row.number, entityId: row.entityId, status: row.status, statusLabel: SERVICE_ORDER_FLOW.labels[row.status], nextStatuses: SERVICE_ORDER_FLOW.moves[row.status],
       title: row.title, description: row.description, statusNote: row.statusNote, late: this.lateOf(row),
       customer, proposal,
       contract: contract ? { id: contract.id, number: contract.number } : null,
