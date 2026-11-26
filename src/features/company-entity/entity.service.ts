@@ -34,6 +34,18 @@ export interface EntityIdentity {
 const digits = (v: unknown) => String(v ?? '').replace(/\D/g, '');
 const clean = (v: unknown, max: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 
+/** Endereço em até duas linhas: "Rua, número, complemento" e "Bairro - Cidade - UF - CEP 00000-000" (o formato dos documentos). */
+export function addressLines(street: Array<string | number | null | undefined>, neighborhood?: string | null, city?: string | null, uf?: string | null, zip?: string | null): string[] {
+  const d = String(zip ?? '').replace(/\D/g, '');
+  const cep = d.length === 8 ? `CEP ${d.slice(0, 5)}-${d.slice(5)}` : '';
+  const [road, number, complement] = street.map((part) => String(part ?? '').trim());
+  const numbered = road ? [road, number && number !== '0' ? number : '', complement] : [];
+  return [
+    numbered.filter(Boolean).join(', '),
+    [neighborhood, city, uf, cep].map((part) => String(part ?? '').trim()).filter(Boolean).join(' - '),
+  ].filter(Boolean);
+}
+
 /** Valida o CNPJ pelos dígitos verificadores. */
 export function validCnpj(value: string) {
   const c = digits(value);
@@ -157,15 +169,25 @@ export class CompanyEntityService {
   async identity(companyId: number, entityId?: number | null, kind?: string | null): Promise<EntityIdentity> {
     const id = await this.resolveId(companyId, entityId ?? undefined, kind);
     const r = await this.get(companyId, id);
-    const uf = r.state?.uf ?? null;
-    const street = [r.address, r.addressNumber, r.addressComplement].filter(Boolean).join(', ');
-    const cityLine = [r.neighborhood, r.city ? `${r.city.name}${uf ? `/${uf}` : ''}` : null, r.zipCode ? `CEP ${r.zipCode}` : null].filter(Boolean).join(' · ');
+    // o CNPJ principal (o mesmo do cadastro da empresa): o que está em branco nele vem
+    // do cadastro da empresa, que continua editável na tela "Empresa"
+    const c = await this.prisma.company.findUnique({ where: { id: companyId }, include: { city: true, state: true } });
+    const main = !!c && digits(c.cnpj) === digits(r.cnpj);
+    const pick = <T>(own: T | null | undefined, fallback: T | null | undefined): T | null => (own !== null && own !== undefined && own !== '' ? own : main ? fallback ?? null : null);
+    const city = r.city ?? (main ? c?.city ?? null : null);
+    const uf = r.state?.uf ?? (main ? c?.state?.uf ?? null : null);
+    const address = pick(r.address, c?.address);
+    const number = pick(r.addressNumber, c?.addressNumber);
+    const complement = pick(r.addressComplement, c?.addressComplement);
+    const neighborhood = pick(r.neighborhood, c?.neighborhood);
+    const zip = pick(r.zipCode, c?.zipCode);
     return {
       entityId: r.id, companyId, cnpj: digits(r.cnpj), name: r.corporateName, tradeName: r.tradeName,
-      ibge: r.city ? ibgeOf(r.city.name, uf) : null, cityName: r.city?.name ?? null, uf, zipCode: r.zipCode,
-      address: [r.address, r.addressNumber, r.addressComplement, r.neighborhood].filter(Boolean).join(', '),
-      addressLines: [street, cityLine].filter(Boolean),
-      email: r.email, phone: r.phone, logoUrl: r.logoUrl, color: r.color,
+      ibge: city ? ibgeOf(city.name, uf) : null, cityName: city?.name ?? null, uf, zipCode: zip,
+      address: [address, number, complement, neighborhood].filter(Boolean).join(', '),
+      addressLines: addressLines([address, number, complement], neighborhood, city?.name, uf, zip),
+      email: pick(r.email, c?.financial_email || c?.representative_email), phone: pick(r.phone, c?.financial_contact || c?.representative_contact),
+      logoUrl: pick(r.logoUrl, c?.logoUrl), color: r.color,
       municipalRegistration: r.municipalRegistration, stateRegistration: r.stateRegistration,
       brand: r.brand && typeof r.brand === 'object' ? (r.brand as Record<string, unknown>) : null,
     };
