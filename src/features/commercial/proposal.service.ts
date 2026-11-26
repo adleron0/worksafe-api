@@ -882,11 +882,12 @@ export class ProposalService {
   }
 
   /** Clientes para o seletor da proposta (com contatos), por nome ou CNPJ. */
-  async customers(actor: Actor, search?: string) {
+  async customers(actor: Actor, search?: string, id?: number) {
     const term = clean(search, 80);
     const digits = term.replace(/\D/g, '');
     const rows = await this.prisma.customer.findMany({
-      where: { companyId: actor.companyId, inactiveAt: null, ...(term ? { OR: [
+      // id: abre a proposta já com o cliente escolhido (ex.: vindo de uma conversa)
+      where: { companyId: actor.companyId, inactiveAt: null, ...(id ? { id } : {}), ...(term ? { OR: [
         { name: { contains: term, mode: 'insensitive' } }, { corporateName: { contains: term, mode: 'insensitive' } },
         ...(digits.length >= 3 ? [{ cnpj: { contains: digits } }] : []),
       ] } : {}) },

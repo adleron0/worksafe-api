@@ -49,7 +49,7 @@ export class ProposalController {
   options(@Req() req: Request, @Query() query: Record<string, string>) { return this.proposals.options(actorOf(req), query ?? {}); }
 
   @Permissions('list_comercial') @Get('proposals/customers')
-  customers(@Req() req: Request, @Query('search') search?: string) { return this.proposals.customers(actorOf(req), search); }
+  customers(@Req() req: Request, @Query('search') search?: string, @Query('id') id?: string) { return this.proposals.customers(actorOf(req), search, Number(id) || undefined); }
 
   @Permissions('list_comercial') @Post('proposals/preview')
   preview(@Req() req: Request, @Body() body: Json) { return this.proposals.preview(actorOf(req), body ?? {}); }

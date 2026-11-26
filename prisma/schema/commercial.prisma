@@ -678,6 +678,8 @@ model Commercial_Activity {
   autoKey         String? @db.VarChar(60)
   // negociação de onde o contato saiu (opcional)
   dealId          Int?
+  // conversa (WhatsApp/Instagram) de onde o contato saiu (opcional)
+  chatConversationId Int?
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @default(now()) @updatedAt
@@ -687,6 +689,7 @@ model Commercial_Activity {
   @@index([companyId, customerId])
   @@index([companyId, doneAt, dueDate])
   @@index([rentalId])
+  @@index([chatConversationId])
   @@unique([companyId, autoKey])
 }
 

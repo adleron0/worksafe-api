@@ -100,6 +100,8 @@ model Chat_Conversation {
   assignedUserId     Int?
   /// bot no controle da conversa (fase dos bots)
   botId              Int?
+  /// negociação aberta a partir da conversa (fase 4)
+  dealId             Int?
   lastMessageAt      DateTime?
   lastMessagePreview String?      @db.VarChar(200)
   lastDirection      String?      @db.VarChar(5)
