@@ -79,7 +79,7 @@ describe('Área fiscal — NFS-e nacional (e2e)', () => {
   }
 
   const draftBody = (customerId: number, serviceCodeId: number, extra: Record<string, unknown> = {}) => ({
-    takerKind: 'cliente', customerId, serviceCodeId, grossValue: 1500, competence: new Date().toISOString().slice(0, 10),
+    takerKind: 'cliente', customerId, serviceCodeId, grossValue: 1500, competence: new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10),
     receivable: { create: true, dueDate: new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10) },
     ...extra,
   });
