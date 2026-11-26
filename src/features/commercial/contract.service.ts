@@ -6,7 +6,7 @@ import { netWith, parseRates, parseRetentions, ratesOf, writeRetentions } from '
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CommercialContractStatus, Prisma, financialRecordsStatus, paymentMethods } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { assertNoAuthorizedInvoice } from 'src/features/fiscal/fiscal.guards';
+import { assertNoAuthorizedInvoice, attachToInvoice, coverageInvoice } from 'src/features/fiscal/fiscal.guards';
 import { CacheService } from 'src/common/cache/cache.service';
 import { classificationDefaults } from 'src/features/financial/classification';
 import { installmentValues } from './installments';
@@ -497,6 +497,10 @@ export class ContractService {
       if (installment.financialRecordId) throw new ConflictException(`A parcela ${installment.number}/${installment.total} já foi faturada`);
       return installment;
     }).sort((a, b) => a.number - b.number);
+    // "usar nota já emitida": uma nota do contrato inteiro (ou do saldo) cobre estas parcelas
+    const values0 = chosen.map((inst) => Number(inst.value));
+    const covering = blank(body.fiscalInvoiceId) ? null : await coverageInvoice(this.prisma, actor.companyId, id, Number(body.fiscalInvoiceId), round2(values0.reduce((s, v) => s + v, 0)));
+    if (covering) { body = { ...body, invoiceNumber: covering.number, invoiceIssuedAt: covering.issuedAt ?? body.invoiceIssuedAt }; }
     const invoiceNumber = clean(body.invoiceNumber, 60);
     if (!invoiceNumber) throw new BadRequestException('Informe o número da nota fiscal');
     const invoiceDate = blank(body.invoiceIssuedAt) ? today() : dateOf(body.invoiceIssuedAt, 'Data da nota');
@@ -551,6 +555,7 @@ export class ContractService {
       }
       return out;
     });
+    if (covering) await attachToInvoice(this.prisma, covering.id, recordIds.map((recordId, index) => ({ id: recordId, amount: values[index] })), covering.issuedAtDate);
     for (const recordId of recordIds) await this.wallet.syncRecordSafe(recordId);
     if (deposits.some((d) => d > 0)) {
       const fresh = await this.prisma.commercial_Contract.findUnique({ where: { id }, select: { depositRecordId: true } });

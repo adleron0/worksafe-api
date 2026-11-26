@@ -220,9 +220,16 @@ export class FiscalInvoiceService {
     let origin: ResolvedOrigin | null = null;
     const originIn = originOf(body.origin);
     if (originIn) {
-      origin = await this.origins.resolve(companyId, { ...originIn, dueDate: dateOnly(receivableIn?.dueDate) ?? originIn.dueDate ?? null, paymentMethod: receivableIn?.paymentMethod ?? originIn.paymentMethod ?? null }, invoiceId);
-      if (taker.customerId !== origin.customerId) errors.push('A nota de uma parcela ou medição vai para o cliente do contrato.');
-      if (Math.abs(calc.gross - origin.amount) > 0.009) errors.push(`O valor da nota precisa ser o da origem (${brl(origin.amount)}). Para outro valor, emita uma nota avulsa.`);
+      origin = await this.origins.resolve(companyId, {
+        ...originIn, dueDate: dateOnly(receivableIn?.dueDate) ?? originIn.dueDate ?? null, paymentMethod: receivableIn?.paymentMethod ?? originIn.paymentMethod ?? null,
+        ...(originIn.kind === 'contract' && originIn.mode === 'livre' ? { amount: calc.gross } : {}),
+      }, invoiceId);
+      if (taker.customerId !== origin.customerId) errors.push('A nota de uma parcela, medição ou contrato vai para o cliente do contrato.');
+      const livre = originIn.kind === 'contract' && origin.origin.mode === 'livre';
+      if (!livre && Math.abs(calc.gross - origin.amount) > 0.009) errors.push(`O valor da nota precisa ser o da origem (${brl(origin.amount)}). Para outro valor, use "valor livre" ou uma nota avulsa.`);
+      // sugestivo: passar do saldo do contrato só avisa (aditivo ainda não registrado, por exemplo)
+      if (livre && origin.balance !== undefined && calc.gross - origin.balance > 0.009) warnings.push(`O valor passa do saldo a notar do contrato (${brl(origin.balance)}).`);
+      if (originIn.kind === 'contract') warnings.push('Esta nota não gera conta a receber agora: ao faturar cada parcela, escolha "Usar nota já emitida".');
     }
     const receivable = !origin && receivableIn?.create ? { dueDate: dateOnly(receivableIn.dueDate) ?? competence, description: clean(receivableIn.description, 255) || null, paymentMethod: receivableIn.paymentMethod ?? 'boleto' } : null;
     if (receivable && receivable.dueDate < competence) warnings.push('O vencimento da conta a receber é antes da competência da nota.');
@@ -341,12 +348,15 @@ export class FiscalInvoiceService {
           ...this.dataOf(built), companyId: actor.companyId, provider: 'externa', status: 'autorizada', environment: 'producao',
           number, issuedAt: noonUtc(issuedAt), externalUrl: clean(body.externalUrl) || null, accessKey: digits(body.accessKey).length === 50 ? digits(body.accessKey) : null,
           createdByUserId: actor.userId, issuedByUserId: actor.userId,
+          ...(built.origin ? { links: { create: built.origin.links } } : {}),
         },
       });
       await tx.fiscal_InvoiceEvent.create({ data: { invoiceId: row.id, kind: 'emitida', detail: { externa: true }, userId: actor.userId } });
       await this.createReceivable(tx, actor, row.id);
       return row;
     });
+    // nota emitida fora para uma parcela ou boletim: fatura a origem com o número dela
+    if (built.origin) await this.billOrigin(actor, created.id);
     return this.get(actor.companyId, created.id);
   }
 

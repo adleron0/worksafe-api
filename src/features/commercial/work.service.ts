@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, GoneException, Injectable, NotF
 import { Prisma } from '@prisma/client';
 import { randomBytes } from 'crypto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { assertNoAuthorizedInvoice } from 'src/features/fiscal/fiscal.guards';
+import { assertNoAuthorizedInvoice, attachToInvoice, coverageInvoice } from 'src/features/fiscal/fiscal.guards';
 import { classificationDefaults } from 'src/features/financial/classification';
 import { CrewMember, Occurrence, StepProgress } from 'src/features/operations/daily-report.service';
 import { DocumentService } from './document.service';
@@ -261,6 +261,8 @@ export class WorkMeasurementService {
     if (row.status !== 'aprovada') throw new ConflictException(row.status === 'faturada' ? 'Este boletim já foi faturado' : 'O boletim precisa estar aprovado pelo cliente antes de faturar');
     const value = Number(row.value), invoiceValue = Number(row.invoiceValue ?? row.value), deposit = Number(row.depositValue ?? 0);
     if (!(value > 0)) throw new BadRequestException('Nada a receber neste boletim');
+    const covering = blank(body.fiscalInvoiceId) ? null : await coverageInvoice(this.prisma, actor.companyId, contractId, Number(body.fiscalInvoiceId), invoiceValue);
+    if (covering) body = { ...body, invoiceNumber: covering.number, invoiceIssuedAt: covering.issuedAt ?? body.invoiceIssuedAt };
     const invoice = this.measurements.invoiceOf(body, value, addDays(today(), 30), invoiceValue);
     const plan = planOf(contract.measurementPlan)!;
     const recordId = await this.prisma.$transaction(async (tx) => {
@@ -274,6 +276,7 @@ export class WorkMeasurementService {
       if (deposit > 0) await this.addDeposit(tx, contract, plan, deposit, actor.companyId);
       return created;
     });
+    if (covering) await attachToInvoice(this.prisma, covering.id, [{ id: recordId, amount: invoiceValue }], covering.issuedAtDate);
     await this.wallet.syncRecordSafe(recordId);
     const fresh = await this.prisma.commercial_Contract.findUnique({ where: { id: contractId }, select: { depositRecordId: true } });
     if (fresh?.depositRecordId) await this.wallet.syncRecordSafe(fresh.depositRecordId);

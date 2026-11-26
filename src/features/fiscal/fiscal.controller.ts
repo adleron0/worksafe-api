@@ -70,6 +70,9 @@ export class FiscalController {
   @Permissions('emitir_nfse') @Get('invoices/from-origin')
   fromOrigin(@Req() req: Request, @Query() query: Json) { return this.origins.suggest(actorOf(req).companyId, query ?? {}); }
 
+  @Permissions('view_nfse') @Get('contracts/:id/summary')
+  contractSummary(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.origins.contractSummary(actorOf(req).companyId, id); }
+
   @Permissions('emitir_nfse') @Post('invoices/external')
   external(@Req() req: Request, @Body() body: Json) { return this.invoices.registerExternal(actorOf(req), body ?? {}); }
 

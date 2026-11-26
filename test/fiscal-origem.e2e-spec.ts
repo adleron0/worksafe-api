@@ -143,4 +143,52 @@ describe('Área fiscal — nota da parcela (e2e)', () => {
     expect(after.installments.find((i: any) => i.id === inst.id).record.invoiceNumber).toBe('56');
     expect(await testDb().financialRecords.count({ where: { contractInstallmentId: inst.id, inactiveAt: null } })).toBe(1);
   });
+  it('nota do contrato inteiro: não fatura nada, as parcelas usam o saldo dela e desfazer devolve o saldo', async () => {
+    const { contract, h } = await cenario();
+    const [a, b] = contract.installments;
+    const value = Number(contract.value);
+    let summary = (await api().get(`/fiscal/contracts/${contract.id}/summary`).set(h).expect(200)).body;
+    expect(summary.balance).toBe(value);
+
+    const draft = (await api().get('/fiscal/invoices/from-origin').query({ kind: 'contract', contractId: contract.id, mode: 'total' }).set(h).expect(200)).body;
+    expect(draft.grossValue).toBe(value);
+    expect(draft.originLabel).toContain('contrato inteiro');
+    const preview = (await api().post('/fiscal/invoices/preview').set(h).send(draft).expect(200)).body;
+    expect(preview.warnings.join(' ')).toMatch(/Usar nota já emitida/);
+
+    nock(SEFIN).post('/nfse').reply(201, { chaveAcesso: CHAVE, nfseXmlGZipB64: packXml(nfseXml(CHAVE, '70')) });
+    const invoice = (await api().post('/fiscal/invoices').set(h).send({ ...draft, emit: true }).expect(201)).body;
+    expect(invoice.status).toBe('autorizada');
+    expect(invoice.receivables).toHaveLength(0);
+    let after = (await api().get(`/commercial/contracts/${contract.id}`).set(h).expect(200)).body;
+    expect(after.installments.every((i: any) => !i.record)).toBe(true);
+
+    summary = (await api().get(`/fiscal/contracts/${contract.id}/summary`).set(h).expect(200)).body;
+    expect(summary.balance).toBe(0);
+    expect(summary.available).toEqual([expect.objectContaining({ id: invoice.id, number: '70', left: value })]);
+    // sem saldo, outra nota do saldo é recusada; valor livre passa com aviso
+    await api().get('/fiscal/invoices/from-origin').query({ kind: 'contract', contractId: contract.id, mode: 'saldo' }).set(h).expect(409);
+    const livre = (await api().post('/fiscal/invoices/preview').set(h).send({ ...draft, grossValue: 500, origin: { kind: 'contract', contractId: contract.id, mode: 'livre' } }).expect(200)).body;
+    expect(livre.canEmit).toBe(true);
+    expect(livre.warnings.join(' ')).toMatch(/passa do saldo/);
+
+    // faturar a parcela usando a nota já emitida: número e data vêm dela
+    await api().post(`/commercial/contracts/${contract.id}/installments/bill`).set(h).send({ installmentIds: [a.id], fiscalInvoiceId: invoice.id, retentions: [{ tax: 'iss', rate: 5 }] }).expect(201);
+    after = (await api().get(`/commercial/contracts/${contract.id}`).set(h).expect(200)).body;
+    const rec = after.installments.find((i: any) => i.id === a.id).record;
+    expect(rec.invoiceNumber).toBe('70');
+    expect((await testDb().financialRecords.findUniqueOrThrow({ where: { id: rec.id } })).fiscalInvoiceId).toBe(invoice.id);
+    summary = (await api().get(`/fiscal/contracts/${contract.id}/summary`).set(h).expect(200)).body;
+    expect(summary.available[0].left).toBeCloseTo(value - Number(a.value), 2);
+
+    // desfazer a parcela é permitido (a nota continua valendo) e o saldo da nota volta
+    await api().post(`/commercial/contracts/${contract.id}/installments/${a.id}/unbill`).set(h).expect(201);
+    summary = (await api().get(`/fiscal/contracts/${contract.id}/summary`).set(h).expect(200)).body;
+    expect(summary.available[0].left).toBe(value);
+    // as duas parcelas juntas cabem na nota; uma nota de outro contrato não serve
+    await api().post(`/commercial/contracts/${contract.id}/installments/bill`).set(h).send({ installmentIds: [a.id, b.id], fiscalInvoiceId: invoice.id }).expect(201);
+    summary = (await api().get(`/fiscal/contracts/${contract.id}/summary`).set(h).expect(200)).body;
+    expect(summary.available).toEqual([]);
+  });
 });
+

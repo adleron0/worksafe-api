@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, financialRecordsStatus, paymentMethods } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { assertNoAuthorizedInvoice } from 'src/features/fiscal/fiscal.guards';
+import { assertNoAuthorizedInvoice, attachToInvoice, coverageInvoice } from 'src/features/fiscal/fiscal.guards';
 import { classificationDefaults } from 'src/features/financial/classification';
 import { PendingLine, applyMeasurement, nextOpenPeriod, pendingLines, revertMeasurement, syncRentalReminders } from 'src/features/stock/rental.service';
 import { SellerWalletService } from './wallet.service';
@@ -148,6 +148,8 @@ export class MeasurementService {
     const lines: PendingLine[] = pendingLines(rental);
     if (!lines.length) throw new ConflictException('Nada a faturar nesta ordem de locação agora: o próximo período ainda não fechou');
     const value = round2(lines.reduce((s, l) => s + l.value, 0));
+    const covering = value > 0 && !blank(body.fiscalInvoiceId) ? await coverageInvoice(this.prisma, actor.companyId, contractId, Number(body.fiscalInvoiceId), value) : null;
+    if (covering) body = { ...body, invoiceNumber: covering.number, invoiceIssuedAt: covering.issuedAt ?? body.invoiceIssuedAt };
     const invoice = value > 0 ? this.invoiceOf(body, value, addDays(today(), 7)) : null;
     const created = await this.prisma.$transaction(async (tx) => {
       // trava a OL: duas pessoas faturando ao mesmo tempo não cobram o mesmo período duas vezes
@@ -163,6 +165,7 @@ export class MeasurementService {
       await syncRentalReminders(tx, rental.id);
       return out;
     });
+    if (covering && created.recordId) await attachToInvoice(this.prisma, covering.id, [{ id: created.recordId, amount: value }], covering.issuedAtDate);
     if (created.recordId) await this.wallet.syncRecordSafe(created.recordId);
     return { measurementId: created.measurement.id, financialRecordId: created.recordId, number: measurementLabel(created.measurement.number), value };
   }
