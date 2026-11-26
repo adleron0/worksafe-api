@@ -36,6 +36,8 @@ export interface ServiceSnapshot {
   municipalCode?: string | null;
   nbsCode?: string | null;
   issTaxation: number;
+  ibsCbsIndOp?: string | null;
+  ibsCbsClassTrib?: string | null;
 }
 
 interface ExtraData {
@@ -157,7 +159,7 @@ export class FiscalInvoiceService {
       if (!row) throw new NotFoundException('Serviço fiscal não encontrado');
       const out = this.settings.serviceCodeOut(row);
       return {
-        snapshot: { serviceCodeId: row.id, name: row.name, nationalCode: row.nationalCode, nationalLabel: out.nationalLabel, municipalCode: row.municipalCode, nbsCode: row.nbsCode, issTaxation: row.issTaxation },
+        snapshot: { serviceCodeId: row.id, name: row.name, nationalCode: row.nationalCode, nationalLabel: out.nationalLabel, municipalCode: row.municipalCode, nbsCode: row.nbsCode, issTaxation: row.issTaxation, ibsCbsIndOp: row.ibsCbsIndOp, ibsCbsClassTrib: row.ibsCbsClassTrib },
         defaultDescription: row.description,
         issRate: row.issRate === null ? null : Number(row.issRate),
       };
@@ -213,6 +215,16 @@ export class FiscalInvoiceService {
     if (settings.simplesNacional === 3 && !issWithheld && issRate) warnings.push('No Simples, a alíquota do ISS só vai na nota quando o cliente retém. Ela foi deixada de fora.');
     if (settings.simplesNacional === 3 && issWithheld && issRate !== null && issRate < 2) warnings.push('A alíquota do ISS retido costuma ser de pelo menos 2%. Confira.');
     if (settings.environment === 'restrita') warnings.push('Ambiente de testes (produção restrita): a nota não tem valor fiscal.');
+    // reforma tributária: o grupo IBS/CBS vai quando ligado na configuração e o serviço tem os códigos
+    const sv = service.snapshot;
+    if (settings.ibsCbsEnabled) {
+      if (!sv.ibsCbsIndOp || !sv.ibsCbsClassTrib) errors.push('IBS/CBS ligado: o serviço fiscal precisa do indicador da operação e do cClassTrib (Configuração fiscal → serviço).');
+      // operações que exigem o endereço do tomador (E0187/E0255)
+      else if (['030102', '050102', '100101', '100301', '100501', '030103', '050103', '100102', '100201', '100302', '100401', '100502', '100601'].includes(sv.ibsCbsIndOp) && !addressOk) {
+        errors.push('Com este indicador de operação do IBS/CBS, a nota precisa do endereço completo do tomador.');
+      }
+    }
+    if (sv.nationalCode === '990401' && todayBr() < '2026-12-01') warnings.push('O código 99.04.01 (locação de bens móveis) só é aceito depois que a NT 009 entrar em produção no ambiente nacional (prevista para 01/12/2026).');
     if (calc.federal.csll.value === 0 && (calc.federal.pis.value > 0 || calc.federal.cofins.value > 0)) warnings.push('PIS/COFINS retidos sem CSLL: confira com o contador se o cliente também retém a CSLL.');
 
     const receivableIn = body.receivable as { create?: boolean; dueDate?: string; description?: string; paymentMethod?: string } | undefined;
@@ -419,6 +431,9 @@ export class FiscalInvoiceService {
         simplesTotalRate: settings.simplesTotalRate === null ? null : Number(settings.simplesTotalRate),
       },
       substitutes: replaces ? { accessKey: replaces.accessKey, reason: '99', description: 'Substituição de NFS-e emitida pelo WorkSafe' } : null,
+      ibsCbs: settings.ibsCbsEnabled && service.ibsCbsIndOp && service.ibsCbsClassTrib
+        ? { indOp: service.ibsCbsIndOp, classTrib: service.ibsCbsClassTrib, personalUse: digits(taker.document).length === 11 }
+        : null,
     };
   }
 

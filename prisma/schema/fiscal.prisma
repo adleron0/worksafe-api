@@ -61,6 +61,10 @@ model Fiscal_Settings {
   certificateUpdatedAt DateTime?
   // envia o PDF e o XML ao contato fiscal do cliente quando a nota é autorizada
   autoSendEmail       Boolean           @default(true)
+  // informa o grupo IBS/CBS (reforma tributária) na nota: CST, cClassTrib e indicador da operação de cada serviço fiscal
+  ibsCbsEnabled       Boolean           @default(false)
+  // a partir de quando a locação de bens móveis tem NFS-e (código 99.04.01); nulo = ainda opcional
+  rentalNfseFrom      DateTime?         @db.Date
   // emite sozinho a nota da inscrição paga em turma aberta (só pagamentos depois de ligar)
   autoEmitTraining    Boolean           @default(false)
   autoEmitTrainingSince DateTime?
@@ -86,6 +90,9 @@ model Fiscal_ServiceCode {
   issRate     Decimal? @db.Decimal(5, 2)
   // 1 tributável, 2 imunidade, 3 exportação, 4 não incidência
   issTaxation Int     @default(1)
+  // reforma tributária: indicador da operação (Anexo C) e classificação tributária (o CST são os 3 primeiros dígitos)
+  ibsCbsIndOp     String? @db.VarChar(6)
+  ibsCbsClassTrib String? @db.VarChar(6)
   // descrição padrão do serviço (variáveis entre chaves)
   description String  @db.Text
   isDefault   Boolean @default(false)

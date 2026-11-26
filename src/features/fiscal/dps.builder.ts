@@ -74,6 +74,8 @@ export interface DpsInput {
     simplesTotalRate?: number | null; // pTotTribSN (% aproximado dos tributos no Simples)
   };
   substitutes?: { accessKey: string; reason: string; description?: string } | null;
+  // reforma tributária: o ambiente nacional calcula os valores; a DPS informa a operação e a classificação
+  ibsCbs?: { indOp: string; classTrib: string; personalUse: boolean } | null;
 }
 
 /** Valores do grupo PIS/COFINS e o tipo de retenção (TSTipoRetPISCofins). Nulo = grupo não vai. */
@@ -197,6 +199,20 @@ export function buildDps(input: DpsInput): { id: string; xml: string } {
 
   const valores = '<valores>' + `<vServPrest>${el('vServ', money(v.gross))}</vServPrest>` + discount + `<trib>${tribMun}${tribFed}${totTrib}</trib>` + '</valores>';
 
+  const ib = input.ibsCbs;
+  const ibsCbs = ib
+    ? '<IBSCBS>' +
+      el('finNFSe', 0) +
+      el('indFinal', ib.personalUse ? 1 : 0) +
+      el('cIndOp', digits(ib.indOp).padStart(6, '0')) +
+      el('indDest', 0) +
+      '<valores><trib><gIBSCBS>' +
+      el('CST', digits(ib.classTrib).padStart(6, '0').slice(0, 3)) +
+      el('cClassTrib', digits(ib.classTrib).padStart(6, '0')) +
+      '</gIBSCBS></trib></valores>' +
+      '</IBSCBS>'
+    : '';
+
   const subst = input.substitutes
     ? '<subst>' + el('chSubstda', digits(input.substitutes.accessKey)) + el('cMotivo', input.substitutes.reason) + opt('xMotivo', clean(input.substitutes.description, 255)) + '</subst>'
     : '';
@@ -218,6 +234,7 @@ export function buildDps(input: DpsInput): { id: string; xml: string } {
     toma +
     serv +
     valores +
+    ibsCbs +
     '</infDPS>' +
     '</DPS>';
   return { id, xml };

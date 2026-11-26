@@ -127,6 +127,15 @@ describe('fiscal: DPS', () => {
     if (hasXmllint) expect(validate(signed, 'DPS_v1.01.xsd')).toBe('ok');
   });
 
+  it('com o grupo IBS/CBS (CST pelos 3 primeiros dígitos do cClassTrib) continua válido no XSD', () => {
+    const input = base();
+    input.ibsCbs = { indOp: '030101', classTrib: '000001', personalUse: false };
+    const { xml } = buildDps(input);
+    expect(xml).toContain('<IBSCBS><finNFSe>0</finNFSe><indFinal>0</indFinal><cIndOp>030101</cIndOp><indDest>0</indDest><valores><trib><gIBSCBS><CST>000</CST><cClassTrib>000001</cClassTrib></gIBSCBS></trib></valores></IBSCBS></infDPS>');
+    const signed = signXml(xml, 'infDPS', cert.privateKeyPem, cert.certificatePem);
+    if (hasXmllint) expect(validate(signed, 'DPS_v1.01.xsd')).toBe('ok');
+  });
+
   it('pedido de cancelamento válido no XSD', () => {
     const key = '26116062123456780001950000000000000126110000000001'.slice(0, 50);
     const { xml, id } = buildCancelEvent({ environment: 'restrita', authorDocument: '12345678000195', accessKey: key, reasonCode: 1, reason: 'Valor informado errado na emissão' });

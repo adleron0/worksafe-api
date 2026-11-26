@@ -218,4 +218,27 @@ describe('Área fiscal — NFS-e nacional (e2e)', () => {
     await api().post('/fiscal/invoices').set(auth(company.id, ['view_nfse'])).send(draftBody(customer.id, service.id)).expect(403);
     await api().put('/fiscal/settings').set(auth(company.id, ['view_nfse', 'emitir_nfse'])).send({ dpsSeries: '901' }).expect(403);
   });
+  it('IBS/CBS: ligado exige os códigos no serviço, sugere pela tabela oficial e a DPS leva o grupo', async () => {
+    const { customer, service, h } = await cenario();
+    await api().put('/fiscal/settings').set(h).send({ ibsCbsEnabled: true, rentalNfseFrom: '2027-01-01' }).expect(200);
+    const settings = (await api().get('/fiscal/settings').set(h).expect(200)).body;
+    expect(settings.pending.join(' ')).toMatch(/sem indicador da operação/);
+    expect(String(settings.rentalNfseFrom).slice(0, 10)).toBe('2027-01-01');
+    const blocked = (await api().post('/fiscal/invoices/preview').set(h).send(draftBody(customer.id, service.id)).expect(200)).body;
+    expect(blocked.errors.join(' ')).toMatch(/indicador da operação e do cClassTrib/);
+
+    const list = (await api().get('/fiscal/service-codes').set(h).expect(200)).body;
+    expect(list[0].ibsCbsSuggestion).toMatchObject({ indOp: '030101', classTrib: '000001' });
+    await api().put(`/fiscal/service-codes/${service.id}`).set(h).send({ ibsCbsIndOp: '999999' }).expect(400);
+    await api().put(`/fiscal/service-codes/${service.id}`).set(h).send({ ibsCbsIndOp: '030101', ibsCbsClassTrib: '000001' }).expect(200);
+    expect((await api().get('/fiscal/catalog/indop').set(h).expect(200)).body.length).toBeGreaterThan(20);
+
+    let sent = '';
+    nock(SEFIN).post('/nfse', (b) => { sent = unpackXml(b.dpsXmlGZipB64); return true; }).reply(201, { chaveAcesso: CHAVE, nfseXmlGZipB64: packXml(nfseXml(CHAVE, '40')) });
+    const inv = (await api().post('/fiscal/invoices').set(h).send({ ...draftBody(customer.id, service.id), emit: true }).expect(201)).body;
+    expect(inv.status).toBe('autorizada');
+    expect(sent).toContain('<cIndOp>030101</cIndOp>');
+    expect(sent).toContain('<CST>000</CST><cClassTrib>000001</cClassTrib>');
+  });
 });
+

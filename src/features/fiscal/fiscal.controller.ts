@@ -4,7 +4,7 @@ import { Request, Response } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { FiscalInvoiceService } from './invoice.service';
 import { InvoiceOriginService } from './invoice.origin';
-import { FiscalActor, FiscalSettingsService } from './settings.service';
+import { FiscalActor, FiscalSettingsService, ibsCbsSuggestionOf } from './settings.service';
 
 type Json = Record<string, unknown>;
 const actorOf = (req: Request): FiscalActor => {
@@ -46,6 +46,12 @@ export class FiscalController {
   // tabelas oficiais
   @Permissions('view_nfse') @Get('catalog/services')
   nationalCodes(@Query('q') q: string) { return this.settings.searchNationalCodes(q); }
+
+  @Permissions('view_nfse') @Get('catalog/ibscbs-suggestion')
+  ibsCbsSuggestion(@Query('code') code: string) { return ibsCbsSuggestionOf(String(code ?? '').replace(/\D/g, '').padStart(6, '0')) ?? {}; }
+
+  @Permissions('view_nfse') @Get('catalog/indop')
+  indOp() { return this.settings.listIndOp(); }
 
   @Permissions('view_nfse') @Get('catalog/nbs')
   nbs(@Query('q') q: string) { return this.settings.searchNbs(q); }

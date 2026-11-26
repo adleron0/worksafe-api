@@ -3,13 +3,14 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CertificateError, decryptCertificate, encryptCertificate, loadCertificate, LoadedCertificate } from './certificate';
 import { NBS } from './data/nbs';
+import { CORRELACAO_IBSCBS, IND_OP } from './data/ibscbs';
 import { SERVICOS_NACIONAIS } from './data/servicos-nacionais';
 import { clean, digits, ibgeOf, normalizeName, toNumber } from './fiscal.utils';
 import { SefinClient, SefinTransportError } from './sefin.client';
 
 export interface FiscalActor { userId: number; companyId: number }
 
-const SETTINGS_FIELDS = ['environment', 'municipalRegistration', 'simplesNacional', 'simplesRegime', 'specialRegime', 'simplesTotalRate', 'pisCofinsCst', 'dpsSeries', 'nextDpsNumber', 'nextDpsNumberTest', 'autoSendEmail', 'autoEmitTraining', 'defaultNotes'] as const;
+const SETTINGS_FIELDS = ['environment', 'municipalRegistration', 'simplesNacional', 'simplesRegime', 'specialRegime', 'simplesTotalRate', 'pisCofinsCst', 'dpsSeries', 'nextDpsNumber', 'nextDpsNumberTest', 'autoSendEmail', 'autoEmitTraining', 'ibsCbsEnabled', 'rentalNfseFrom', 'defaultNotes'] as const;
 const CST_VALUES = new Set(['00', '01', '02', '03', '04', '05', '06', '07', '08', '09', '49', '50', '51', '52', '53', '54', '55', '56', '60', '61', '62', '63', '64', '65', '66', '67', '70', '71', '72', '73', '74', '75', '98', '99']);
 
 /** Empresa emissora como a nota precisa dela. */
@@ -75,6 +76,10 @@ export class FiscalSettingsService {
     if (row.certificateDocument && row.certificateDocument.slice(0, 8) !== emitter.cnpj.slice(0, 8)) pending.push('O certificado é de outro CNPJ. Envie o certificado da empresa.');
     if (row.simplesNacional === 3 && (row.simplesTotalRate === null || Number(row.simplesTotalRate) <= 0)) pending.push('Informe o % aproximado dos tributos no Simples (vai na nota).');
     if (!services) pending.push('Cadastre pelo menos um serviço fiscal (código de tributação nacional).');
+    if (row.ibsCbsEnabled) {
+      const missing = await this.prisma.fiscal_ServiceCode.count({ where: { companyId, inactiveAt: null, OR: [{ ibsCbsIndOp: null }, { ibsCbsClassTrib: null }] } });
+      if (missing) pending.push(`IBS/CBS ligado: ${missing} serviço(s) fiscal(is) sem indicador da operação ou cClassTrib.`);
+    }
     const daysLeft = row.certificateValidTo ? Math.floor((row.certificateValidTo.getTime() - Date.now()) / 86400000) : null;
     return {
       ...rest,
@@ -153,6 +158,15 @@ export class FiscalSettingsService {
         case 'autoSendEmail':
           data.autoSendEmail = !!value;
           break;
+        case 'ibsCbsEnabled':
+          data.ibsCbsEnabled = !!value;
+          break;
+        case 'rentalNfseFrom': {
+          const text = String(value ?? '').slice(0, 10);
+          if (value && !/^\d{4}-\d{2}-\d{2}$/.test(text)) throw new BadRequestException('Data da NFS-e de locação inválida');
+          data.rentalNfseFrom = value ? new Date(`${text}T00:00:00.000Z`) : null;
+          break;
+        }
         case 'autoEmitTraining':
           data.autoEmitTraining = !!value;
           // só os pagamentos de agora em diante: ligar não emite o que já estava pago
@@ -258,7 +272,11 @@ export class FiscalSettingsService {
   serviceCodeOut(r: Prisma.Fiscal_ServiceCodeGetPayload<object>) {
     const nat = SERVICOS_NACIONAIS.find((s) => s[0] === r.nationalCode);
     const nbs = r.nbsCode ? NBS.find((n) => n[0] === r.nbsCode) : null;
-    return { ...r, issRate: r.issRate === null ? null : Number(r.issRate), nationalLabel: nat ? `${nat[1]} — ${nat[2]}` : null, nbsLabel: nbs?.[1] ?? null };
+    const indOp = r.ibsCbsIndOp ? IND_OP.find((i) => i[0] === r.ibsCbsIndOp) : null;
+    return {
+      ...r, issRate: r.issRate === null ? null : Number(r.issRate), nationalLabel: nat ? `${nat[1]} — ${nat[2]}` : null, nbsLabel: nbs?.[1] ?? null,
+      ibsCbsIndOpLabel: indOp?.[1] ?? null, ibsCbsSuggestion: ibsCbsSuggestionOf(r.nationalCode),
+    };
   }
 
   private serviceCodeData(body: Record<string, unknown>, partial: boolean): Prisma.Fiscal_ServiceCodeUncheckedUpdateInput {
@@ -295,6 +313,16 @@ export class FiscalSettingsService {
       data.description = description.slice(0, 2000);
     }
     if ('isDefault' in body) data.isDefault = !!body.isDefault;
+    if ('ibsCbsIndOp' in body) {
+      const code = digits(body.ibsCbsIndOp);
+      if (code && !IND_OP.some((i) => i[0] === code)) throw new BadRequestException('Indicador da operação não encontrado no Anexo C');
+      data.ibsCbsIndOp = code || null;
+    }
+    if ('ibsCbsClassTrib' in body) {
+      const code = digits(body.ibsCbsClassTrib);
+      if (code && code.length !== 6) throw new BadRequestException('O cClassTrib tem 6 dígitos (os 3 primeiros são o CST)');
+      data.ibsCbsClassTrib = code || null;
+    }
     return data;
   }
 
@@ -332,6 +360,10 @@ export class FiscalSettingsService {
       .map(([codigo, item, descricao]) => ({ code: codigo, item, description: descricao }));
   }
 
+  listIndOp() {
+    return IND_OP.map(([code, description, place]) => ({ code, description, place }));
+  }
+
   searchNbs(q: unknown) {
     const term = normalizeName(q);
     const code = digits(q);
@@ -339,4 +371,16 @@ export class FiscalSettingsService {
       .slice(0, 40)
       .map(([codigo, descricao]) => ({ code: codigo, description: descricao }));
   }
+}
+
+/**
+ * Sugestão de indicador da operação e cClassTrib pelo item da lista de serviços
+ * (Anexo VIII, ainda "trabalho inicial": o contador confirma). Locação de bens
+ * móveis (99.04) não está no anexo: vai o indicador geral com aviso.
+ */
+export function ibsCbsSuggestionOf(nationalCode: string): { indOp: string; classTrib: string; name: string; note?: string } | null {
+  const item = `${nationalCode.slice(0, 2)}.${nationalCode.slice(2, 4)}`;
+  if (item === '99.04') return { indOp: '100301', classTrib: '000001', name: 'Situações tributadas integralmente pelo IBS e CBS.', note: 'Locação de bens móveis ainda não está na tabela de correlação: confirme com o contador.' };
+  const found = CORRELACAO_IBSCBS[item];
+  return found ? { indOp: found[0], classTrib: found[1], name: found[2] } : null;
 }
