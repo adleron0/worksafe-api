@@ -12,6 +12,7 @@ import { ChatInboundService } from './chat-inbound.service';
 import { ChatEventsService } from './chat-events.service';
 import { ChatCustomerService } from './chat-customer.service';
 import { ChatLibraryService } from './chat-library.service';
+import { ChatActionsService } from './chat-actions.service';
 import { MAX_OUT } from './chat-media.service';
 
 type Json = Record<string, any>;
@@ -31,6 +32,7 @@ export class ChatController {
     private readonly events: ChatEventsService,
     private readonly customerSearch: ChatCustomerService,
     private readonly library: ChatLibraryService,
+    private readonly actions: ChatActionsService,
   ) {}
 
   private seeing(req: Request) {
@@ -177,6 +179,47 @@ export class ChatController {
 
   @Post('conversations/:id/hide') @HttpCode(200)
   hide(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.conversations.hide(this.seeing(req), id); }
+
+  // ---------------------------------------------------------------- ações comerciais
+
+  /** Negociação ligada, as do cliente e os retornos/contatos desta conversa. */
+  @Get('conversations/:id/commercial')
+  async commercial(@Param('id', ParseIntPipe) id: number, @Req() req: Request) {
+    const actor = this.seeing(req);
+    const conversation = await this.conversations.loadFor(actor, id);
+    const [deals, activities] = await Promise.all([this.actions.dealsOf(actor, conversation), this.actions.activitiesOf(actor, conversation)]);
+    return { deals, activities };
+  }
+
+  @Get('conversations/:id/links')
+  async links(@Param('id', ParseIntPipe) id: number, @Req() req: Request) {
+    const actor = this.seeing(req);
+    return this.actions.links(actor, await this.conversations.loadFor(actor, id));
+  }
+
+  @Post('conversations/:id/activity')
+  async registerContact(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) {
+    const actor = this.seeing(req);
+    return this.actions.registerContact(actor, await this.conversations.loadFor(actor, id), body ?? {});
+  }
+
+  @Post('conversations/:id/return')
+  async scheduleReturn(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) {
+    const actor = this.seeing(req);
+    return this.actions.scheduleReturn(actor, await this.conversations.loadFor(actor, id), body ?? {});
+  }
+
+  @Post('conversations/:id/deal')
+  async createDeal(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) {
+    const actor = this.seeing(req);
+    return this.actions.createDeal(actor, await this.conversations.loadFor(actor, id), body ?? {});
+  }
+
+  @Put('conversations/:id/deal')
+  async linkDeal(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) {
+    const actor = this.seeing(req);
+    return this.actions.linkDeal(actor, await this.conversations.loadFor(actor, id), body?.dealId ?? null);
+  }
 
   @Post('conversations/:id/read') @HttpCode(200)
   read(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.conversations.read(this.seeing(req), id); }

@@ -124,6 +124,11 @@ export class ChatConversationsService {
     };
   }
 
+  /** Conversa conferida pelo escopo de quem pede (para as ações comerciais). */
+  loadFor(actor: ChatActor, id: number) {
+    return this.load(actor, id);
+  }
+
   private async load(actor: ChatActor, id: number) {
     const conversation = await this.prisma.chat_Conversation.findFirst({ where: { AND: [this.scope(actor), { id }] }, include: { contact: true, channel: true, ...ChatConversationsService.TAGS } });
     if (!conversation) throw new NotFoundException('Conversa não encontrada');
@@ -328,6 +333,10 @@ export class ChatConversationsService {
       }
     }
     await this.prisma.chat_Contact.update({ where: { id: contact.id }, data });
+    // trocou de cliente: a negociação ligada era do anterior
+    if (data.customerId !== undefined && data.customerId !== contact.customerId && conversation.dealId) {
+      await this.prisma.chat_Conversation.update({ where: { id }, data: { dealId: null } });
+    }
     for (const text of notes) {
       await this.prisma.chat_Message.create({ data: { companyId: actor.companyId, channelId: conversation.channelId, conversationId: id, direction: 'note', type: 'event', text, status: 'sent', origin: 'system', sentByUserId: actor.userId } });
     }
