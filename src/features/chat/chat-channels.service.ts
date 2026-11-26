@@ -200,6 +200,7 @@ export class ChatChannelsService {
         await this.provider.setWebhook(instanceName, webhook);
       }
       await this.prisma.chat_Channel.update({ where: { id }, data: { instanceName, webhookTokenHash: sha(secret), status: 'aguardando', statusReason: null, statusAt: new Date() } });
+      await this.logStatus(channel, 'aguardando', null);
       const phone = body.phone ? String(body.phone).replace(/\D/g, '') : '';
       if (body.phone !== undefined && phone.length < 12) throw new BadRequestException('Digite o número com DDD e o 55 na frente (ex.: 55 11 91234-5678).');
       const result = await this.provider.connect(instanceName, phone || undefined);
@@ -230,20 +231,30 @@ export class ChatChannelsService {
 
   async markConnected(id: number, info: { phone?: string | null; profileName?: string | null } = {}) {
     this.qrCache.delete(id);
+    const before = await this.prisma.chat_Channel.findUnique({ where: { id }, select: { status: true, companyId: true, id: true } });
     const channel = await this.prisma.chat_Channel.update({
       where: { id },
       data: { status: 'conectado', statusReason: null, statusAt: new Date(), connectedAt: new Date(), ...(info.phone ? { phone: info.phone } : {}), ...(info.profileName ? { profileName: info.profileName } : {}) },
     });
-    this.events.emit({ companyId: channel.companyId, kind: 'channel', channelId: id });
+    if (before) await this.logStatus(before, 'conectado', null);
+    this.events.emit({ companyId: channel.companyId, kind: 'channel', channelId: id, channelStatus: 'conectado', changed: before?.status !== 'conectado' });
     return { status: 'conectado', phone: channel.phone, profileName: channel.profileName, qr: null };
   }
 
   async markDown(id: number, status: 'caiu' | 'banido' | 'desconectado', reason: string) {
+    const before = await this.prisma.chat_Channel.findUnique({ where: { id }, select: { status: true, companyId: true, id: true } });
     const channel = await this.prisma.chat_Channel.update({ where: { id }, data: { status, statusReason: reason, statusAt: new Date() } });
-    this.events.emit({ companyId: channel.companyId, kind: 'channel', channelId: id });
+    if (before) await this.logStatus(before, status, reason);
+    this.events.emit({ companyId: channel.companyId, kind: 'channel', channelId: id, channelStatus: status, channelName: channel.name, changed: before?.status !== status });
     if (status === 'banido') {
       await this.prisma.chat_Message.updateMany({ where: { channelId: id, status: 'queued' }, data: { status: 'failed', error: 'Número bloqueado pelo WhatsApp: envios pausados.' } });
     }
+  }
+
+  /** Guarda a troca de status no histórico (só quando muda). */
+  private async logStatus(before: { id: number; companyId: number; status: string }, status: string, reason: string | null) {
+    if (before.status === status) return;
+    await this.prisma.chat_ChannelEvent.create({ data: { companyId: before.companyId, channelId: before.id, status, reason: reason?.slice(0, 1000) ?? null } }).catch((error) => this.logger.warn(`Histórico do número: ${error?.message}`));
   }
 
   async disconnect(actor: ChatActor, id: number) {
@@ -251,6 +262,7 @@ export class ChatChannelsService {
     this.notInstagram(channel);
     if (channel.instanceName && this.provider.ready()) await this.provider.logout(channel.instanceName);
     await this.prisma.chat_Channel.update({ where: { id }, data: { status: 'desconectado', statusReason: 'Desconectado pelo sistema', statusAt: new Date() } });
+    await this.logStatus(channel, 'desconectado', 'Desconectado pelo sistema');
     return { ok: true };
   }
 

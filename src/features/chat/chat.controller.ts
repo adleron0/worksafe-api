@@ -15,6 +15,7 @@ import { ChatLibraryService } from './chat-library.service';
 import { ChatActionsService } from './chat-actions.service';
 import { ChatBotService } from './chat-bot.service';
 import { MAX_OUT } from './chat-media.service';
+import { ChatMetricsService } from './chat-metrics.service';
 
 type Json = Record<string, any>;
 
@@ -28,6 +29,7 @@ const actorOf = (req: Request): ChatActor => {
 export class ChatController {
   constructor(
     private readonly channels: ChatChannelsService,
+    private readonly metricsService: ChatMetricsService,
     private readonly conversations: ChatConversationsService,
     private readonly inbound: ChatInboundService,
     private readonly events: ChatEventsService,
@@ -66,6 +68,12 @@ export class ChatController {
 
   @Get('channels')
   channelsList(@Req() req: Request) { return this.channels.list(this.seeing(req)); }
+
+  @Get('channels/:id/health')
+  channelHealth(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.metricsService.health(actorOf(req), id); }
+
+  @Get('metrics')
+  metrics(@Query() query: Record<string, string>, @Req() req: Request) { return this.metricsService.metrics(actorOf(req), query); }
 
   @Permissions('canais_conversas') @Get('channels/:id')
   channel(@Param('id', ParseIntPipe) id: number, @Req() req: Request) { return this.channels.get(actorOf(req), id); }

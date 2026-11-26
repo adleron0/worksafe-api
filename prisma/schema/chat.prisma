@@ -222,3 +222,16 @@ model Chat_BotSuggestion {
   @@index([conversationId, status])
   @@index([channelId, createdAt])
 }
+
+/// Histórico de conexão de um número (saúde do canal): conectou, caiu, voltou, bloqueado.
+model Chat_ChannelEvent {
+  id        Int      @id @default(autoincrement())
+  companyId Int
+  channelId Int
+  /// aguardando | conectado | caiu | banido | desconectado
+  status    String   @db.VarChar(20)
+  reason    String?  @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([channelId, createdAt])
+}

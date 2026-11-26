@@ -15,12 +15,13 @@ import { ChatLibraryService } from './chat-library.service';
 import { ChatMediaService } from './chat-media.service';
 import { ChatSendService } from './chat-send.service';
 import { EvolutionProvider } from './providers/evolution.provider';
+import { ChatMetricsService } from './chat-metrics.service';
 
 /** Conversas: WhatsApp (Evolution) e Instagram Direct na caixa de entrada, em tempo real. */
 @Module({
   imports: [PrivateStorageModule, BotsAiModule, CommercialModule],
   controllers: [ChatController],
-  providers: [EvolutionProvider, ChatEventsService, ChatBotService, ChatActionsService, ChatCustomerService, ChatLibraryService, ChatMediaService, ChatInstagramService, ChatChannelsService, ChatInboundService, ChatSendService, ChatConversationsService],
+  providers: [EvolutionProvider, ChatEventsService, ChatBotService, ChatActionsService, ChatCustomerService, ChatLibraryService, ChatMediaService, ChatInstagramService, ChatChannelsService, ChatInboundService, ChatSendService, ChatConversationsService, ChatMetricsService],
   exports: [ChatChannelsService, ChatConversationsService, ChatSendService, ChatEventsService],
 })
 export class ChatModule {}

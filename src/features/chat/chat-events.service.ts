@@ -29,6 +29,10 @@ export interface ChatEvent {
   inbound?: boolean;
   contactName?: string | null;
   preview?: string | null;
+  /** número: status novo (o aviso "caiu" aparece em qualquer tela) */
+  channelStatus?: string | null;
+  channelName?: string | null;
+  changed?: boolean;
 }
 
 interface Client {
@@ -138,6 +142,7 @@ export class ChatEventsService implements OnModuleInit, OnModuleDestroy {
     const payload = `event: chat\ndata: ${JSON.stringify({
       kind: event.kind, channelId: event.channelId ?? null, conversationId: event.conversationId ?? null, inbound: !!event.inbound,
       contactName: event.contactName ?? null, preview: event.preview ?? null, assignedUserId: event.assignedUserId ?? null,
+      channelStatus: event.channelStatus ?? null, channelName: event.channelName ?? null, changed: !!event.changed,
     })}\n\n`;
     for (const client of this.clients.values()) {
       if (client.companyId !== event.companyId) continue;
