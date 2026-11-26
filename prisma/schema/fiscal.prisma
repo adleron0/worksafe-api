@@ -65,6 +65,9 @@ model Fiscal_Settings {
   ibsCbsEnabled       Boolean           @default(false)
   // a partir de quando a locação de bens móveis tem NFS-e (código 99.04.01); nulo = ainda opcional
   rentalNfseFrom      DateTime?         @db.Date
+  // último NSU lido na distribuição do ambiente nacional (notas recebidas de fornecedores)
+  receivedLastNsu     Int               @default(0)
+  receivedSyncedAt    DateTime?
   // emite sozinho a nota da inscrição paga em turma aberta (só pagamentos depois de ligar)
   autoEmitTraining    Boolean           @default(false)
   autoEmitTrainingSince DateTime?
@@ -217,4 +220,37 @@ model Fiscal_InvoiceEvent {
   createdAt DateTime       @default(now())
 
   @@index([invoiceId])
+}
+
+// Nota de serviço recebida: a empresa é a TOMADORA (fornecedor emitiu contra ela).
+// Baixada da distribuição do ambiente nacional (ADN) por NSU; vira conta a pagar.
+model Fiscal_ReceivedInvoice {
+  id             Int       @id @default(autoincrement())
+  companyId      Int
+  nsu            Int
+  accessKey      String    @db.VarChar(50)
+  number         String?   @db.VarChar(20)
+  issuedAt       DateTime?
+  competence     DateTime? @db.Date
+  issuerDocument String    @db.VarChar(14)
+  issuerName     String    @db.VarChar(300)
+  description    String?   @db.Text
+  grossValue     Decimal   @db.Decimal(15, 2)
+  netValue       Decimal   @db.Decimal(15, 2)
+  issWithheld    Boolean   @default(false)
+  issValue       Decimal   @default(0) @db.Decimal(15, 2)
+  // retenções que a empresa (tomadora) faz: { inss, ir, csll, pis, cofins }
+  retentions     Json?
+  // nova | lancada | ignorada | cancelada
+  status         String    @default("nova") @db.VarChar(12)
+  supplierId     Int?
+  payableId      Int?
+  xmlKey         String?   @db.VarChar(255)
+  handledByUserId Int?
+  handledAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @default(now()) @updatedAt
+
+  @@unique([companyId, accessKey])
+  @@index([companyId, status])
 }

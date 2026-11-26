@@ -4,6 +4,7 @@ import { Request, Response } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { FiscalInvoiceService } from './invoice.service';
 import { InvoiceOriginService } from './invoice.origin';
+import { FiscalReceivedService } from './received.service';
 import { FiscalActor, FiscalSettingsService, ibsCbsSuggestionOf } from './settings.service';
 
 type Json = Record<string, unknown>;
@@ -22,7 +23,7 @@ const sendFile = (res: Response, body: Buffer, fileName: string, type: string, d
 /** Área fiscal: configuração (certificado, série, serviços fiscais) e notas fiscais de serviço. */
 @Controller('fiscal')
 export class FiscalController {
-  constructor(private readonly settings: FiscalSettingsService, private readonly invoices: FiscalInvoiceService, private readonly origins: InvoiceOriginService) {}
+  constructor(private readonly settings: FiscalSettingsService, private readonly invoices: FiscalInvoiceService, private readonly origins: InvoiceOriginService, private readonly received_: FiscalReceivedService) {}
 
   // configuração
   @Permissions('view_nfse') @Get('settings')
@@ -75,6 +76,31 @@ export class FiscalController {
 
   @Permissions('emitir_nfse') @Get('invoices/from-origin')
   fromOrigin(@Req() req: Request, @Query() query: Json) { return this.origins.suggest(actorOf(req).companyId, query ?? {}); }
+
+  // notas recebidas (fornecedores) e pacote do contador
+  @Permissions('view_nfse') @Get('received')
+  received(@Req() req: Request, @Query() query: Json) { return this.received_.list(actorOf(req).companyId, query ?? {}); }
+
+  @Permissions('view_nfse') @Post('received/sync') @HttpCode(200)
+  syncReceived(@Req() req: Request) { return this.received_.sync(actorOf(req).companyId); }
+
+  @Permissions('create_financeiro') @Post('received/:id/payable') @HttpCode(200)
+  receivedPayable(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.received_.createPayable(actorOf(req), id, body ?? {}); }
+
+  @Permissions('view_nfse') @Post('received/:id/ignore') @HttpCode(200)
+  ignoreReceived(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Body() body: Json) { return this.received_.setStatus(actorOf(req), id, body?.undo ? 'nova' : 'ignorada'); }
+
+  @Permissions('view_nfse') @Get('received/:id/xml')
+  async receivedXml(@Param('id', ParseIntPipe) id: number, @Req() req: Request, @Res() res: Response) {
+    const { body, fileName } = await this.received_.xml(actorOf(req).companyId, id);
+    sendFile(res, body, fileName, 'application/xml', true);
+  }
+
+  @Permissions('view_nfse') @Get('export')
+  async export(@Req() req: Request, @Res() res: Response, @Query('month') month: string) {
+    const { body, fileName } = await this.received_.accountantPackage(actorOf(req).companyId, month);
+    sendFile(res, body, fileName, 'application/zip', true);
+  }
 
   @Permissions('view_nfse') @Get('training/pending')
   pendingTraining(@Req() req: Request) { return this.origins.pendingTraining(actorOf(req).companyId); }

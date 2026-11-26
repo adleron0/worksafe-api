@@ -153,3 +153,60 @@ export class SefinClient {
     return parseSefinResponse(status, data);
   }
 }
+
+// ------------------------------------------------------------------ distribuição (ADN Contribuintes)
+
+export const ADN_URLS: Record<SefinEnvironment, string> = {
+  producao: 'https://adn.nfse.gov.br/contribuintes',
+  restrita: 'https://adn.producaorestrita.nfse.gov.br/contribuintes',
+};
+
+export function adnBaseUrl(environment: SefinEnvironment): string {
+  const custom = environment === 'producao' ? process.env.FISCAL_ADN_URL : process.env.FISCAL_ADN_URL_RESTRITA;
+  return (custom || ADN_URLS[environment]).replace(/\/+$/, '');
+}
+
+export interface DistributedDoc { nsu: number; accessKey: string | null; type: string; xml: string }
+
+/**
+ * Distribuição de documentos do Ambiente de Dados Nacional: devolve, a partir de
+ * um NSU, os DF-e em que a empresa aparece (prestadora, tomadora ou
+ * intermediária). 404 (E2220) = nada novo.
+ */
+export class AdnClient {
+  private readonly http: AxiosInstance;
+
+  constructor(environment: SefinEnvironment, certificate: Pick<LoadedCertificate, 'privateKeyPem' | 'certificatePem'>, timeoutMs = 60_000) {
+    this.http = axios.create({
+      baseURL: adnBaseUrl(environment),
+      httpsAgent: new Agent({ key: certificate.privateKeyPem, cert: certificate.certificatePem, keepAlive: false }),
+      timeout: timeoutMs,
+      validateStatus: () => true,
+      headers: { Accept: 'application/json' },
+      transformResponse: [(data) => data],
+    });
+  }
+
+  /** Lote de documentos a partir do NSU (exclusivo do último lido). */
+  async fromNsu(nsu: number): Promise<{ docs: DistributedDoc[]; done: boolean; errors: SefinMessage[] }> {
+    let response;
+    try {
+      response = await this.http.get(`/DFe/${nsu}`, { params: { lote: true } });
+    } catch (error) {
+      throw new SefinTransportError(`Sem resposta da distribuição: ${(error as Error).message}`);
+    }
+    const parsed = parseSefinResponse(response.status, response.data);
+    const body = (parsed.raw ?? {}) as Record<string, unknown>;
+    if (response.status === 404 || parsed.errors.some((e) => ['E2220', 'E2230'].includes(e.code))) return { docs: [], done: true, errors: [] };
+    if (!parsed.ok) return { docs: [], done: true, errors: parsed.errors };
+    const lote = (Object.entries(body).find(([k]) => k.toLowerCase() === 'lotedfe')?.[1] ?? []) as Array<Record<string, unknown>>;
+    const get = (row: Record<string, unknown>, name: string) => Object.entries(row).find(([k]) => k.toLowerCase() === name.toLowerCase())?.[1];
+    const docs = lote.map((row) => ({
+      nsu: Number(get(row, 'NSU') ?? 0),
+      accessKey: get(row, 'ChaveAcesso') ? String(get(row, 'ChaveAcesso')) : null,
+      type: String(get(row, 'TipoDocumento') ?? ''),
+      xml: get(row, 'ArquivoXml') ? unpackXml(String(get(row, 'ArquivoXml'))) : '',
+    }));
+    return { docs, done: docs.length === 0, errors: [] };
+  }
+}
